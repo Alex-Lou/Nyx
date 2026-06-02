@@ -1,9 +1,9 @@
 //! Couche moteur web : configuration WebKit, filtrage de navigation
-//! (NyxWatch + routage des pages internes `nyx://`), résolution de la barre
+//! (NyxGuard + routage des pages internes `nyx://`), résolution de la barre
 //! d'adresse. Le rendu HTML appartient à `crate::pages`.
 
 pub mod darkmode;
-pub mod nyxwatch;
+pub mod nyxguard;
 
 use std::sync::Arc;
 
@@ -16,9 +16,9 @@ use webkit2gtk::{
 use crate::pages::{self, bookmarks as bookmarks_page, newtab, settings as settings_page};
 use crate::state::bookmarks::Bookmarks;
 use crate::state::settings::{self, AppSettings, Settings};
-use nyxwatch::NyxWatch;
+use nyxguard::NyxGuard;
 
-pub fn configure(webview: &WebView, blocker: Arc<NyxWatch>, prefs: Settings, bm: Bookmarks) {
+pub fn configure(webview: &WebView, blocker: Arc<NyxGuard>, prefs: Settings, bm: Bookmarks) {
     apply_privacy_settings(webview);
     wire_policy_filter(webview, blocker, prefs, bm);
 }
@@ -32,7 +32,7 @@ fn apply_privacy_settings(webview: &WebView) {
     s.set_enable_smooth_scrolling(true);
 }
 
-fn wire_policy_filter(webview: &WebView, blocker: Arc<NyxWatch>, prefs: Settings, bm: Bookmarks) {
+fn wire_policy_filter(webview: &WebView, blocker: Arc<NyxGuard>, prefs: Settings, bm: Bookmarks) {
     webview.connect_decide_policy(move |wv, decision, dtype| {
         if dtype != PolicyDecisionType::NavigationAction {
             return false;
@@ -59,7 +59,7 @@ fn wire_policy_filter(webview: &WebView, blocker: Arc<NyxWatch>, prefs: Settings
 ///
 /// Le `load_html` est **différé** via `idle_add_local_once` : charger de façon
 /// ré-entrante depuis `decide-policy` laisse parfois la WebView blanche.
-fn route_internal(wv: &WebView, url: &str, prefs: &Settings, blocker: &Arc<NyxWatch>, bm: &Bookmarks) {
+fn route_internal(wv: &WebView, url: &str, prefs: &Settings, blocker: &Arc<NyxGuard>, bm: &Bookmarks) {
     let rest = url.trim_start_matches("nyx://");
 
     // Auto-save : la page paramètres POST chaque changement dans une iframe

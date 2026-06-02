@@ -1,15 +1,15 @@
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-/// NyxWatch — la veille de Nyx : bouclier pub / trackers / connexions tierces.
+/// NyxGuard — le bouclier de Nyx : pub / trackers / connexions tierces.
 /// (Sprint 3 : passage prévu sur la crate `adblock` de Brave + EasyList.)
 ///
 /// Deux jeux de règles indépendants, chacun avec son interrupteur atomique
 /// (le toggle des réglages agit immédiatement sur tous les onglets, qui
-/// partagent le même `Arc<NyxWatch>`) :
+/// partagent le même `Arc<NyxGuard>`) :
 ///   • pub/trackers — activé par défaut
 ///   • connexions tierces (Google/Meta/Apple… auth & SDK) — option opt-in
-pub struct NyxWatch {
+pub struct NyxGuard {
     ads_on:      AtomicBool,
     accounts_on: AtomicBool,
     ad_domains:  HashSet<String>,
@@ -17,7 +17,7 @@ pub struct NyxWatch {
     accounts:    HashSet<String>,
 }
 
-impl NyxWatch {
+impl NyxGuard {
     pub fn new() -> Self {
         let (mut ad_domains, mut ad_paths) = (HashSet::new(), Vec::new());
         for rule in AD_RULES {
@@ -52,7 +52,7 @@ impl NyxWatch {
     }
 }
 
-impl Default for NyxWatch {
+impl Default for NyxGuard {
     fn default() -> Self { Self::new() }
 }
 
@@ -97,7 +97,7 @@ const ACCOUNT_DOMAINS: &[&str] = &[
 #[cfg(test)]
 mod tests {
     use super::*;
-    fn b() -> NyxWatch { NyxWatch::new() }
+    fn b() -> NyxGuard { NyxGuard::new() }
 
     #[test] fn blocks_exact()      { assert!(b().should_block("https://doubleclick.net/ad.js")); }
     #[test] fn blocks_subdomain()  { assert!(b().should_block("https://ad.doubleclick.net/x")); }

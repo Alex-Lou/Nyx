@@ -12,7 +12,7 @@ use webkit2gtk::{
 use crate::pages::{self, newtab, settings as settings_page};
 use crate::state::bookmarks::Bookmarks;
 use crate::state::settings::Settings;
-use crate::web::{self, darkmode, nyxwatch::NyxWatch};
+use crate::web::{self, darkmode, nyxguard::NyxGuard};
 
 mod favicon;
 mod label;
@@ -24,7 +24,7 @@ type WebViewHook = Rc<RefCell<Box<dyn Fn(&WebView)>>>;
 #[derive(Clone)]
 pub struct TabBar {
     pub notebook:   Notebook,
-    blocker:        Arc<NyxWatch>,
+    blocker:        Arc<NyxGuard>,
     settings:       Settings,
     bookmarks:      Bookmarks,
     on_new_webview: WebViewHook,
@@ -32,7 +32,7 @@ pub struct TabBar {
 }
 
 impl TabBar {
-    pub fn new(blocker: Arc<NyxWatch>, settings: Settings, bm: Bookmarks) -> Self {
+    pub fn new(blocker: Arc<NyxGuard>, settings: Settings, bm: Bookmarks) -> Self {
         let notebook = Notebook::builder().scrollable(true).show_border(false).build();
         Self {
             notebook, blocker, settings, bookmarks: bm,

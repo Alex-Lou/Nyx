@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use crate::web::nyxwatch::NyxWatch;
+use crate::web::nyxguard::NyxGuard;
 
 pub type Settings = Rc<RefCell<AppSettings>>;
 
@@ -96,7 +96,7 @@ impl Language {
 
 /// Parse `key=value&…` et applique aux réglages + au bloqueur. Retourne `true`
 /// si la query n'était pas vide.
-pub fn apply_from_url(url: &str, settings: &Settings, blocker: &NyxWatch) -> bool {
+pub fn apply_from_url(url: &str, settings: &Settings, blocker: &NyxGuard) -> bool {
     let query = url.split_once('?').map(|x| x.1).unwrap_or("");
     if query.is_empty() {
         return false;
@@ -142,9 +142,9 @@ fn urldecode(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::web::nyxwatch::NyxWatch;
+    use crate::web::nyxguard::NyxGuard;
 
-    fn setup() -> (Settings, NyxWatch) { (new(), NyxWatch::new()) }
+    fn setup() -> (Settings, NyxGuard) { (new(), NyxGuard::new()) }
 
     #[test]
     fn apply_roundtrip() {
