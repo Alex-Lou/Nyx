@@ -18,7 +18,7 @@ fn apply_settings(webview: &WebView) {
     let s = WebViewExt::settings(webview).expect("WebView sans Settings");
 
     // Privacy & anti-tracking
-    s.set_enable_hyperlink_auditing(false);
+    // set_enable_hyperlink_auditing: deprecated depuis WebKit 4.1, no-op.
     s.set_enable_media_stream(false);           // WebRTC leak prevention
 
     // Sécurité
