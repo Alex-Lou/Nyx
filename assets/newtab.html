@@ -7,64 +7,47 @@
 <title>Nyx</title>
 {{TOKENS}}
 <style>
-:root {
-    --text:   #e8ecff;             /* bespoke : plus clair que --nyx-text */
-    --muted:  var(--nyx-dim);
-    --aurora: var(--nyx-aurora);
-    --glass:  rgba(10, 10, 26, 0.42);
-    --glass-b:rgba(120, 130, 200, 0.12);
-}
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-html, body { height: 100%; background: #06060f; overflow: hidden; }
+html, body { height: 100%; background: #05070b; overflow: hidden; }
 body {
-    color: var(--text);
+    color: var(--nyx-text, #dde4ff);
     font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
     -webkit-font-smoothing: antialiased;
-    display: flex; flex-direction: column; align-items: center; justify-content: center;
-    gap: 38px;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 38px;
 }
 
-.glow { position: fixed; inset: 0; z-index: 0; pointer-events: none; transition: background 1.4s ease; }
-.orb { position: fixed; border-radius: 50%; z-index: 0; pointer-events: none; filter: blur(110px); transition: background 1.4s ease; }
-.orb-1 { width: 540px; height: 540px; top: -14%; left: -10%; animation: float 20s ease-in-out infinite alternate; }
-.orb-2 { width: 400px; height: 400px; bottom: -10%; right: -8%; animation: float 26s ease-in-out infinite alternate -10s; }
-@keyframes float {
-    0%{transform:translate(0,0) scale(1)} 50%{transform:translate(30px,-24px) scale(1.06)} 100%{transform:translate(-18px,14px) scale(.96)}
-}
+/* Le shader plein écran = le fond animé */
+#fx { position: fixed; inset: 0; z-index: 0; width: 100%; height: 100%; display: block; }
 
-#fx { position: fixed; inset: 0; z-index: 1; }   /* interactif → reçoit la souris */
-
+/* Voile de profondeur + lisibilité du centre */
 .vignette {
-    position: fixed; inset: 0; z-index: 3; pointer-events: none;
-    background: radial-gradient(ellipse 78% 68% at 50% 48%, transparent 52%, rgba(6,6,15,.5) 100%);
+    position: fixed; inset: 0; z-index: 1; pointer-events: none;
+    background: radial-gradient(ellipse 70% 60% at 50% 48%, transparent 45%, rgba(5,7,11,.55) 100%);
 }
 
 main {
-    position: relative; z-index: 10; display: flex; flex-direction: column; align-items: center; gap: 36px;
+    position: relative; z-index: 10; display: flex; flex-direction: column; align-items: center; gap: 34px;
     animation: rise .8s cubic-bezier(.22,1,.36,1) both; pointer-events: none;
 }
 main * { pointer-events: auto; }
-@keyframes rise { from{opacity:0;transform:translateY(18px)} to{opacity:1;transform:translateY(0)} }
+@keyframes rise { from{opacity:0;transform:translateY(16px)} to{opacity:1;transform:translateY(0)} }
 
 .brand { display: flex; flex-direction: column; align-items: center; gap: 12px; }
 .wordmark {
-    font-size: clamp(70px, 12vw, 132px); font-weight: 200; letter-spacing: .2em; line-height: 1;
-    user-select: none; background: linear-gradient(135deg,#fff 0%,#c8d6ff 45%,#9d6ef7 100%);
+    font-size: clamp(70px, 12vw, 132px); font-weight: 200; letter-spacing: .2em; line-height: 1; user-select: none;
+    background: linear-gradient(135deg,#fff 0%,var(--nyx-star,#c8d6ff) 45%,var(--nyx-nebula,#9d6ef7) 100%);
     -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
-    filter: drop-shadow(0 2px 44px rgba(157,110,247,.28)); animation: breathe 7s ease-in-out infinite;
+    filter: drop-shadow(0 2px 44px rgba(157,110,247,.26)); animation: breathe 7s ease-in-out infinite;
     transition: letter-spacing .6s cubic-bezier(.22,1,.36,1);
 }
 .wordmark:hover { letter-spacing: .28em; }
-@keyframes breathe {
-    0%,100%{filter:drop-shadow(0 2px 44px rgba(157,110,247,.24))}
-    50%{filter:drop-shadow(0 2px 66px rgba(157,110,247,.42))}
-}
-.tagline { font-size: 12px; letter-spacing: .16em; text-transform: uppercase; color: var(--muted); opacity: .65; user-select: none; }
+@keyframes breathe { 0%,100%{filter:drop-shadow(0 2px 44px rgba(157,110,247,.22))} 50%{filter:drop-shadow(0 2px 66px rgba(157,110,247,.4))} }
+.tagline { font-size: 12px; letter-spacing: .16em; text-transform: uppercase; color: var(--nyx-dim,#7078a8); opacity: .65; user-select: none; }
 
 .search {
     display: flex; align-items: center; width: min(560px, 86vw);
-    background: var(--glass); backdrop-filter: blur(26px) saturate(170%); -webkit-backdrop-filter: blur(26px) saturate(170%);
-    border: 1px solid var(--glass-b); border-radius: 18px; padding: 15px 20px;
+    background: rgba(8,10,18,.5); backdrop-filter: blur(26px) saturate(170%); -webkit-backdrop-filter: blur(26px) saturate(170%);
+    border: 1px solid rgba(120,130,200,.12); border-radius: 18px; padding: 15px 20px;
     box-shadow: inset 0 1px 0 rgba(255,255,255,.05), 0 10px 40px rgba(0,0,0,.45);
     transition: border-color .3s, box-shadow .3s, transform .3s;
 }
@@ -75,36 +58,31 @@ main * { pointer-events: auto; }
 }
 .search svg { width: 17px; height: 17px; margin-right: 12px; opacity: .5; flex-shrink: 0; }
 .search input {
-    flex: 1; background: none; border: 0; outline: 0; color: var(--text);
-    font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 14.5px; caret-color: var(--aurora);
+    flex: 1; background: none; border: 0; outline: 0; color: var(--nyx-text,#dde4ff);
+    font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 14.5px; caret-color: var(--nyx-aurora,#4af2c8);
 }
 .search input::placeholder { color: rgba(112,120,168,.55); }
 
 .ambiance {
     position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%); z-index: 20;
-    display: flex; gap: 18px; padding: 9px 18px; background: rgba(10,10,26,.4);
+    display: flex; gap: 18px; padding: 9px 18px; background: rgba(8,10,18,.42);
     backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
-    border: 1px solid var(--glass-b); border-radius: 28px;
+    border: 1px solid rgba(120,130,200,.12); border-radius: 28px;
 }
 .ambiance button {
     background: none; border: 0; cursor: pointer; font-family: inherit; font-size: 11px; letter-spacing: .06em;
-    color: var(--muted); opacity: .6; display: flex; align-items: center; gap: 7px; transition: color .25s, opacity .25s;
+    color: var(--nyx-dim,#7078a8); opacity: .6; display: flex; align-items: center; gap: 7px; transition: color .25s, opacity .25s;
 }
 .ambiance button::before { content:''; width:7px; height:7px; border-radius:50%; background:currentColor; box-shadow:0 0 8px currentColor; transition:transform .25s; }
 .ambiance button:hover { opacity: .9; }
-.ambiance button.active { opacity: 1; color: var(--aurora); }
+.ambiance button.active { opacity: 1; color: var(--nyx-aurora,#4af2c8); }
 .ambiance button.active::before { transform: scale(1.5); }
 
 .hint { position: fixed; top: 24px; right: 26px; z-index: 20; color: rgba(112,120,168,.5); font-size: 11px; user-select: none; }
 .hint kbd { background: rgba(255,255,255,.04); border: 1px solid rgba(120,130,200,.16); border-radius: 5px; color: rgba(200,214,255,.7); font-family: 'JetBrains Mono',monospace; font-size: 10px; padding: 1px 6px; margin: 0 1px; }
-
-@media (prefers-reduced-motion: reduce) { .orb, .wordmark { animation: none; } }
 </style>
 </head>
 <body>
-<div class="glow" id="glow" aria-hidden="true"></div>
-<div class="orb orb-1" id="orb1" aria-hidden="true"></div>
-<div class="orb orb-2" id="orb2" aria-hidden="true"></div>
 <canvas id="fx" aria-hidden="true"></canvas>
 <div class="vignette" aria-hidden="true"></div>
 
@@ -131,269 +109,159 @@ main * { pointer-events: auto; }
 (function () {
     'use strict';
     const canvas = document.getElementById('fx');
-    const ctx = canvas.getContext('2d', { alpha: true });
     const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
-    const glowEl = document.getElementById('glow');
-    const orb1 = document.getElementById('orb1'), orb2 = document.getElementById('orb2');
 
-    // ── Ambiances : chacune a sa palette, sa densité et SON mouvement ──────
-    const MODES = {
-        nebula: {
-            count: 150, palette: ['#c8d6ff', '#9d6ef7', '#ff7eb3'], link: '157,110,247', linkMode: 'wisp',
-            glowSize: 5.5,
-            glow: 'radial-gradient(ellipse 70% 55% at 24% 18%, rgba(157,110,247,.13), transparent 60%),radial-gradient(ellipse 60% 50% at 80% 78%, rgba(255,126,179,.06), transparent 55%)',
-            orbs: ['rgba(157,110,247,.12)', 'rgba(255,126,179,.06)'],
-        },
-        aurora: {
-            count: 175, palette: ['#c8d6ff', '#4af2c8', '#7b8cde'], link: '74,242,200', linkMode: 'none',
-            glowSize: 4.5,
-            glow: 'radial-gradient(ellipse 80% 70% at 50% 120%, rgba(74,242,200,.12), transparent 62%),radial-gradient(ellipse 50% 40% at 18% 10%, rgba(123,140,222,.07), transparent 55%)',
-            orbs: ['rgba(74,242,200,.10)', 'rgba(123,140,222,.07)'],
-        },
-        sky: {
-            count: 120, palette: ['#ffffff', '#c8d6ff', '#7b8cde'], link: '123,140,222', linkMode: 'constellation',
-            glowSize: 4,
-            glow: 'radial-gradient(ellipse 70% 55% at 50% 6%, rgba(123,140,222,.10), transparent 62%),radial-gradient(ellipse 60% 50% at 80% 80%, rgba(200,214,255,.05), transparent 55%)',
-            orbs: ['rgba(123,140,222,.10)', 'rgba(200,214,255,.05)'],
-        },
+    // ── 3 ambiances RÉELLEMENT distinctes : palette + flux différents ──────
+    const AMB = {
+        nebula: { speed: .075, warp: 4.2, vbias: .0, pal: [[.02,.027,.043],[.10,.04,.13],[.30,.10,.35],[.55,.20,.45]], glow: [.62,.43,.97] },
+        aurora: { speed: .060, warp: 3.0, vbias: .7, pal: [[.02,.03,.05],[.03,.12,.14],[.06,.26,.24],[.16,.30,.20]],  glow: [.29,.95,.78] },
+        sky:    { speed: .035, warp: 2.3, vbias: .0, pal: [[.02,.03,.06],[.04,.07,.16],[.10,.16,.30],[.32,.42,.62]],  glow: [.78,.85,1.0] },
     };
-
-    let mode = 'nebula', M = MODES.nebula, sprites = {};
-    let DPR, W, H, parts = [], ripples = [], shoot = null, shootIn = 220;
-    let t = 0, last = 0;
-    let mx = -1e4, my = -1e4;
-
-    // ── Perf adaptative ────────────────────────────────────────────────────
-    // Qualité initiale selon les cœurs CPU, puis ajustée en continu par le FPS
-    // mesuré : le navigateur détecte la puissance dispo et s'adapte. Sur une
-    // machine faible on réduit densité + connexions → jamais de saccade.
-    const CORES = navigator.hardwareConcurrency || 4;
-    let quality = Math.max(0.4, Math.min(1, CORES / 8));
-    let fpsFrames = 0, fpsTimer = 0;
-
-    const rnd = (a, b) => a + Math.random() * (b - a);
-    const hex2rgb = h => { const n = parseInt(h.slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
-
-    function buildSprites() {
-        sprites = {};
-        for (const hex of M.palette) {
-            const s = document.createElement('canvas'); s.width = s.height = 64;
-            const g = s.getContext('2d'); const [r, gg, b] = hex2rgb(hex);
-            const grd = g.createRadialGradient(32, 32, 0, 32, 32, 32);
-            grd.addColorStop(0, `rgba(${r},${gg},${b},1)`);
-            grd.addColorStop(.25, `rgba(${r},${gg},${b},.55)`);
-            grd.addColorStop(1, `rgba(${r},${gg},${b},0)`);
-            g.fillStyle = grd; g.fillRect(0, 0, 64, 64);
-            sprites[hex] = s;
-        }
-    }
-
-    function resize() {
-        DPR = Math.min(window.devicePixelRatio || 1, 2);
-        W = canvas.width = Math.floor(innerWidth * DPR);
-        H = canvas.height = Math.floor(innerHeight * DPR);
-        canvas.style.width = innerWidth + 'px'; canvas.style.height = innerHeight + 'px';
-    }
-
-    function makeParticle() {
-        const hex = M.palette[(Math.random() * M.palette.length) | 0];
-        const bandW = W / 7, band = (Math.random() * 7) | 0;
-        return {
-            x: Math.random() * W, y: Math.random() * H,
-            vx: 0, vy: 0,
-            z: rnd(0.35, 1),
-            r: rnd(0.8, 2.2),
-            tw: Math.random() * 6.28, tws: rnd(0.5, 1.6),
-            hex,
-            homeX: band * bandW + bandW / 2 + rnd(-bandW / 5, bandW / 5),
-            amp: rnd(50, 120), phase: Math.random() * 6.28,
-            big: Math.random() < 0.18,                // étoiles « brillantes » (ciel)
-        };
-    }
-
-    // Ajuste la densité à la qualité courante SANS réinitialiser les positions
-    // existantes → aucun « saut » quand le gouverneur FPS change la qualité.
-    function setDensity() {
-        const target = Math.round(M.count * quality);
-        if (parts.length > target) parts.length = target;
-        else while (parts.length < target) parts.push(makeParticle());
-    }
-
-    function seed() { parts = []; setDensity(); }
+    let mode = 'nebula', A = AMB.nebula;
 
     function setMode(name) {
-        mode = name; M = MODES[name] || MODES.nebula;
-        buildSprites(); seed();
-        glowEl.style.background = M.glow;
-        orb1.style.background = M.orbs[0]; orb2.style.background = M.orbs[1];
+        A = AMB[name] || AMB.nebula; mode = name;
         document.querySelectorAll('.ambiance button').forEach(b => b.classList.toggle('active', b.dataset.mode === name));
     }
-
-    // ── Mouvements par ambiance ────────────────────────────────────────────
-    function stepNebula(p, k) {
-        // Champ de flux tourbillonnant (curl approx via sinus croisés).
-        const a = Math.sin(p.x * 0.0016 + t * 0.6) + Math.cos(p.y * 0.0018 - t * 0.5);
-        const ang = a * Math.PI;
-        p.vx += Math.cos(ang) * 0.05 * DPR * k;
-        p.vy += Math.sin(ang) * 0.05 * DPR * k;
-        p.vx *= 0.94; p.vy *= 0.94;
-        p.x += p.vx; p.y += p.vy;
-    }
-    function stepAurora(p, k) {
-        // Rideaux verticaux : montée lente + oscillation horizontale en vague.
-        p.y -= (0.3 + 0.5 * p.z) * DPR * k;
-        const target = p.homeX + Math.sin(p.y * 0.012 + t * 1.3 + p.phase) * p.amp * DPR;
-        p.x += (target - p.x) * 0.05 * k + p.vx;
-        p.vx *= 0.9;
-        if (p.y < -20) { p.y = H + 20; }
-    }
-    function stepSky(p, k) {
-        // Étoiles : parallaxe lente, scintillement marqué.
-        p.x += (p.vx + 0.04 * p.z * DPR) * k; p.y += p.vy * k;
-        p.vx *= 0.92; p.vy *= 0.92;
-    }
-    const STEP = { nebula: stepNebula, aurora: stepAurora, sky: stepSky };
-
-    // ── Interaction souris : répulsion douce ───────────────────────────────
-    function pushFromMouse(p, k) {
-        const dx = p.x - mx, dy = p.y - my, d2 = dx * dx + dy * dy;
-        const R = 150 * DPR;
-        if (d2 < R * R && d2 > 1) {
-            const d = Math.sqrt(d2), f = (1 - d / R) * 0.8 * DPR * k;
-            p.vx += (dx / d) * f; p.vy += (dy / d) * f;
-        }
-    }
-    // ── Ondes au clic ──────────────────────────────────────────────────────
-    function pushFromRipples(p, k) {
-        for (const r of ripples) {
-            const dx = p.x - r.x, dy = p.y - r.y, d = Math.hypot(dx, dy) || 1;
-            const ring = r.age * 7 * DPR;
-            if (Math.abs(d - ring) < 40 * DPR) {
-                const f = (1 - r.age / r.life) * 1.2 * DPR * k;
-                p.vx += (dx / d) * f; p.vy += (dy / d) * f;
-            }
-        }
-    }
-
-    function wrap(p) {
-        if (p.x < -20) p.x = W + 20; else if (p.x > W + 20) p.x = -20;
-        if (p.y < -20) p.y = H + 20; else if (p.y > H + 20) p.y = -20;
-    }
-
-    function drawLinks() {
-        // Connexions O(N²) : coupées en premier quand la machine peine.
-        if (M.linkMode === 'none' || quality < 0.6) return;
-        const constellation = M.linkMode === 'constellation';
-        const max = (constellation ? 150 : 96) * DPR;
-        const maxSq = max * max, baseA = constellation ? 0.22 : 0.10;
-        ctx.lineWidth = DPR * (constellation ? 0.7 : 0.5);
-        for (let i = 0; i < parts.length; i++) {
-            const a = parts[i];
-            if (constellation && !a.big) continue;     // relie surtout les étoiles vives
-            for (let j = i + 1; j < parts.length; j++) {
-                const b = parts[j];
-                if (constellation && !b.big) continue;
-                const dx = a.x - b.x, dy = a.y - b.y, d2 = dx * dx + dy * dy;
-                if (d2 < maxSq) {
-                    ctx.strokeStyle = `rgba(${M.link},${(1 - d2 / maxSq) * baseA})`;
-                    ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
-                }
-            }
-        }
-    }
-
-    function drawShoot(k) {
-        if (mode !== 'sky') return;
-        if (!shoot) {
-            shootIn -= k;
-            if (shootIn <= 0) {
-                shootIn = rnd(180, 460);
-                shoot = { x: rnd(W * 0.1, W * 0.7), y: rnd(0, H * 0.4), vx: rnd(6, 10) * DPR, vy: rnd(3, 5) * DPR, life: 1 };
-            }
-            return;
-        }
-        shoot.x += shoot.vx * k; shoot.y += shoot.vy * k; shoot.life -= 0.012 * k;
-        if (shoot.life <= 0 || shoot.x > W || shoot.y > H) { shoot = null; return; }
-        const tx = shoot.x - shoot.vx * 9, ty = shoot.y - shoot.vy * 9;
-        const g = ctx.createLinearGradient(shoot.x, shoot.y, tx, ty);
-        g.addColorStop(0, `rgba(220,230,255,${0.85 * shoot.life})`);
-        g.addColorStop(1, 'rgba(220,230,255,0)');
-        ctx.strokeStyle = g; ctx.lineWidth = 2 * DPR; ctx.lineCap = 'round';
-        ctx.beginPath(); ctx.moveTo(shoot.x, shoot.y); ctx.lineTo(tx, ty); ctx.stroke();
-    }
-
-    function frame(now) {
-        if (!last) { last = now; requestAnimationFrame(frame); return; }
-        const dt = now - last;
-        const k = Math.min(2, Math.max(0.4, dt / 16.67)) || 1;
-        last = now; t += 0.006 * k;
-
-        // Gouverneur FPS : échantillonne ~1 s et ajuste la qualité (re-seed).
-        fpsFrames++; fpsTimer += dt;
-        if (fpsTimer >= 1000) {
-            const fps = fpsFrames * 1000 / fpsTimer;
-            fpsFrames = 0; fpsTimer = 0;
-            const nq = fps < 45 ? Math.max(0.3, quality - 0.15)
-                     : fps > 57 ? Math.min(1, quality + 0.1) : quality;
-            if (Math.abs(nq - quality) > 0.001) { quality = nq; setDensity(); }
-        }
-
-        ctx.clearRect(0, 0, W, H);
-
-        const step = STEP[mode];
-        for (const p of parts) {
-            step(p, k);
-            pushFromMouse(p, k);
-            if (ripples.length) pushFromRipples(p, k);
-            if (mode !== 'aurora') wrap(p);
-        }
-
-        drawLinks();
-
-        ctx.globalCompositeOperation = 'lighter';
-        for (const p of parts) {
-            const tw = 0.5 + 0.5 * Math.sin(p.tw + t * p.tws * 4);
-            const mul = p.big ? M.glowSize * 1.5 : M.glowSize;
-            const r = p.r * p.z * DPR * mul * (0.7 + tw * 0.5);
-            ctx.globalAlpha = 0.3 + 0.55 * tw;
-            ctx.drawImage(sprites[p.hex], p.x - r, p.y - r, r * 2, r * 2);
-        }
-        ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
-
-        for (const r of ripples) {
-            r.age += k;
-            const ring = r.age * 7 * DPR, a = Math.max(0, 1 - r.age / r.life);
-            ctx.strokeStyle = `rgba(${M.link},${a * 0.4})`; ctx.lineWidth = 1.5 * DPR;
-            ctx.beginPath(); ctx.arc(r.x, r.y, ring, 0, 6.2832); ctx.stroke();
-        }
-        ripples = ripples.filter(r => r.age < r.life);
-
-        drawShoot(k);
-        requestAnimationFrame(frame);
-    }
-
-    // ── Entrées ────────────────────────────────────────────────────────────
-    addEventListener('resize', () => { resize(); seed(); });
-    canvas.addEventListener('pointermove', e => { mx = e.clientX * DPR; my = e.clientY * DPR; });
-    canvas.addEventListener('pointerleave', () => { mx = my = -1e4; });
-    canvas.addEventListener('pointerdown', e => {
-        ripples.push({ x: e.clientX * DPR, y: e.clientY * DPR, age: 0, life: 60 });
-        if (ripples.length > 5) ripples.shift();
-    });
     document.querySelectorAll('.ambiance button').forEach(b => b.addEventListener('click', () => setMode(b.dataset.mode)));
-    // Évite un saut de dt (sursaut de l'anim) au retour sur l'onglet.
-    document.addEventListener('visibilitychange', () => { if (!document.hidden) last = performance.now(); });
 
-    // ── Démarrage ──────────────────────────────────────────────────────────
-    resize(); setMode('nebula');
-    if (reduce) {
-        ctx.globalCompositeOperation = 'lighter';
-        for (const p of parts) {
-            const r = p.r * p.z * DPR * M.glowSize;
-            ctx.globalAlpha = 0.6; ctx.drawImage(sprites[p.hex], p.x - r, p.y - r, r * 2, r * 2);
+    let mx = .5, my = .5;
+    addEventListener('pointermove', e => { mx = e.clientX / innerWidth; my = 1 - e.clientY / innerHeight; });
+
+    // ── Tente WebGL ; sinon fallback Canvas-2D ─────────────────────────────
+    const gl = canvas.getContext('webgl', { alpha: false, antialias: false, depth: false })
+            || canvas.getContext('experimental-webgl', { alpha: false });
+
+    let GLU = null;
+    if (gl && initGL()) { runGL(); } else { runCanvas2D(); }
+
+    // ══════════════════════════ WebGL (fluide premium) ════════════════════
+    function initGL() {
+        try {
+            const vs = 'attribute vec2 a;void main(){gl_Position=vec4(a,0.,1.);}';
+            const fs = `precision highp float;
+uniform vec2 u_res;uniform float u_time;uniform vec2 u_mouse;
+uniform vec3 u_p0,u_p1,u_p2,u_p3,u_glow;uniform float u_warp,u_vbias,u_speed;
+float hash(vec2 p){p=fract(p*vec2(123.34,456.21));p+=dot(p,p+45.32);return fract(p.x*p.y);}
+float noise(vec2 p){vec2 i=floor(p),f=fract(p);vec2 u=f*f*(3.0-2.0*f);
+ return mix(mix(hash(i),hash(i+vec2(1.,0.)),u.x),mix(hash(i+vec2(0.,1.)),hash(i+vec2(1.,1.)),u.x),u.y);}
+float fbm(vec2 p){float v=0.,a=.5;for(int i=0;i<4;i++){v+=a*noise(p);p=p*2.0+vec2(1.7,9.2);a*=.5;}return v;}
+void main(){
+ vec2 uv=gl_FragCoord.xy/u_res;
+ vec2 p=uv*vec2(u_res.x/u_res.y,1.0)*2.4;
+ float t=u_time*u_speed;vec2 m=(u_mouse-0.5)*0.3;
+ vec2 q=vec2(fbm(p+vec2(0.,t)+m),fbm(p+vec2(5.2,1.3)-vec2(0.,t*(1.0+u_vbias))));
+ vec2 r=vec2(fbm(p+u_warp*q+vec2(1.7,9.2)+t*0.5),fbm(p+u_warp*q+vec2(8.3,2.8)-t*0.5));
+ float f=fbm(p+u_warp*r);
+ vec3 col=mix(u_p0,u_p1,smoothstep(0.0,0.6,f));
+ col=mix(col,u_p2,smoothstep(0.35,0.9,r.x));
+ col=mix(col,u_p3,smoothstep(0.55,1.0,q.y)*0.5);
+ col+=u_glow*pow(max(f,0.0),3.0)*0.07;
+ float d=distance(uv,vec2(0.5));
+ col*=mix(0.80,1.12,smoothstep(0.0,0.85,d));
+ col*=1.0-0.32*d*d;
+ col+=hash(uv*u_res+u_time)*0.02-0.01;
+ gl_FragColor=vec4(col,1.0);
+}`;
+            const prog = link(vs, fs);
+            if (!prog) return false;
+            gl.useProgram(prog);
+            const buf = gl.createBuffer();
+            gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+            const loc = gl.getAttribLocation(prog, 'a');
+            gl.enableVertexAttribArray(loc);
+            gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+            GLU = {
+                res: gl.getUniformLocation(prog, 'u_res'), time: gl.getUniformLocation(prog, 'u_time'),
+                mouse: gl.getUniformLocation(prog, 'u_mouse'),
+                p0: gl.getUniformLocation(prog, 'u_p0'), p1: gl.getUniformLocation(prog, 'u_p1'),
+                p2: gl.getUniformLocation(prog, 'u_p2'), p3: gl.getUniformLocation(prog, 'u_p3'),
+                glow: gl.getUniformLocation(prog, 'u_glow'),
+                warp: gl.getUniformLocation(prog, 'u_warp'), vbias: gl.getUniformLocation(prog, 'u_vbias'),
+                speed: gl.getUniformLocation(prog, 'u_speed'),
+            };
+            return true;
+        } catch (e) { return false; }
+    }
+
+    function link(vsrc, fsrc) {
+        const c = (type, src) => { const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+            return gl.getShaderParameter(s, gl.COMPILE_STATUS) ? s : null; };
+        const v = c(gl.VERTEX_SHADER, vsrc), f = c(gl.FRAGMENT_SHADER, fsrc);
+        if (!v || !f) return null;
+        const p = gl.createProgram(); gl.attachShader(p, v); gl.attachShader(p, f); gl.linkProgram(p);
+        return gl.getProgramParameter(p, gl.LINK_STATUS) ? p : null;
+    }
+
+    function pushUniforms(now) {
+        gl.uniform2f(GLU.res, canvas.width, canvas.height);
+        gl.uniform1f(GLU.time, now * 0.001);
+        gl.uniform2f(GLU.mouse, mx, my);
+        gl.uniform3fv(GLU.p0, A.pal[0]); gl.uniform3fv(GLU.p1, A.pal[1]);
+        gl.uniform3fv(GLU.p2, A.pal[2]); gl.uniform3fv(GLU.p3, A.pal[3]);
+        gl.uniform3fv(GLU.glow, A.glow);
+        gl.uniform1f(GLU.warp, A.warp); gl.uniform1f(GLU.vbias, A.vbias); gl.uniform1f(GLU.speed, A.speed);
+    }
+
+    function runGL() {
+        // Governor de RÉSOLUTION : sous rendu logiciel (WSL), on rend en basse
+        // résolution et le navigateur upscale → fluide même sans GPU.
+        let quality = 0.85, fpsFrames = 0, fpsTimer = 0, last = 0;
+        function sizeFor() {
+            const w = Math.max(2, Math.round(innerWidth * quality));
+            const h = Math.max(2, Math.round(innerHeight * quality));
+            if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; gl.viewport(0, 0, w, h); }
         }
-    } else {
-        requestAnimationFrame(frame);
+        function frame(now) {
+            if (!last) last = now;
+            const dt = now - last; last = now;
+            fpsFrames++; fpsTimer += dt;
+            if (fpsTimer >= 1000) {
+                const fps = fpsFrames * 1000 / fpsTimer; fpsFrames = 0; fpsTimer = 0;
+                quality = fps < 40 ? Math.max(0.4, quality - 0.12) : fps > 56 ? Math.min(1, quality + 0.08) : quality;
+            }
+            sizeFor();
+            pushUniforms(now);
+            gl.drawArrays(gl.TRIANGLES, 0, 3);
+            if (!document.hidden) requestAnimationFrame(frame); else setTimeout(() => requestAnimationFrame(frame), 250);
+        }
+        document.addEventListener('visibilitychange', () => { if (!document.hidden) last = 0; });
+        if (reduce) { sizeFor(); pushUniforms(12000); gl.drawArrays(gl.TRIANGLES, 0, 3); }
+        else requestAnimationFrame(frame);
+    }
+
+    // ══════════════════ Fallback Canvas-2D (léger, si pas de WebGL) ════════
+    function runCanvas2D() {
+        const ctx = canvas.getContext('2d');
+        let W, H, parts = [];
+        function resize() { W = canvas.width = innerWidth; H = canvas.height = innerHeight; }
+        function seed() { parts = []; const n = Math.min(90, (innerWidth * innerHeight / 18000) | 0);
+            for (let i = 0; i < n; i++) parts.push({ x: Math.random() * W, y: Math.random() * H,
+                z: .4 + Math.random() * .6, r: 1 + Math.random() * 2, tw: Math.random() * 6.28 }); }
+        addEventListener('resize', () => { resize(); seed(); });
+        resize(); seed();
+        let t = 0;
+        function frame() {
+            t += 0.005;
+            const g = ctx.createLinearGradient(0, 0, 0, H);
+            g.addColorStop(0, '#070a12'); g.addColorStop(1, '#05070b');
+            ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+            ctx.globalCompositeOperation = 'lighter';
+            const col = A.glow.map(c => (c * 255) | 0);
+            for (const p of parts) {
+                p.x += (0.1 + Math.sin(p.y * .004 + t) * .2) * p.z;
+                p.y += Math.cos(p.x * .003 + t) * .05;
+                if (p.x > W + 5) p.x = -5; if (p.x < -5) p.x = W + 5;
+                if (p.y > H + 5) p.y = -5; if (p.y < -5) p.y = H + 5;
+                const a = .25 + .35 * (0.5 + 0.5 * Math.sin(p.tw + t * 4));
+                ctx.fillStyle = `rgba(${col[0]},${col[1]},${col[2]},${a})`;
+                ctx.beginPath(); ctx.arc(p.x, p.y, p.r * p.z * 2, 0, 6.28); ctx.fill();
+            }
+            ctx.globalCompositeOperation = 'source-over';
+            if (!document.hidden) requestAnimationFrame(frame); else setTimeout(() => requestAnimationFrame(frame), 250);
+        }
+        if (reduce) frame(); else requestAnimationFrame(frame);
     }
 })();
 </script>
