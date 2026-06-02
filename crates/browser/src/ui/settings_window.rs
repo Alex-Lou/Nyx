@@ -14,7 +14,10 @@ use crate::web::{self, nyxguard::NyxGuard};
 /// le WM), non-bloquante pour continuer à naviguer. Héberge la page settings
 /// dans sa propre WebView — l'auto-save `nyx://apply` y fonctionne comme dans
 /// un onglet (même filtre de politique).
-pub fn build(parent: Option<&Window>, blocker: Arc<NyxGuard>, prefs: Settings, bm: Bookmarks) -> Window {
+pub fn build(
+    parent: Option<&Window>, blocker: Arc<NyxGuard>, prefs: Settings, bm: Bookmarks,
+    perms: nyx_core::permissions::PermissionStore,
+) -> Window {
     let win = Window::builder()
         .title("Paramètres — Nyx")
         .default_width(680)
@@ -32,7 +35,7 @@ pub fn build(parent: Option<&Window>, blocker: Arc<NyxGuard>, prefs: Settings, b
     }
 
     let wv = WebView::new();
-    web::configure(&wv, blocker, prefs.clone(), bm);
+    web::configure(&wv, blocker, prefs.clone(), bm, perms);
     wv.load_html(&settings_page::html(&prefs.borrow()), Some(&pages::assets_base_uri()));
     win.add(&wv);
 

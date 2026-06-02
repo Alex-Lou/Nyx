@@ -3,6 +3,7 @@
 //! (sécurité, URL, NyxGuard) vit dans `nyx-core`.
 
 pub mod darkmode;
+pub mod permissions;
 pub mod site_data;
 
 pub use nyx_core::nyxguard;
@@ -24,9 +25,13 @@ use security::{Page, Verdict};
 
 pub use nyx_core::url::resolve_input;
 
-pub fn configure(webview: &WebView, blocker: Arc<NyxGuard>, prefs: Settings, bm: Bookmarks) {
+pub fn configure(
+    webview: &WebView, blocker: Arc<NyxGuard>, prefs: Settings, bm: Bookmarks,
+    perms: nyx_core::permissions::PermissionStore,
+) {
     apply_privacy_settings(webview);
     wire_policy_filter(webview, blocker, prefs, bm);
+    permissions::wire(webview, perms);
 }
 
 fn apply_privacy_settings(webview: &WebView) {

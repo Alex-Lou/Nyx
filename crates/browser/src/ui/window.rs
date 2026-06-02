@@ -25,7 +25,10 @@ pub struct BrowserWindow {
 }
 
 impl BrowserWindow {
-    pub fn new(app: &Application, blocker: Arc<NyxGuard>, settings: Settings, bm: Bookmarks) -> Self {
+    pub fn new(
+        app: &Application, blocker: Arc<NyxGuard>, settings: Settings,
+        bm: Bookmarks, permissions: nyx_core::permissions::PermissionStore,
+    ) -> Self {
         let window = ApplicationWindow::builder()
             .application(app).title("Nyx")
             .default_width(1400).default_height(860)
@@ -43,7 +46,7 @@ impl BrowserWindow {
             .hexpand(true).build();
         url_bar.style_context().add_class("nyx-urlbar");
 
-        let tabs = TabBar::new(blocker, settings.clone(), bm.clone());
+        let tabs = TabBar::new(blocker, settings.clone(), bm.clone(), permissions);
         tabs.set_parent(&window);
         let nav_bar = navbar::build(&url_bar, &tabs, &settings, &bm);
 

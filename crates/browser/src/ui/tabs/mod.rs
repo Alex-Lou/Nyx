@@ -29,16 +29,20 @@ pub struct TabBar {
     blocker:        Arc<NyxGuard>,
     settings:       Settings,
     bookmarks:      Bookmarks,
+    permissions:    nyx_core::permissions::PermissionStore,
     on_new_webview: WebViewHook,
     settings_modal: Rc<RefCell<Option<Window>>>,
     parent:         Rc<RefCell<Option<WeakRef<Window>>>>,
 }
 
 impl TabBar {
-    pub fn new(blocker: Arc<NyxGuard>, settings: Settings, bm: Bookmarks) -> Self {
+    pub fn new(
+        blocker: Arc<NyxGuard>, settings: Settings, bm: Bookmarks,
+        permissions: nyx_core::permissions::PermissionStore,
+    ) -> Self {
         let notebook = Notebook::builder().scrollable(true).show_border(false).build();
         Self {
-            notebook, blocker, settings, bookmarks: bm,
+            notebook, blocker, settings, bookmarks: bm, permissions,
             on_new_webview: Rc::new(RefCell::new(Box::new(|_| {}))),
             settings_modal: Rc::new(RefCell::new(None)),
             parent:         Rc::new(RefCell::new(None)),
@@ -81,6 +85,7 @@ impl TabBar {
             self.blocker.clone(),
             self.settings.clone(),
             self.bookmarks.clone(),
+            self.permissions.clone(),
         );
         let slot = self.settings_modal.clone();
         modal.connect_destroy(move |_| { *slot.borrow_mut() = None; });
@@ -166,7 +171,8 @@ impl TabBar {
         };
         wv.set_vexpand(true);
         wv.set_hexpand(true);
-        web::configure(&wv, self.blocker.clone(), self.settings.clone(), self.bookmarks.clone());
+        web::configure(&wv, self.blocker.clone(), self.settings.clone(),
+                       self.bookmarks.clone(), self.permissions.clone());
 
         // Liens target=_blank / window.open → nouvel onglet.
         let tabs = self.clone();
