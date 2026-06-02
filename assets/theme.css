@@ -162,6 +162,18 @@ headerbar.nyx-headerbar button:hover {
     outline: none;
 }
 
+/* Domain risk : signalements visuels (logique dans nyx-core::domain_risk) */
+.nyx-urlbar.nyx-risk-suspicious {
+    border-color: alpha(@nyx_twilight, 0.45);
+    box-shadow: 0 0 0 1px alpha(@nyx_twilight, 0.18);
+}
+.nyx-urlbar.nyx-risk-dangerous {
+    border-color: #ff6b6b;
+    color: #ffd1d1;
+    box-shadow: 0 0 0 2px alpha(#ff6b6b, 0.28),
+                0 0 14px alpha(#ff6b6b, 0.20);
+}
+
 .nyx-urlbar selection {
     background-color: alpha(@nyx_aurora, 0.22);
     color: @nyx_star;

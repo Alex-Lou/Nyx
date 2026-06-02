@@ -11,6 +11,8 @@ use gtk::{
 };
 use webkit2gtk::{WebView, WebViewExt};
 
+use nyx_core::domain_risk::{self, Risk};
+
 use crate::state::bookmarks::Bookmarks;
 use crate::state::settings::{LastTab, Settings};
 use crate::ui::tabs::TabBar;
@@ -93,6 +95,35 @@ impl BrowserWindow {
 
 fn is_newtab(wv: &WebView) -> bool {
     wv.widget_name().as_str() == "nyx-newtab"
+}
+
+/// Pose une classe CSS + tooltip sur l'URL bar selon l'analyse de risque
+/// du domaine courant (homographes, IDN suspect…). UI seulement — la
+/// politique vit dans nyx-core::domain_risk.
+fn apply_risk_indicator(url_bar: &Entry, uri: &str) {
+    let ctx = url_bar.style_context();
+    ctx.remove_class("nyx-risk-suspicious");
+    ctx.remove_class("nyx-risk-dangerous");
+    url_bar.set_tooltip_text(None);
+
+    let Some(a) = domain_risk::analyze_url(uri) else { return };
+    match a.risk {
+        Risk::Safe => {}
+        Risk::Suspicious => {
+            ctx.add_class("nyx-risk-suspicious");
+            url_bar.set_tooltip_text(Some(&format!(
+                "Domaine international\n{} (ASCII : {})",
+                a.unicode_host, a.ascii_host
+            )));
+        }
+        Risk::Dangerous => {
+            ctx.add_class("nyx-risk-dangerous");
+            url_bar.set_tooltip_text(Some(&format!(
+                "⚠ Domaine suspect — imitation possible\n{} → {}",
+                a.unicode_host, a.ascii_host
+            )));
+        }
+    }
 }
 
 fn on_newtab(tabs: &TabBar) -> bool {
@@ -212,8 +243,7 @@ fn wire_webview_hooks(
         wv.connect_uri_notify(move |w| {
             let uri = w.uri().map(|u| u.to_string()).unwrap_or_default();
             ub2.set_text(&uri);
-            // On efface le tag newtab seulement à la navigation vers une URL externe.
-            // (file:// vise nos assets, on garde le tag.)
+            apply_risk_indicator(&ub2, &uri);
             if w.widget_name().as_str() == "nyx-newtab"
                 && (uri.starts_with("http://") || uri.starts_with("https://"))
             {
