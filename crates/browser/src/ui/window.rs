@@ -10,7 +10,7 @@ use crate::state::bookmarks::Bookmarks;
 use crate::state::settings::{LastTab, Settings};
 use crate::ui::tabs::TabBar;
 use crate::ui::{navbar, shortcuts};
-use crate::web::adblock::AdBlocker;
+use crate::web::nyxwatch::NyxWatch;
 
 pub struct BrowserWindow {
     pub window: ApplicationWindow,
@@ -18,7 +18,7 @@ pub struct BrowserWindow {
 }
 
 impl BrowserWindow {
-    pub fn new(app: &Application, blocker: Arc<AdBlocker>, settings: Settings, bm: Bookmarks) -> Self {
+    pub fn new(app: &Application, blocker: Arc<NyxWatch>, settings: Settings, bm: Bookmarks) -> Self {
         let window = ApplicationWindow::builder()
             .application(app).title("Nyx")
             .default_width(1400).default_height(860)
