@@ -147,7 +147,6 @@ impl BrowserWindow {
         }
 
         // ── Raccourcis clavier ──────────────────────────────────────────
-        // Ctrl+L, Ctrl+R, Ctrl+W ici ; Ctrl+T & Ctrl+Tab dans ticket 1.4.
         wire_shortcuts(&window, &tabs, &url_bar);
 
         Self { window, tabs, url_bar, progress }
@@ -201,6 +200,24 @@ fn wire_shortcuts(window: &ApplicationWindow, tabs: &TabBar, url_bar: &Entry) {
         let t = tabs.clone();
         accel.connect_accel_group(key::w.into_glib(), ctrl, flags, move |_, _, _, _| {
             t.close_current();
+            true
+        });
+    }
+
+    // Ctrl+T → nouvel onglet
+    {
+        let t = tabs.clone();
+        accel.connect_accel_group(key::t.into_glib(), ctrl, flags, move |_, _, _, _| {
+            t.open_new_tab();
+            true
+        });
+    }
+
+    // Ctrl+Tab → onglet suivant
+    {
+        let t = tabs.clone();
+        accel.connect_accel_group(key::Tab.into_glib(), ctrl, flags, move |_, _, _, _| {
+            t.next_tab();
             true
         });
     }
