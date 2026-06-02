@@ -1,0 +1,20 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>popup spam</title></head>
+<body style="font-family:system-ui;padding:24px;background:#1a0a0a;color:#fff">
+<!--
+  ATTAQUE  : window.open() en boucle.
+  ATTENDU  : setting `set_javascript_can_open_windows_automatically(false)`
+             bloque l'ouverture sauf gesture utilisateur explicite.
+-->
+<h1>popup spam</h1>
+<p>Cliquer "Auto" ne doit ouvrir aucun popup. Cliquer "Manuel" peut ouvrir
+   un onglet (gesture utilisateur).</p>
+<button id="auto">Auto (boucle JS)</button>
+<button id="man">Manuel (1 par clic)</button>
+<script>
+document.getElementById('auto').onclick = () => {
+  for (let i = 0; i < 5; i++) window.open('about:blank', '_blank');
+};
+document.getElementById('man').onclick  = () => window.open('about:blank', '_blank');
+</script>
+</body></html>

@@ -1,0 +1,24 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>redirect chain</title></head>
+<body style="font-family:system-ui;padding:24px;background:#1a0a0a;color:#fff">
+<!--
+  ATTAQUE  : enchaînement de redirections vers file://, nyx://apply, data:, javascript:
+             pour contourner la politique de navigation.
+  ATTENDU  : chaque cible bloquée par decide() — Verdict::Block ou BlockFileAccess.
+             nyx://apply est ApplySettings UNIQUEMENT depuis page interne.
+-->
+<h1>redirect chain</h1>
+<button id="f">→ file:///etc/passwd</button>
+<button id="a">→ nyx://apply?adblock=false</button>
+<button id="d">→ data:text/html,&lt;h1&gt;pwn&lt;/h1&gt;</button>
+<button id="j">→ javascript:alert(1)</button>
+<button id="i">→ nyx://internal</button>
+<script>
+const go = u => () => location.href = u;
+document.getElementById('f').onclick = go('file:///etc/passwd');
+document.getElementById('a').onclick = go('nyx://apply?adblock=false');
+document.getElementById('d').onclick = go('data:text/html,<h1>pwn</h1>');
+document.getElementById('j').onclick = go('javascript:alert(1)');
+document.getElementById('i').onclick = go('nyx://internal');
+</script>
+</body></html>

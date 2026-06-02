@@ -1,0 +1,24 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>file:// escape attempt</title></head>
+<body style="font-family:system-ui;padding:24px;background:#1a0a0a;color:#fff">
+<!--
+  ATTAQUE  : page web tente de naviguer ou charger un file:// local.
+  ATTENDU  : nyx-core::security::decide retourne BlockFileAccess.
+             Aucun de ces liens ne doit charger /etc/passwd ou équivalent.
+-->
+<h1>file:// escape</h1>
+<p>Si tu vois le contenu d'un fichier local en cliquant ces liens, Nyx a un bug.</p>
+<ul>
+  <li><a href="file:///etc/passwd">a) lien direct file:///etc/passwd</a></li>
+  <li><a href="file:///C:/Windows/System32/drivers/etc/hosts">b) lien Windows hosts</a></li>
+  <li><a href="file:///home/" target="_blank">c) lien file://home (nouvel onglet)</a></li>
+</ul>
+<button id="js">d) redirection JS</button>
+<button id="loc">e) location.href</button>
+<button id="op">f) window.open</button>
+<script>
+document.getElementById('js').onclick  = () => location = 'file:///etc/passwd';
+document.getElementById('loc').onclick = () => { location.href = 'file:///etc/passwd'; };
+document.getElementById('op').onclick  = () => window.open('file:///etc/passwd', '_blank');
+</script>
+</body></html>
