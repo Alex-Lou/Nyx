@@ -7,6 +7,8 @@
 
 use std::collections::HashSet;
 
+use crate::sec_log::{self, Level};
+
 /// Niveau de risque global d'un domaine.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum Risk {
@@ -71,6 +73,14 @@ pub fn analyze(host: &str) -> Analysis {
     } else {
         Risk::Suspicious  // IDN propre = à afficher en clair, pas à bloquer
     };
+
+    match risk {
+        Risk::Dangerous => sec_log::emit(Level::Warn,
+            &format!("suspicious IDN: {ascii} ({unicode})")),
+        Risk::Suspicious => sec_log::emit(Level::Warn,
+            &format!("IDN domain: {ascii} ({unicode})")),
+        Risk::Safe => {}
+    }
 
     Analysis {
         risk,

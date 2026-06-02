@@ -7,6 +7,7 @@
 //! candidat à devenir la crate `nyx-security`.)
 
 use crate::nyxguard::NyxGuard;
+use crate::sec_log::{self, Level};
 
 /// Ce que la couche moteur doit faire d'une navigation.
 #[derive(Debug, PartialEq, Eq)]
@@ -38,23 +39,27 @@ pub enum Page { Settings, Bookmarks, NewTab }
 pub fn decide(url: &str, page_internal: bool, guard: &NyxGuard) -> Verdict {
     if let Some(rest) = url.strip_prefix("nyx://") {
         if rest.starts_with("apply") {
-            return if page_internal { Verdict::ApplySettings } else { Verdict::Block };
+            return if page_internal { Verdict::ApplySettings } else {
+                sec_log::emit(Level::Block, &format!("nyx://apply from remote page: {}", sec_log::redact_url(url)));
+                Verdict::Block
+            };
         }
         if rest.starts_with("move") {
-            return if page_internal { Verdict::MoveBookmark } else { Verdict::Block };
+            return if page_internal { Verdict::MoveBookmark } else {
+                sec_log::emit(Level::Block, &format!("nyx://move from remote page: {}", sec_log::redact_url(url)));
+                Verdict::Block
+            };
         }
         if rest.starts_with("settings")  { return Verdict::Load(Page::Settings); }
         if rest.starts_with("bookmarks") { return Verdict::Load(Page::Bookmarks); }
         return Verdict::Load(Page::NewTab);
     }
-    // Toute navigation vers file:// est bloquée. Les pages internes Nyx
-    // (newtab/settings/bookmarks) chargent leurs assets via `load_html(base_uri)`
-    // → les sub-resources passent par ResourceLoad, pas NavigationAction, donc
-    // ce bloc ne casse rien. Une page web ne peut JAMAIS atteindre file://.
     if url.starts_with("file://") {
+        sec_log::emit(Level::Block, &format!("file:// navigation: {}", sec_log::redact_url(url)));
         return Verdict::BlockFileAccess;
     }
     if guard.should_block(url) {
+        sec_log::emit(Level::Block, &format!("ad/tracker: {}", sec_log::redact_url(url)));
         return Verdict::Block;
     }
     Verdict::Allow
