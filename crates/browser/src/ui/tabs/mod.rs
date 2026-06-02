@@ -21,6 +21,14 @@ mod label;
 
 type WebViewHook = Rc<RefCell<Box<dyn Fn(&WebView)>>>;
 
+/// Le sandbox WebKit (bubblewrap) segfault sous WSL. On le détecte via
+/// `/proc/version` (« microsoft ») pour ne l'activer que sur un vrai Linux.
+fn sandbox_supported() -> bool {
+    std::fs::read_to_string("/proc/version")
+        .map(|v| !v.to_lowercase().contains("microsoft"))
+        .unwrap_or(true)
+}
+
 /// Gestion des onglets. `Clone` est cheap (champs ref-comptés) → les closures
 /// GTK capturent une `TabBar` clonée sans coût mémoire significatif.
 #[derive(Clone)]
@@ -136,7 +144,11 @@ impl TabBar {
                     WebContext::new()
                 };
                 // SÉCURITÉ : bac à sable des processus web (avant le 1er WebView).
-                ctx.set_sandbox_enabled(true);
+                // bubblewrap segfault sous WSL (pas de bus-proxy) → actif
+                // partout SAUF là. Sur un vrai Linux, le sandbox reste ON.
+                if sandbox_supported() {
+                    ctx.set_sandbox_enabled(true);
+                }
 
                 // Mode sombre forcé : injecté via un UserContentManager dédié.
                 let ucm = UserContentManager::new();
