@@ -37,11 +37,13 @@ main * { pointer-events: auto; }
     font-size: clamp(70px, 12vw, 132px); font-weight: 200; letter-spacing: .2em; line-height: 1; user-select: none;
     background: linear-gradient(135deg,#fff 0%,var(--nyx-star,#c8d6ff) 45%,var(--nyx-nebula,#9d6ef7) 100%);
     -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
-    filter: drop-shadow(0 2px 44px rgba(157,110,247,.26)); animation: breathe 7s ease-in-out infinite;
+    /* --nyx-shine 0..1 piloté par JS (proximité curseur). Halo qui s'épaissit + glow froid additionnel. */
+    filter:
+      drop-shadow(0 2px calc(44px + var(--nyx-shine, 0) * 30px) rgba(157,110,247, calc(.22 + var(--nyx-shine, 0) * .42)))
+      drop-shadow(0 0  calc(var(--nyx-shine, 0) * 90px) rgba(220,200,255, calc(var(--nyx-shine, 0) * .40)));
     transition: letter-spacing .6s cubic-bezier(.22,1,.36,1);
 }
 .wordmark:hover { letter-spacing: .28em; }
-@keyframes breathe { 0%,100%{filter:drop-shadow(0 2px 44px rgba(157,110,247,.22))} 50%{filter:drop-shadow(0 2px 66px rgba(157,110,247,.4))} }
 .tagline { font-size: 12px; letter-spacing: .16em; text-transform: uppercase; color: var(--nyx-dim,#7078a8); opacity: .65; user-select: none; }
 
 .search {
@@ -111,13 +113,39 @@ main * { pointer-events: auto; }
     const canvas = document.getElementById('fx');
     const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-    // ── 3 ambiances RÉELLEMENT distinctes : palette + flux différents ──────
+    // ── 3 ambiances : flux + accent token. La palette est DÉRIVÉE des tokens CSS Nyx
+    //    (--nyx-bg, --nyx-nebula, --nyx-aurora, --nyx-star) → cohérence avec le reste de l'UI.
     const AMB = {
-        nebula: { speed: .075, warp: 4.2, vbias: .0, pal: [[.02,.027,.043],[.10,.04,.13],[.30,.10,.35],[.55,.20,.45]], glow: [.62,.43,.97] },
-        aurora: { speed: .060, warp: 3.0, vbias: .7, pal: [[.02,.03,.05],[.03,.12,.14],[.06,.26,.24],[.16,.30,.20]],  glow: [.29,.95,.78] },
-        sky:    { speed: .035, warp: 2.3, vbias: .0, pal: [[.02,.03,.06],[.04,.07,.16],[.10,.16,.30],[.32,.42,.62]],  glow: [.78,.85,1.0] },
+        nebula: { speed: .075, warp: 4.2, vbias: .0, accent: '--nyx-nebula', fb: '#9d6ef7', pal: null, glow: null },
+        aurora: { speed: .060, warp: 3.0, vbias: .7, accent: '--nyx-aurora', fb: '#4af2c8', pal: null, glow: null },
+        sky:    { speed: .035, warp: 2.3, vbias: .0, accent: '--nyx-star',   fb: '#c8d6ff', pal: null, glow: null },
     };
     let mode = 'nebula', A = AMB.nebula;
+
+    // Parse une couleur CSS → [r,g,b] floats via le moteur du navigateur (gère hex, rgb, hsl, named…).
+    const _cpCtx = document.createElement('canvas').getContext('2d');
+    function parseColor(str) {
+        _cpCtx.fillStyle = '#000'; _cpCtx.fillStyle = str;
+        const m = /^#([0-9a-f]{6})$/i.exec(_cpCtx.fillStyle);
+        if (!m) return [0, 0, 0];
+        const n = parseInt(m[1], 16);
+        return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255];
+    }
+    function mixCol(a, b, t) { return [a[0]+(b[0]-a[0])*t, a[1]+(b[1]-a[1])*t, a[2]+(b[2]-a[2])*t]; }
+
+    function rebuildPalettes() {
+        const cs = getComputedStyle(document.documentElement);
+        const bg = parseColor(cs.getPropertyValue('--nyx-bg').trim() || '#05070b');
+        for (const k of Object.keys(AMB)) {
+            const a = AMB[k];
+            const accent = parseColor(cs.getPropertyValue(a.accent).trim() || a.fb);
+            // p0 = fond profond, p1/p2 = transitions, p3 = accent saturé.
+            a.pal = [bg, mixCol(bg, accent, 0.18), mixCol(bg, accent, 0.55), mixCol(bg, accent, 0.92)];
+            a.glow = accent;
+        }
+        A = AMB[mode] || AMB.nebula;
+    }
+    rebuildPalettes();
 
     function setMode(name) {
         A = AMB[name] || AMB.nebula; mode = name;
@@ -125,13 +153,42 @@ main * { pointer-events: auto; }
     }
     document.querySelectorAll('.ambiance button').forEach(b => b.addEventListener('click', () => setMode(b.dataset.mode)));
 
-    // Mouse : position brute + lerpée (pour un déplacement fluide, jamais sec).
+    // Mouse : position brute + lerpée. Vélocité lerpée pour moduler la force du "doigt".
     let rawMx = .5, rawMy = .5, mx = .5, my = .5;
-    // Click ripple : position + temps depuis le clic (décroit vers 0).
-    let clickX = .5, clickY = .5, clickAge = 99;
+    let prevRawMx = .5, prevRawMy = .5, mvel = 0, mvdx = 0, mvdy = 0;
+    // Sillage : 4 échantillons récents (anneau circulaire) — perturbent le fluide derrière.
+    const TRAIL = [{x:.5,y:.5,age:9},{x:.5,y:.5,age:9},{x:.5,y:.5,age:9},{x:.5,y:.5,age:9}];
+    let trailHead = 0, trailAccum = 0, lastTrailX = .5, lastTrailY = .5;
+    // Click ripples : POOL de 16 — chacun vit son cycle complet (~4s), ils coexistent.
+    // Pas de reset : un nouveau clic prend le slot le plus VIEUX, jamais un vivant.
+    const RIPPLES = Array.from({length:16}, () => ({x:.5,y:.5,age:99}));
+    const _rBuf = new Float32Array(48);
+    // Wordmark shine : 0..1, lerpé sur la distance souris ↔ centre du mot.
+    let shine = 0, wordCx = 0, wordCy = 0, wordReach = 360;
+    function measureWord() {
+        const el = document.querySelector('.wordmark');
+        if (!el) return;
+        const r = el.getBoundingClientRect();
+        wordCx = r.left + r.width * 0.5;
+        wordCy = r.top  + r.height * 0.5;
+        // Rayon d'influence : ~85% de la largeur du mot, jamais < 220px.
+        wordReach = Math.max(r.width * 0.85, 220);
+    }
+    addEventListener('resize', measureWord);
+    addEventListener('load', measureWord);
+    queueMicrotask(measureWord);
+
     addEventListener('pointermove', e => { rawMx = e.clientX / innerWidth; rawMy = 1 - e.clientY / innerHeight; });
     canvas.addEventListener('pointerdown', e => {
-        clickX = e.clientX / innerWidth; clickY = 1 - e.clientY / innerHeight; clickAge = 0;
+        // Choisir le slot avec l'âge le plus élevé (le plus mort) — jamais d'interruption d'un ripple vivant.
+        let pick = 0, maxAge = -1;
+        for (let i = 0; i < 16; i++) {
+            if (RIPPLES[i].age > maxAge) { maxAge = RIPPLES[i].age; pick = i; }
+        }
+        const r = RIPPLES[pick];
+        r.x = e.clientX / innerWidth;
+        r.y = 1 - e.clientY / innerHeight;
+        r.age = 0;
     });
 
     // ── Tente WebGL ; sinon fallback Canvas-2D ─────────────────────────────
@@ -146,22 +203,68 @@ main * { pointer-events: auto; }
         try {
             const vs = 'attribute vec2 a;void main(){gl_Position=vec4(a,0.,1.);}';
             const fs = `precision highp float;
-uniform vec2 u_res;uniform float u_time;uniform vec2 u_mouse;
-uniform vec2 u_click;uniform float u_click_age;
+uniform vec2 u_res;uniform float u_time;uniform vec2 u_mouse;uniform float u_mvel;uniform vec2 u_mdir;
+uniform vec3 u_trail0,u_trail1,u_trail2,u_trail3;
+uniform vec3 u_ripples[16];
 uniform vec3 u_p0,u_p1,u_p2,u_p3,u_glow;uniform float u_warp,u_vbias,u_speed;
 float hash(vec2 p){p=fract(p*vec2(123.34,456.21));p+=dot(p,p+45.32);return fract(p.x*p.y);}
 float noise(vec2 p){vec2 i=floor(p),f=fract(p);vec2 u=f*f*(3.0-2.0*f);
  return mix(mix(hash(i),hash(i+vec2(1.,0.)),u.x),mix(hash(i+vec2(0.,1.)),hash(i+vec2(1.,1.)),u.x),u.y);}
 float fbm(vec2 p){float v=0.,a=.5;for(int i=0;i<4;i++){v+=a*noise(p);p=p*2.0+vec2(1.7,9.2);a*=.5;}return v;}
+// Anneau lumineux d'un ripple — 0 quand age >= 4.0 (mort) sans branch.
+float rwave(vec2 uvA,float aspect,vec3 R){
+ float cd=distance(uvA,R.xy*vec2(aspect,1.0));
+ float ring=abs(cd-R.z*0.25)*8.0;
+ return smoothstep(1.0,0.0,ring)*smoothstep(4.0,0.0,R.z);
+}
 void main(){
  vec2 uv=gl_FragCoord.xy/u_res;
  float aspect=u_res.x/u_res.y;
  vec2 p=uv*vec2(aspect,1.0)*2.4;
  float t=u_time*u_speed;
 
- // Exploration souris : déplace le champ de vue dans la nébuleuse.
- vec2 m=(u_mouse-0.5)*1.6;
- p+=m;
+ // ─── INTERACTION LOCALE — objet dans du liquide ───
+ vec2 uvA=uv*vec2(aspect,1.0);
+ vec2 mA=u_mouse*vec2(aspect,1.0);
+
+ // Vecteur pixel→curseur, distance², kernel quadratique (pas de sqrt).
+ vec2 dM=uvA-mA;
+ float lM2=dot(dM,dM);
+ float kM=max(0.0,1.0-lM2/0.055);
+ float kM2=kM*kM;
+
+ // Push radial — le fluide s'écarte du curseur en toutes directions.
+ // Base toujours présente (doigt posé dans l'eau) + boost par la vitesse.
+ vec2 pushM=dM*kM2*(1.8+u_mvel*3.0);
+
+ // Bow wave — proue de bateau : les pixels DEVANT le mouvement sont
+ // poussés encore plus fort. front>0 = devant, <0 = derrière (sillage).
+ vec2 mDirA=u_mdir*vec2(aspect,1.0);
+ float front=dot(dM,mDirA);
+ float bowK=max(0.0,front)*kM2;
+ pushM+=dM*bowK*u_mvel*4.5;
+
+ // Sillage : 4 échantillons historiques (push radial dégressif avec l'âge).
+ vec2 d0=uvA-u_trail0.xy*vec2(aspect,1.0); float l02=dot(d0,d0);
+ float a0=max(0.0,1.0-u_trail0.z);
+ float k0=max(0.0,1.0-l02/0.028)*a0;
+ vec2 d1=uvA-u_trail1.xy*vec2(aspect,1.0); float l12=dot(d1,d1);
+ float a1=max(0.0,1.0-u_trail1.z);
+ float k1=max(0.0,1.0-l12/0.024)*a1;
+ vec2 d2=uvA-u_trail2.xy*vec2(aspect,1.0); float l22=dot(d2,d2);
+ float a2=max(0.0,1.0-u_trail2.z);
+ float k2=max(0.0,1.0-l22/0.020)*a2;
+ vec2 d3=uvA-u_trail3.xy*vec2(aspect,1.0); float l32=dot(d3,d3);
+ float a3=max(0.0,1.0-u_trail3.z);
+ float k3=max(0.0,1.0-l32/0.016)*a3;
+
+ vec2 pushT=d0*(k0*k0)*0.85
+           +d1*(k1*k1)*0.70
+           +d2*(k2*k2)*0.55
+           +d3*(k3*k3)*0.40;
+
+ // Warp LOCAL — pas de pan global, le fond reste en place.
+ p+=pushM+pushT;
 
  vec2 q=vec2(fbm(p+vec2(0.,t)),fbm(p+vec2(5.2,1.3)-vec2(0.,t*(1.0+u_vbias))));
  vec2 r=vec2(fbm(p+u_warp*q+vec2(1.7,9.2)+t*0.5),fbm(p+u_warp*q+vec2(8.3,2.8)-t*0.5));
@@ -172,17 +275,22 @@ void main(){
  col=mix(col,u_p3,smoothstep(0.55,1.0,q.y)*0.5);
  col+=u_glow*pow(max(f,0.0),3.0)*0.07;
 
- // Halo subtil autour du curseur (lumière qui suit la souris).
- float md=distance(uv,u_mouse);
- col+=u_glow*0.035*smoothstep(0.35,0.0,md);
+ // Torche : glow chaud serré sous le curseur (biais orange-rose).
+ vec3 warm=mix(u_glow,vec3(1.0,0.78,0.55),0.5);
+ float torchK=max(0.0,1.0-lM2/0.020);
+ col+=warm*(torchK*torchK*torchK)*0.085;
+ // Halo doux plus large, dans la couleur d'ambiance.
+ float haloK=max(0.0,1.0-lM2/0.090);
+ col+=u_glow*(haloK*haloK)*0.030;
 
- // Onde au clic : anneau de lumière qui s'étend et s'estompe.
- if(u_click_age<4.0){
-  float cd=distance(uv*vec2(aspect,1.0),u_click*vec2(aspect,1.0));
-  float ring=abs(cd-u_click_age*0.25)*8.0;
-  float wave=smoothstep(1.0,0.0,ring)*smoothstep(4.0,0.0,u_click_age);
-  col+=u_glow*wave*0.12;
- }
+ // Sillage lumineux : trace du curseur éclairée brièvement.
+ float trailLight=k0*k0+k1*k1*0.82+k2*k2*0.66+k3*k3*0.50;
+ col+=warm*trailLight*0.055;
+
+ // Ripples : 16 anneaux qui COEXISTENT, early-out sur les morts (uniform branch = gratuit).
+ float wave=0.0;
+ for(int i=0;i<16;i++){if(u_ripples[i].z<4.0) wave+=rwave(uvA,aspect,u_ripples[i]);}
+ col+=u_glow*wave*0.13;
 
  // Vignette + grain.
  float d=distance(uv,vec2(0.5));
@@ -202,9 +310,12 @@ void main(){
             gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
             GLU = {
                 res: gl.getUniformLocation(prog, 'u_res'), time: gl.getUniformLocation(prog, 'u_time'),
-                mouse: gl.getUniformLocation(prog, 'u_mouse'),
-                click: gl.getUniformLocation(prog, 'u_click'),
-                click_age: gl.getUniformLocation(prog, 'u_click_age'),
+                mouse: gl.getUniformLocation(prog, 'u_mouse'), mvel: gl.getUniformLocation(prog, 'u_mvel'), mdir: gl.getUniformLocation(prog, 'u_mdir'),
+                trail0: gl.getUniformLocation(prog, 'u_trail0'),
+                trail1: gl.getUniformLocation(prog, 'u_trail1'),
+                trail2: gl.getUniformLocation(prog, 'u_trail2'),
+                trail3: gl.getUniformLocation(prog, 'u_trail3'),
+                ripples: gl.getUniformLocation(prog, 'u_ripples[0]'),
                 p0: gl.getUniformLocation(prog, 'u_p0'), p1: gl.getUniformLocation(prog, 'u_p1'),
                 p2: gl.getUniformLocation(prog, 'u_p2'), p3: gl.getUniformLocation(prog, 'u_p3'),
                 glow: gl.getUniformLocation(prog, 'u_glow'),
@@ -225,17 +336,68 @@ void main(){
     }
 
     function pushUniforms(now, dt) {
-        // Lerp la souris : mouvement fluide, jamais sec ni coupé.
-        const lerp = Math.min(1, dt * 0.004); // ~4ms de lissage
+        // Lerp position — mouvement organique, jamais sec.
+        const lerp = Math.min(1, dt * 0.004);
         mx += (rawMx - mx) * lerp;
         my += (rawMy - my) * lerp;
-        clickAge += dt * 0.001;
+
+        // Vélocité + direction lerpées → bow wave dans le shader.
+        const dx = rawMx - prevRawMx, dy = rawMy - prevRawMy;
+        const invSec = 1 / Math.max(0.001, dt * 0.001);
+        const instantV = Math.min(2.0, Math.hypot(dx, dy) * invSec);
+        mvel += (instantV - mvel) * Math.min(1, dt * 0.018);
+        // Direction normalisée, lerpée pour rester smooth quand on ralentit.
+        const spd = Math.hypot(dx, dy);
+        if (spd > 0.0005) { const inv = 1 / spd; mvdx += (dx * inv - mvdx) * 0.25; mvdy += (dy * inv - mvdy) * 0.25; }
+        else { mvdx *= 0.92; mvdy *= 0.92; }
+        prevRawMx = rawMx; prevRawMy = rawMy;
+
+        // Sillage : nouvel échantillon seulement si la souris a vraiment bougé.
+        trailAccum += dt;
+        const moved = Math.hypot(rawMx - lastTrailX, rawMy - lastTrailY) > 0.003;
+        if (trailAccum >= 90 && moved) {
+            trailHead = (trailHead - 1 + 4) & 3;
+            TRAIL[trailHead].x = mx;
+            TRAIL[trailHead].y = my;
+            TRAIL[trailHead].age = 0;
+            lastTrailX = rawMx; lastTrailY = rawMy;
+            trailAccum = 0;
+        }
+        const ageInc = dt * 0.0009; // ~1.1s pour atteindre 1 (invisible)
+        for (let i = 0; i < 4; i++) TRAIL[i].age += ageInc;
+
+        // Vieillir tous les ripples (ils meurent à age >= 4.0 — voir shader rwave).
+        const rippleAgeInc = dt * 0.001;
+        for (let i = 0; i < 16; i++) RIPPLES[i].age += rippleAgeInc;
+
+        // Shine du wordmark : distance souris → centre du mot, smoothstep falloff.
+        // Respiration de base subtile, halo intense quand on s'approche.
+        const csx = rawMx * innerWidth, csy = (1 - rawMy) * innerHeight;
+        const wdist = Math.hypot(csx - wordCx, csy - wordCy);
+        const tIn = wordReach * 0.20, tOut = wordReach * 1.00;
+        let st = (wdist - tIn) / (tOut - tIn);
+        st = st < 0 ? 0 : st > 1 ? 1 : st;
+        const distShine = 1 - st * st * (3 - 2 * st);  // smoothstep inversé
+        const breathe = 0.08 + 0.06 * Math.sin(now * 0.0009);
+        const target = Math.max(breathe, distShine);
+        shine += (target - shine) * Math.min(1, dt * 0.006);
+        document.documentElement.style.setProperty('--nyx-shine', shine.toFixed(3));
 
         gl.uniform2f(GLU.res, canvas.width, canvas.height);
         gl.uniform1f(GLU.time, now * 0.001);
-        gl.uniform2f(GLU.mouse, mx, my);
-        gl.uniform2f(GLU.click, clickX, clickY);
-        gl.uniform1f(GLU.click_age, clickAge);
+        gl.uniform2f(GLU.mouse, rawMx, rawMy);
+        gl.uniform1f(GLU.mvel, mvel);
+        gl.uniform2f(GLU.mdir, mvdx, mvdy);
+        // Trail : du plus récent au plus ancien (lecture circulaire).
+        const t0 = TRAIL[trailHead], t1 = TRAIL[(trailHead + 1) & 3];
+        const t2 = TRAIL[(trailHead + 2) & 3], t3 = TRAIL[(trailHead + 3) & 3];
+        gl.uniform3f(GLU.trail0, t0.x, t0.y, t0.age);
+        gl.uniform3f(GLU.trail1, t1.x, t1.y, t1.age);
+        gl.uniform3f(GLU.trail2, t2.x, t2.y, t2.age);
+        gl.uniform3f(GLU.trail3, t3.x, t3.y, t3.age);
+        // Ripples : 16 slots, poussés en un seul appel via Float32Array pré-alloué.
+        for (let i = 0; i < 16; i++) { _rBuf[i*3] = RIPPLES[i].x; _rBuf[i*3+1] = RIPPLES[i].y; _rBuf[i*3+2] = RIPPLES[i].age; }
+        gl.uniform3fv(GLU.ripples, _rBuf);
         gl.uniform3fv(GLU.p0, A.pal[0]); gl.uniform3fv(GLU.p1, A.pal[1]);
         gl.uniform3fv(GLU.p2, A.pal[2]); gl.uniform3fv(GLU.p3, A.pal[3]);
         gl.uniform3fv(GLU.glow, A.glow);
