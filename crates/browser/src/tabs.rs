@@ -6,7 +6,7 @@ use gtk::cairo;
 use gtk::gdk_pixbuf::InterpType;
 use gtk::pango::EllipsizeMode;
 use gtk::prelude::*;
-use gtk::{Box as GtkBox, Button, IconSize, Image, Label, Notebook, Orientation};
+use gtk::{Box as GtkBox, Button, IconSize, Image, Label, Notebook, Orientation, Widget};
 use webkit2gtk::{WebContext, WebView, WebViewExt};
 
 /// Taille (px) de la favicon dans l'onglet — alignée sur IconSize::Menu (16).
@@ -51,7 +51,7 @@ impl TabBar {
 
     /// Ouvre un onglet vide → Nyx start page.
     pub fn open_new_tab(&self) -> WebView {
-        let wv = self.build_webview();
+        let wv = self.build_webview(None);
         wv.load_html(newtab::html(), Some(newtab::URI));
         self.attach_tab(&wv, "Nouvel onglet");
         wv
@@ -59,8 +59,17 @@ impl TabBar {
 
     /// Ouvre un onglet sur une URL.
     pub fn open(&self, url: &str) -> WebView {
-        let wv = self.build_webview();
+        let wv = self.build_webview(None);
         wv.load_uri(url);
+        self.attach_tab(&wv, "Chargement…");
+        wv
+    }
+
+    /// Ouvre un onglet relié à `parent` — utilisé par le signal create pour
+    /// les ouvertures en nouvel onglet (target="_blank", window.open, clic
+    /// molette). WebKit y charge l'URL lui-même via la related-view.
+    pub fn open_related(&self, parent: &WebView) -> WebView {
+        let wv = self.build_webview(Some(parent));
         self.attach_tab(&wv, "Chargement…");
         wv
     }
@@ -89,19 +98,37 @@ impl TabBar {
         self.notebook.set_current_page(Some((cur + 1) % n));
     }
 
-    /// Crée une WebView avec son propre WebContext, applique les réglages
-    /// privacy + adblock, puis notifie l'observeur. Pas encore attachée au
-    /// notebook — c'est `attach_tab` qui s'en charge.
-    fn build_webview(&self) -> WebView {
-        // WebKitGTK 4.1 ne tolère qu'un seul WebContext non-éphémère par process,
-        // donc cette isolation reste partielle (cookies/cache de session séparés,
-        // disque partagé). Sprint 5 passera à `WebContext::new_ephemeral()`
-        // pour cloisonner vraiment.
-        let context = WebContext::new();
-        let wv = WebView::builder().web_context(&context).build();
+    /// Crée une WebView, applique les réglages privacy + adblock, branche
+    /// `connect_create` pour les ouvertures en nouvel onglet, puis notifie
+    /// l'observeur. Pas encore attachée au notebook — c'est `attach_tab` qui
+    /// s'en charge.
+    ///
+    /// Si `parent` est fourni, la WebView est créée via `with_related_view`
+    /// pour que WebKit pilote sa navigation (signal create).
+    fn build_webview(&self, parent: Option<&WebView>) -> WebView {
+        let wv = if let Some(p) = parent {
+            WebView::with_related_view(p)
+        } else {
+            // Onglet racine → son propre WebContext.
+            // WebKitGTK 4.1 ne tolère qu'un seul WebContext non-éphémère par
+            // process, donc l'isolation reste partielle (cookies/cache de
+            // session séparés, disque partagé). Sprint 5 passera à
+            // `WebContext::new_ephemeral()` pour cloisonner vraiment.
+            let context = WebContext::new();
+            WebView::builder().web_context(&context).build()
+        };
         wv.set_vexpand(true);
         wv.set_hexpand(true);
         webview::configure(&wv, self.blocker.clone());
+
+        // Ticket 1.7 : liens externes → nouvel onglet.
+        {
+            let tabs = self.clone();
+            wv.connect_create(move |opener, _nav_action| {
+                Some(tabs.open_related(opener).upcast::<Widget>())
+            });
+        }
+
         (self.on_new_webview.borrow())(&wv);
         wv
     }
