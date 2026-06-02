@@ -20,7 +20,9 @@ pub fn execute(ctx: &WebContext, plan: &Plan) {
     // `clear` opère sur tout le manager : la portée par origine n'est pas
     // supportée par tous les WebKit ; on prend l'approche large + le caller
     // peut reload la page pour matérialiser l'effet sur l'origine cible.
-    mgr.clear(types, std::time::Duration::from_secs(0), gtk::gio::Cancellable::NONE,
+    // TimeSpan = 0 µs → "tout depuis le début du temps" : on n'a pas de
+    // borne temporelle, on efface toute la donnée du type demandé.
+    mgr.clear(types, glib::TimeSpan::from_seconds(0), gtk::gio::Cancellable::NONE,
               move |_res| { /* fire-and-forget */ });
 }
 
