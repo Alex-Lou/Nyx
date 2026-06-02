@@ -39,6 +39,7 @@ impl BrowserWindow {
         let back_btn    = nav_button("◀");
         let forward_btn = nav_button("▶");
         let reload_btn  = nav_button("↺");
+        let home_btn    = nav_button("⌂");
         let new_tab_btn = nav_button("+");
 
         let url_bar = Entry::builder()
@@ -51,7 +52,8 @@ impl BrowserWindow {
         navbar.style_context().add_class("nyx-navbar");
         navbar.pack_start(&back_btn,    false, false, 0);
         navbar.pack_start(&forward_btn, false, false, 0);
-        navbar.pack_start(&reload_btn,  false, false, 4);
+        navbar.pack_start(&reload_btn,  false, false, 0);
+        navbar.pack_start(&home_btn,    false, false, 4);
         navbar.pack_start(&url_bar,     true,  true,  0);
         navbar.pack_end(&new_tab_btn,   false, false, 4);
 
@@ -142,6 +144,16 @@ impl BrowserWindow {
             reload_btn.connect_clicked(move |_| {
                 if let Some(wv) = t.current_webview() {
                     wv.reload();
+                }
+            });
+        }
+
+        // ── Bouton home → DuckDuckGo (ticket 1.6) ───────────────────────
+        {
+            let t = tabs.clone();
+            home_btn.connect_clicked(move |_| {
+                if let Some(wv) = t.current_webview() {
+                    wv.load_uri(crate::HOME_URL);
                 }
             });
         }

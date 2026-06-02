@@ -15,6 +15,9 @@ use window::BrowserWindow;
 
 const APP_ID: &str = "io.nyx.browser";
 
+/// Page chargée par le bouton home — DuckDuckGo, jamais Google.
+pub const HOME_URL: &str = "https://duckduckgo.com";
+
 fn main() {
     let app = Application::builder()
         .application_id(APP_ID)
