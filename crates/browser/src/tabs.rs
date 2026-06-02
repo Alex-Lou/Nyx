@@ -5,12 +5,15 @@ use std::sync::Arc;
 use gtk::pango::EllipsizeMode;
 use gtk::prelude::*;
 use gtk::{Box as GtkBox, Button, Image, Label, Notebook, Orientation, Widget};
-use webkit2gtk::{WebContext, WebView, WebViewExt};
+use webkit2gtk::{
+    UserContentManager, UserContentManagerExt, WebContext, WebContextExt,
+    WebView, WebViewExt,
+};
 
 use crate::adblock::AdBlocker;
 use crate::bookmarks::Bookmarks;
 use crate::settings::Settings;
-use crate::{favicon, newtab, settings_page, webview};
+use crate::{darkmode, favicon, newtab, settings_page, webview};
 
 type WebViewHook = Rc<RefCell<Box<dyn Fn(&WebView)>>>;
 
@@ -92,7 +95,20 @@ impl TabBar {
             Some(p) => WebView::with_related_view(p),
             None    => {
                 let ctx = WebContext::new();
-                WebView::builder().web_context(&ctx).build()
+                // SÉCURITÉ : bac à sable des processus web (doit être activé
+                // avant la création du premier WebView du contexte).
+                ctx.set_sandbox_enabled(true);
+
+                // Mode sombre forcé : injecté via un UserContentManager dédié.
+                let ucm = UserContentManager::new();
+                if self.settings.borrow().dark_websites {
+                    ucm.add_style_sheet(&darkmode::stylesheet());
+                }
+
+                WebView::builder()
+                    .web_context(&ctx)
+                    .user_content_manager(&ucm)
+                    .build()
             }
         };
         wv.set_vexpand(true);

@@ -1,5 +1,6 @@
 mod adblock;
 mod bookmarks;
+mod darkmode;
 mod favicon;
 mod newtab;
 mod settings;

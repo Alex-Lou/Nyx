@@ -15,6 +15,7 @@ pub fn html(s: &AppSettings) -> String {
         .replace("{{ENGINE_ECOSIA}}", chk("ecosia", s.search_engine.id()))
         .replace("{{HOME_URL}}",      &s.home_url)
         .replace("{{ADBLOCK}}",       if s.adblock_enabled { " checked" } else { "" })
+        .replace("{{DARK}}",          if s.dark_websites   { " checked" } else { "" })
         .replace("{{LANG_FR}}",       chk("fr", s.language.id()))
         .replace("{{LANG_EN}}",       chk("en", s.language.id()))
         .replace("{{LANG_ES}}",       chk("es", s.language.id()))

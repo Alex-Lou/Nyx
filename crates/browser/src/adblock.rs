@@ -18,7 +18,6 @@ impl AdBlocker {
     }
 
     pub fn set_enabled(&self, v: bool) { self.enabled.store(v, Ordering::Relaxed); }
-    pub fn is_enabled(&self) -> bool   { self.enabled.load(Ordering::Relaxed) }
 
     pub fn should_block(&self, url: &str) -> bool {
         if !self.enabled.load(Ordering::Relaxed) { return false; }

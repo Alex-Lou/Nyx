@@ -7,6 +7,7 @@ pub type Settings = Rc<RefCell<AppSettings>>;
 pub struct AppSettings {
     pub search_engine:   SearchEngine,
     pub adblock_enabled: bool,
+    pub dark_websites:   bool,
     pub home_url:        String,
     pub language:        Language,
 }
@@ -16,6 +17,7 @@ impl Default for AppSettings {
         Self {
             search_engine:   SearchEngine::DuckDuckGo,
             adblock_enabled: true,
+            dark_websites:   false,
             home_url:        "nyx://newtab".into(),
             language:        Language::French,
         }
@@ -36,25 +38,11 @@ impl SearchEngine {
             Self::Ecosia     => format!("https://www.ecosia.org/search?q={q}"),
         }
     }
-    pub fn base_url(&self) -> &'static str {
-        match self {
-            Self::DuckDuckGo => "https://duckduckgo.com",
-            Self::Brave      => "https://search.brave.com",
-            Self::Ecosia     => "https://www.ecosia.org",
-        }
-    }
     pub fn id(&self) -> &'static str {
         match self { Self::DuckDuckGo => "ddg", Self::Brave => "brave", Self::Ecosia => "ecosia" }
     }
     pub fn from_id(s: &str) -> Self {
         match s { "brave" => Self::Brave, "ecosia" => Self::Ecosia, _ => Self::DuckDuckGo }
-    }
-    pub fn label(&self) -> &'static str {
-        match self {
-            Self::DuckDuckGo => "🦆 DuckDuckGo",
-            Self::Brave      => "🦁 Brave Search",
-            Self::Ecosia     => "🌳 Ecosia",
-        }
     }
 }
 
@@ -107,9 +95,12 @@ pub fn apply_from_url(url: &str, settings: &Settings, blocker: &crate::adblock::
     if let Some(h) = params.get("home")    { s.home_url = urldecode(h); }
     if let Some(l) = params.get("lang")    { s.language = Language::from_id(l); }
 
+    // Checkboxes : présentes uniquement si cochées → absent = false.
     let adblock_on = params.get("adblock").map(|v| *v == "true").unwrap_or(false);
     s.adblock_enabled = adblock_on;
     blocker.set_enabled(adblock_on);
+
+    s.dark_websites = params.get("dark").map(|v| *v == "true").unwrap_or(false);
     true
 }
 
