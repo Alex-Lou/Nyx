@@ -173,9 +173,11 @@ fn parallel_decide_1000_users() {
                 "https://doubleclick.net/ad", "https://pаypal.com",
             ];
             for i in 0..iters_per_thread {
-                let v = decide(urls[i % urls.len()], i % 2 == 0, &g);
+                let page_internal = i % 2 == 0;
+                let url = urls[i % urls.len()];
+                let v = decide(url, page_internal, &g);
                 // Invariants vérifiés sous concurrence :
-                if urls[i % urls.len()].starts_with("file://") {
+                if url.starts_with("file://") && !page_internal {
                     assert!(matches!(v, Verdict::BlockFileAccess));
                 }
             }

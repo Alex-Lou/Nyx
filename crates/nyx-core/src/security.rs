@@ -54,8 +54,11 @@ pub fn decide(url: &str, page_internal: bool, guard: &NyxGuard) -> Verdict {
         if rest.starts_with("bookmarks") { return Verdict::Load(Page::Bookmarks); }
         return Verdict::Load(Page::NewTab);
     }
-    if url.starts_with("file://") {
-        sec_log::emit(Level::Block, &format!("file:// navigation: {}", sec_log::redact_url(url)));
+    // file:// : autorisé UNIQUEMENT depuis une source interne (notre base_uri
+    // `file://…/assets/` au démarrage, ou nyx://). Une page web distante ne
+    // peut JAMAIS atteindre file://. Voir docs/security.md §2.
+    if url.starts_with("file://") && !page_internal {
+        sec_log::emit(Level::Block, &format!("file:// navigation from remote: {}", sec_log::redact_url(url)));
         return Verdict::BlockFileAccess;
     }
     if guard.should_block(url) {
@@ -96,15 +99,15 @@ mod tests {
     #[test] fn blocks_file_from_remote() {
         assert_eq!(decide("file:///etc/passwd", false, &guard()), Verdict::BlockFileAccess);
     }
-    #[test] fn blocks_file_from_internal() {
-        // Même depuis une page interne, on refuse les file:// hors assets.
-        // (Nos assets passent par ResourceLoad, pas NavigationAction.)
-        assert_eq!(decide("file:///etc/passwd", true, &guard()), Verdict::BlockFileAccess);
+    #[test] fn allows_file_from_internal_for_assets() {
+        // Au démarrage, le base_uri `file://…/assets/` doit charger : c'est
+        // notre propre page interne. Le `page_internal=true` autorise.
+        assert_eq!(decide("file:///mnt/c/Brol/Nyx/assets/", true, &guard()), Verdict::Allow);
     }
-    #[test] fn blocks_ssh_keys() {
+    #[test] fn blocks_ssh_keys_from_remote() {
         assert_eq!(decide("file:///home/user/.ssh/id_rsa", false, &guard()), Verdict::BlockFileAccess);
     }
-    #[test] fn blocks_windows_path() {
+    #[test] fn blocks_windows_path_from_remote() {
         assert_eq!(decide("file:///C:/Windows/System32/config", false, &guard()), Verdict::BlockFileAccess);
     }
     #[test] fn guard_off_allows_ad() {
