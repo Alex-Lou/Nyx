@@ -12,3 +12,4 @@ pub mod security;
 pub mod site_data_policy;
 pub mod state;
 pub mod url;
+pub mod vault_autofill;
