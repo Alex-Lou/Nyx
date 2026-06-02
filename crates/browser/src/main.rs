@@ -23,6 +23,10 @@ use web::nyxguard::NyxGuard;
 const APP_ID: &str = "io.nyx.browser";
 
 fn main() {
+    // Debug sécurité : `NYX_SECURITY_DEBUG=1 cargo run` → stderr structuré
+    // pour chaque décision (BLOCK / DENY / WARN / ALLOW). Voir docs/security.md §4.
+    nyx_core::sec_log::set_enabled(std::env::var_os("NYX_SECURITY_DEBUG").is_some());
+
     // Silence le bruit non pertinent au démarrage : pont d'accessibilité
     // at-spi (spam org.a11y/atspi) et messages de debug verbeux GLib.
     std::env::set_var("NO_AT_BRIDGE", "1");
