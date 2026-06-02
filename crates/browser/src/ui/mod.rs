@@ -3,6 +3,7 @@
 
 pub mod bookmarks_popover;
 pub mod chrome;
+pub mod icon;
 pub mod navbar;
 pub mod settings_window;
 pub mod shortcuts;

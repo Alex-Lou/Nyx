@@ -23,6 +23,12 @@ use web::nyxguard::NyxGuard;
 const APP_ID: &str = "io.nyx.browser";
 
 fn main() {
+    // Silence le bruit non pertinent au démarrage : pont d'accessibilité
+    // at-spi (spam org.a11y/atspi) et messages de debug verbeux GLib.
+    std::env::set_var("NO_AT_BRIDGE", "1");
+    std::env::set_var("G_MESSAGES_DEBUG", "");
+    std::env::set_var("GST_DEBUG", "0");
+
     // WSL : le renderer GPU/DMABUF de WebKit crashe (pas de vrai GPU —
     // « MESA ZINK failed », « egl: failed to create dri2 screen »). On force
     // le rendu logiciel avant tout init GTK/WebKit.
@@ -36,6 +42,7 @@ fn main() {
 
     app.connect_activate(|app| {
         ui::theme::load();
+        ui::icon::set_default();
         // TODO Sprint 2 : écran de déverrouillage vault.
         let prefs   = state::settings::new();
         let bm      = state::bookmarks::new();
