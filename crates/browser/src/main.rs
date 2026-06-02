@@ -50,6 +50,7 @@ fn main() {
         let win     = BrowserWindow::new(app, blocker, prefs, bm);
         win.tabs.open_new_tab();
         win.show_all();
+        ui::anim::fade_in(&win.window); // fondu d'ouverture discret
     });
 
     app.run();
