@@ -171,6 +171,9 @@ impl TabBar {
         };
         wv.set_vexpand(true);
         wv.set_hexpand(true);
+        // Fond noir profond AVANT que la page ne se rende : évite le flash
+        // blanc WebKit pendant que le shader WebGL initialise (lent en software WSL).
+        wv.set_background_color(&gtk::gdk::RGBA::new(0.02, 0.027, 0.043, 1.0));
         web::configure(&wv, self.blocker.clone(), self.settings.clone(),
                        self.bookmarks.clone(), self.permissions.clone());
 

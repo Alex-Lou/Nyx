@@ -59,6 +59,9 @@ impl BrowserWindow {
 
         // Zone de détection hover (couvre le chrome + une marge de 10px en dessous)
         let hover_zone = EventBox::new();
+        // Pas de fenêtre GDK séparée → pas de rectangle blanc opaque par-dessus
+        // la WebView. L'EventBox capte quand même les enter/leave sur sa zone.
+        hover_zone.set_visible_window(false);
         hover_zone.set_above_child(false);
         hover_zone.add(&chrome_box);
         hover_zone.set_valign(gtk::Align::Start);
