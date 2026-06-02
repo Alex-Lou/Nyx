@@ -8,42 +8,34 @@ use gtk::{Box as GtkBox, Button, Image, Label, Notebook, Orientation, Widget};
 use webkit2gtk::{WebContext, WebView, WebViewExt};
 
 use crate::adblock::AdBlocker;
-use crate::{favicon, newtab, webview};
+use crate::bookmarks::Bookmarks;
+use crate::settings::Settings;
+use crate::{favicon, newtab, settings_page, webview};
 
-/// Type alias pour le hook post-création de WebView.
 type WebViewHook = Rc<RefCell<Box<dyn Fn(&WebView)>>>;
 
-/// Gestion des onglets : création, fermeture, navigation.
-///
-/// `Clone` est cheap (tous les champs sont ref-comptés) — les closures GTK
-/// peuvent capturer une `TabBar` clonée sans coût mémoire significatif.
 #[derive(Clone)]
 pub struct TabBar {
-    pub notebook:     Notebook,
-    blocker:          Arc<AdBlocker>,
-    on_new_webview:   WebViewHook,
+    pub notebook:   Notebook,
+    blocker:        Arc<AdBlocker>,
+    settings:       Settings,
+    bookmarks:      Bookmarks,
+    on_new_webview: WebViewHook,
 }
 
 impl TabBar {
-    pub fn new(blocker: Arc<AdBlocker>) -> Self {
-        let notebook = Notebook::builder()
-            .scrollable(true)
-            .show_border(false)
-            .build();
+    pub fn new(blocker: Arc<AdBlocker>, settings: Settings, bm: Bookmarks) -> Self {
+        let notebook = Notebook::builder().scrollable(true).show_border(false).build();
         Self {
-            notebook,
-            blocker,
+            notebook, blocker, settings, bookmarks: bm,
             on_new_webview: Rc::new(RefCell::new(Box::new(|_| {}))),
         }
     }
 
-    /// Hook appelé juste après la création de chaque WebView.
-    /// La fenêtre s'en sert pour câbler URL bar et progress bar une seule fois.
     pub fn set_on_new_webview<F: Fn(&WebView) + 'static>(&self, cb: F) {
         *self.on_new_webview.borrow_mut() = Box::new(cb);
     }
 
-    /// Applique `f` sur l'onglet actif ; no-op si aucun onglet n'est ouvert.
     pub fn with_current<F: Fn(&WebView)>(&self, f: F) {
         if let Some(wv) = self.current_webview() { f(&wv); }
     }
@@ -55,7 +47,14 @@ impl TabBar {
         wv
     }
 
-    /// Ouvre un onglet sur une URL — appelé par bookmarks / historique (Sprint 2).
+    pub fn open_settings(&self) -> WebView {
+        let html = settings_page::html(&self.settings.borrow());
+        let wv = self.build_webview(None);
+        wv.load_html(&html, Some(&settings_page::base_uri()));
+        self.attach(&wv, "Paramètres");
+        wv
+    }
+
     #[allow(dead_code)]
     pub fn open(&self, url: &str) -> WebView {
         let wv = self.build_webview(None);
@@ -64,8 +63,6 @@ impl TabBar {
         wv
     }
 
-    /// Ouvre un onglet enfant lié à `parent` (signal `create-web-view`).
-    /// WebKit prend en charge la navigation lui-même via la related-view.
     pub fn open_related(&self, parent: &WebView) -> WebView {
         let wv = self.build_webview(Some(parent));
         self.attach(&wv, "Chargement…");
@@ -73,8 +70,8 @@ impl TabBar {
     }
 
     pub fn current_webview(&self) -> Option<WebView> {
-        let page = self.notebook.current_page()?;
-        self.notebook.nth_page(Some(page))?.downcast::<WebView>().ok()
+        let p = self.notebook.current_page()?;
+        self.notebook.nth_page(Some(p))?.downcast::<WebView>().ok()
     }
 
     pub fn close_current(&self) {
@@ -94,18 +91,14 @@ impl TabBar {
         let wv = match parent {
             Some(p) => WebView::with_related_view(p),
             None    => {
-                // Chaque onglet racine a son propre WebContext (isolation partielle
-                // — cookies/cache de session séparés, stockage disque partagé).
-                // Sprint 5 → WebContext::new_ephemeral() pour isolation complète.
                 let ctx = WebContext::new();
                 WebView::builder().web_context(&ctx).build()
             }
         };
         wv.set_vexpand(true);
         wv.set_hexpand(true);
-        webview::configure(&wv, self.blocker.clone());
+        webview::configure(&wv, self.blocker.clone(), self.settings.clone(), self.bookmarks.clone());
 
-        // Liens target=_blank / window.open → nouvel onglet (Ticket 1.7).
         let tabs = self.clone();
         wv.connect_create(move |opener, _| {
             Some(tabs.open_related(opener).upcast::<Widget>())
@@ -145,25 +138,18 @@ fn build_tab_label(wv: &WebView, nb: &Notebook, initial: &str) -> GtkBox {
     row.pack_start(&close, false, false, 0);
     row.show_all();
 
-    // Titre dynamique (Ticket 1.2)
     let lbl = label.clone();
     wv.connect_title_notify(move |wv| {
-        let t = wv.title()
-            .map(|s| s.to_string())
+        let t = wv.title().map(|s| s.to_string())
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| "Nouvel onglet".into());
         lbl.set_text(&t);
         lbl.set_tooltip_text(Some(&t));
     });
 
-    // Fermeture de l'onglet
-    let nb = nb.clone();
-    let wv = wv.clone();
+    let nb = nb.clone(); let wv = wv.clone();
     close.connect_clicked(move |_| {
-        if let Some(idx) = nb.page_num(&wv) {
-            nb.remove_page(Some(idx));
-        }
+        if let Some(i) = nb.page_num(&wv) { nb.remove_page(Some(i)); }
     });
-
     row
 }

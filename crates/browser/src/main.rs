@@ -1,6 +1,9 @@
 mod adblock;
+mod bookmarks;
 mod favicon;
 mod newtab;
+mod settings;
+mod settings_page;
 mod shortcuts;
 mod tabs;
 mod theme;
@@ -15,18 +18,18 @@ use gtk::Application;
 use adblock::AdBlocker;
 use window::BrowserWindow;
 
-const APP_ID:   &str = "io.nyx.browser";
-pub const HOME_URL: &str = "https://duckduckgo.com";
+const APP_ID: &str = "io.nyx.browser";
 
 fn main() {
-    let app = Application::builder()
-        .application_id(APP_ID)
-        .build();
+    let app = Application::builder().application_id(APP_ID).build();
 
     app.connect_activate(|app| {
         theme::load();
         // TODO Sprint 2 : écran de déverrouillage vault.
-        let win = BrowserWindow::new(app, Arc::new(AdBlocker::new()));
+        let prefs   = settings::new();
+        let bm      = bookmarks::new();
+        let blocker = Arc::new(AdBlocker::new());
+        let win     = BrowserWindow::new(app, blocker, prefs, bm);
         win.tabs.open_new_tab();
         win.show_all();
     });

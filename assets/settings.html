@@ -1,0 +1,288 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; form-action nyx:">
+<title>Paramètres — Nyx</title>
+<style>
+/* ── Base (alex-lou.github.io aesthetic) ──────────────────────────────── */
+:root {
+    --bg:        #050510;
+    --surface:   rgba(12, 12, 28, 0.65);
+    --border:    rgba(108, 99, 255, 0.10);
+    --border-h:  rgba(108, 99, 255, 0.28);
+    --accent:    #6c63ff;
+    --aurora:    #4af2c8;
+    --text:      #e8ecff;
+    --muted:     #7078a8;
+    --grad:      linear-gradient(135deg, rgba(108,99,255,.18), transparent 45%, rgba(74,242,200,.10));
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; background: var(--bg); color: var(--text); overflow-x: hidden; }
+body {
+    font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+    -webkit-font-smoothing: antialiased;
+    padding: 0 0 80px;
+}
+
+/* ── Grille subtile ──────────────────────────────────────────────────── */
+body::before {
+    content: ''; position: fixed; inset: 0; pointer-events: none; z-index: 0;
+    background-image:
+        linear-gradient(rgba(108,99,255,.025) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(108,99,255,.025) 1px, transparent 1px);
+    background-size: 60px 60px;
+}
+
+/* ── Orbes flottants ─────────────────────────────────────────────────── */
+.orb {
+    position: fixed; border-radius: 50%; pointer-events: none; z-index: 0;
+    filter: blur(90px); animation: orb-float 14s ease-in-out infinite alternate;
+}
+.orb-1 { width: 500px; height: 500px; background: rgba(108,99,255,.10); top: -10%; left: -8%; }
+.orb-2 { width: 350px; height: 350px; background: rgba(74,242,200,.06);  bottom: 5%; right: -5%; animation-delay: -6s; }
+@keyframes orb-float {
+    0%   { transform: translate(0,0) scale(1); }
+    50%  { transform: translate(20px,-15px) scale(1.04); }
+    100% { transform: translate(-10px,10px) scale(0.97); }
+}
+
+/* ── Layout ──────────────────────────────────────────────────────────── */
+.container { max-width: 700px; margin: 0 auto; padding: 56px 24px 0; position: relative; z-index: 1; }
+
+/* ── Header ──────────────────────────────────────────────────────────── */
+.page-title {
+    font-size: 32px; font-weight: 200; letter-spacing: .12em;
+    background: linear-gradient(135deg, #c8d6ff 0%, #4af2c8 100%);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    margin-bottom: 8px;
+}
+.page-sub { color: var(--muted); font-size: 13px; margin-bottom: 48px; }
+
+/* ── Sections ────────────────────────────────────────────────────────── */
+.section { margin-bottom: 20px; }
+
+.card {
+    background: var(--surface);
+    backdrop-filter: blur(20px) saturate(160%);
+    -webkit-backdrop-filter: blur(20px) saturate(160%);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 24px;
+    position: relative;
+    overflow: hidden;
+    transition: border-color .3s ease, transform .3s cubic-bezier(.22,1,.36,1);
+}
+.card::before {
+    content: ''; position: absolute; inset: 0; border-radius: inherit;
+    background: var(--grad); opacity: 0; transition: opacity .3s ease;
+    pointer-events: none;
+}
+.card:hover { border-color: var(--border-h); }
+.card:hover::before { opacity: 1; }
+
+.section-title {
+    font-size: 11px; font-weight: 600; letter-spacing: .18em; text-transform: uppercase;
+    color: var(--accent); margin-bottom: 16px; display: flex; align-items: center; gap: 8px;
+}
+.section-title::before {
+    content: ''; display: block; width: 3px; height: 14px;
+    background: linear-gradient(180deg, var(--accent), var(--aurora));
+    border-radius: 2px;
+}
+
+/* ── Chips (radio/checkbox) ──────────────────────────────────────────── */
+.chips { display: flex; gap: 8px; flex-wrap: wrap; }
+.chips input[type="radio"],
+.chips input[type="checkbox"] { display: none; }
+
+.chip {
+    padding: 8px 16px; border-radius: 10px; cursor: pointer; font-size: 13px;
+    background: rgba(255,255,255,.03); border: 1px solid var(--border);
+    color: var(--muted); transition: all .22s cubic-bezier(.22,1,.36,1);
+    user-select: none;
+}
+.chip:hover { border-color: var(--border-h); color: var(--text); transform: translateY(-1px); }
+
+input[type="radio"]:checked  + .chip,
+input[type="checkbox"]:checked + .chip {
+    background: rgba(74,242,200,.10);
+    border-color: rgba(74,242,200,.45);
+    color: var(--aurora);
+    box-shadow: 0 0 14px rgba(74,242,200,.12);
+}
+
+/* ── Toggle switch ───────────────────────────────────────────────────── */
+.toggle-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.toggle-label { font-size: 14px; color: var(--text); }
+.toggle-sub   { font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+.toggle { position: relative; display: inline-block; width: 46px; height: 26px; flex-shrink: 0; }
+.toggle input { opacity: 0; width: 0; height: 0; }
+.slider {
+    position: absolute; inset: 0;
+    background: rgba(108,99,255,.12); border: 1px solid rgba(108,99,255,.22);
+    border-radius: 26px; cursor: pointer;
+    transition: all .28s cubic-bezier(.22,1,.36,1);
+}
+.slider::before {
+    content: ''; position: absolute; width: 20px; height: 20px;
+    left: 2px; top: 2px; border-radius: 50%;
+    background: rgba(200,210,255,.45);
+    transition: all .28s cubic-bezier(.22,1,.36,1);
+    box-shadow: 0 1px 4px rgba(0,0,0,.4);
+}
+.toggle input:checked + .slider {
+    background: rgba(74,242,200,.18);
+    border-color: rgba(74,242,200,.55);
+}
+.toggle input:checked + .slider::before {
+    transform: translateX(20px);
+    background: var(--aurora);
+    box-shadow: 0 0 10px rgba(74,242,200,.65), 0 1px 4px rgba(0,0,0,.3);
+}
+
+/* ── Champ texte ─────────────────────────────────────────────────────── */
+.field {
+    width: 100%; padding: 10px 14px;
+    background: rgba(255,255,255,.03); border: 1px solid var(--border);
+    border-radius: 10px; color: var(--text);
+    font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 13px;
+    outline: none; transition: border-color .2s ease, box-shadow .2s ease;
+}
+.field:focus {
+    border-color: rgba(74,242,200,.4);
+    box-shadow: 0 0 0 1px rgba(74,242,200,.15), 0 0 16px rgba(74,242,200,.06);
+}
+.field-hint { font-size: 11px; color: var(--muted); margin-top: 6px; }
+
+/* ── Bouton sauvegarder ──────────────────────────────────────────────── */
+.save-btn {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 12px 28px; border-radius: 12px; border: none; cursor: pointer;
+    font-size: 14px; font-weight: 500; color: #fff;
+    background: linear-gradient(135deg, #6c63ff 0%, #4a42d4 100%);
+    box-shadow: 0 4px 20px rgba(108,99,255,.35), inset 0 1px 0 rgba(255,255,255,.1);
+    transition: all .25s cubic-bezier(.22,1,.36,1);
+    margin-top: 32px;
+}
+.save-btn:hover { transform: translateY(-2px); box-shadow: 0 8px 28px rgba(108,99,255,.45); }
+.save-btn:active{ transform: translateY(0); }
+
+/* ── Confirmation flash ──────────────────────────────────────────────── */
+#confirm {
+    display: inline-flex; align-items: center; gap: 6px; margin-left: 16px;
+    color: var(--aurora); font-size: 13px; opacity: 0;
+    transition: opacity .4s ease;
+}
+</style>
+</head>
+<body>
+
+<div class="orb orb-1" aria-hidden="true"></div>
+<div class="orb orb-2" aria-hidden="true"></div>
+
+<div class="container">
+
+    <h1 class="page-title">Paramètres</h1>
+    <p class="page-sub">Les modifications s'appliquent immédiatement.</p>
+
+    <form action="nyx://apply" method="get" id="settings-form">
+
+        <!-- Moteur de recherche ─────────────────────────────────────── -->
+        <div class="section">
+        <div class="card">
+            <p class="section-title">Moteur de recherche</p>
+            <div class="chips">
+                <input type="radio" name="engine" id="e-ddg"    value="ddg"    {{ENGINE_DDG}}>
+                <label for="e-ddg"    class="chip">🦆 DuckDuckGo</label>
+
+                <input type="radio" name="engine" id="e-brave"  value="brave"  {{ENGINE_BRAVE}}>
+                <label for="e-brave"  class="chip">🦁 Brave Search</label>
+
+                <input type="radio" name="engine" id="e-ecosia" value="ecosia" {{ENGINE_ECOSIA}}>
+                <label for="e-ecosia" class="chip">🌳 Ecosia</label>
+            </div>
+        </div>
+        </div>
+
+        <!-- Page d'accueil ──────────────────────────────────────────── -->
+        <div class="section">
+        <div class="card">
+            <p class="section-title">Page d'accueil</p>
+            <div class="chips" style="margin-bottom:12px">
+                <input type="radio" name="home_preset" id="h-newtab" value="nyx://newtab"
+                       onchange="document.getElementById('home').value=this.value">
+                <label for="h-newtab" class="chip">✦ Nouvel onglet Nyx</label>
+
+                <input type="radio" name="home_preset" id="h-custom" value="custom"
+                       onchange="document.getElementById('home').focus()">
+                <label for="h-custom" class="chip">🔗 URL personnalisée</label>
+            </div>
+            <input type="text" name="home" id="home" class="field"
+                   placeholder="https://…  ou  nyx://newtab" value="{{HOME_URL}}">
+            <p class="field-hint">L'URL chargée par le bouton ⌂ et au démarrage.</p>
+        </div>
+        </div>
+
+        <!-- Bloqueur de publicités ───────────────────────────────────── -->
+        <div class="section">
+        <div class="card">
+            <p class="section-title">Bloqueur de publicités</p>
+            <div class="toggle-row">
+                <div>
+                    <p class="toggle-label">Activer le bloqueur</p>
+                    <p class="toggle-sub">Bloque trackers, régies pub et analytics.</p>
+                </div>
+                <label class="toggle">
+                    <input type="checkbox" name="adblock" value="true"{{ADBLOCK}}>
+                    <span class="slider"></span>
+                </label>
+            </div>
+        </div>
+        </div>
+
+        <!-- Langue ──────────────────────────────────────────────────── -->
+        <div class="section">
+        <div class="card">
+            <p class="section-title">Langue de l'interface</p>
+            <div class="chips">
+                <input type="radio" name="lang" id="l-fr" value="fr" {{LANG_FR}}>
+                <label for="l-fr" class="chip">🇫🇷 Français</label>
+
+                <input type="radio" name="lang" id="l-en" value="en" {{LANG_EN}}>
+                <label for="l-en" class="chip">🇬🇧 English</label>
+
+                <input type="radio" name="lang" id="l-es" value="es" {{LANG_ES}}>
+                <label for="l-es" class="chip">🇪🇸 Español</label>
+
+                <input type="radio" name="lang" id="l-de" value="de" {{LANG_DE}}>
+                <label for="l-de" class="chip">🇩🇪 Deutsch</label>
+
+                <input type="radio" name="lang" id="l-it" value="it" {{LANG_IT}}>
+                <label for="l-it" class="chip">🇮🇹 Italiano</label>
+
+                <input type="radio" name="lang" id="l-pt" value="pt" {{LANG_PT}}>
+                <label for="l-pt" class="chip">🇵🇹 Português</label>
+            </div>
+        </div>
+        </div>
+
+        <div style="display:flex;align-items:center">
+            <button type="submit" class="save-btn">✓ Sauvegarder</button>
+            <span id="confirm" aria-live="polite">✦ Paramètres appliqués</span>
+        </div>
+
+    </form>
+</div>
+
+<script>
+document.getElementById('settings-form').addEventListener('submit', function() {
+    var c = document.getElementById('confirm');
+    c.style.opacity = '1';
+    setTimeout(function(){ c.style.opacity = '0'; }, 2500);
+});
+</script>
+</body>
+</html>

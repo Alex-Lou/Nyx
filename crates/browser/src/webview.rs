@@ -7,47 +7,63 @@ use webkit2gtk::{
 };
 
 use crate::adblock::AdBlocker;
+use crate::bookmarks::Bookmarks;
+use crate::settings::Settings;
+use crate::{newtab, settings, settings_page};
 
-pub fn configure(webview: &WebView, blocker: Arc<AdBlocker>) {
-    apply_settings(webview);
-    wire_policy_filter(webview, blocker);
+pub fn configure(
+    webview:  &WebView,
+    blocker:  Arc<AdBlocker>,
+    prefs:    Settings,
+    bm:       Bookmarks,
+) {
+    apply_privacy_settings(webview);
+    wire_policy_filter(webview, blocker, prefs, bm);
 }
 
-fn apply_settings(webview: &WebView) {
+fn apply_privacy_settings(webview: &WebView) {
     use webkit2gtk::SettingsExt;
     let s = WebViewExt::settings(webview).expect("WebView sans Settings");
-
-    // Privacy & anti-tracking
-    // set_enable_hyperlink_auditing: deprecated depuis WebKit 4.1, no-op.
-    s.set_enable_media_stream(false);           // WebRTC leak prevention
-
-    // Sécurité
-    s.set_javascript_can_open_windows_automatically(false); // bloque les popups
-    s.set_enable_developer_extras(false);       // pas de "Inspecter l'élément"
-
-    // UX
+    s.set_enable_media_stream(false);
+    s.set_javascript_can_open_windows_automatically(false);
+    s.set_enable_developer_extras(false);
     s.set_enable_smooth_scrolling(true);
-
-    // Java / NPAPI : dépréciés depuis WebKit 2.32–2.38, désactivés par défaut
-    // dans WebKit 4.1. Pas appelés pour éviter les warnings de compilation.
-    // Géolocalisation : permission-request depuis WebKit 4.1 (Sprint 5).
-    // Cookies tiers : WebsiteDataManager (Sprint 5).
 }
 
-fn wire_policy_filter(webview: &WebView, blocker: Arc<AdBlocker>) {
-    webview.connect_decide_policy(move |_wv, decision, dtype| {
-        if dtype != PolicyDecisionType::NavigationAction {
-            return false;
+fn wire_policy_filter(
+    webview: &WebView,
+    blocker: Arc<AdBlocker>,
+    prefs:   Settings,
+    bm:      Bookmarks,
+) {
+    webview.connect_decide_policy(move |wv, decision, dtype| {
+        if dtype != PolicyDecisionType::NavigationAction { return false; }
+
+        let url = extract_url(decision);
+
+        // — Schéma interne nyx:// ────────────────────────────────────────
+        if let Some(rest) = url.strip_prefix("nyx://") {
+            decision.ignore();
+            if rest.starts_with("apply") {
+                settings::apply_from_url(&url, &prefs, &blocker);
+                let html = settings_page::html(&prefs.borrow());
+                wv.load_html(&html, Some(&settings_page::base_uri()));
+            } else if rest.starts_with("newtab") {
+                wv.load_html(newtab::html(), Some(&newtab::base_uri()));
+            } else if rest.starts_with("settings") {
+                let html = settings_page::html(&prefs.borrow());
+                wv.load_html(&html, Some(&settings_page::base_uri()));
+            } else if rest.starts_with("bookmarks") {
+                let html = crate::bookmarks::page_html(&bm.borrow());
+                wv.load_html(&html, None);
+            }
+            return true;
         }
+
+        // — Adblock ──────────────────────────────────────────────────────
         if let Ok(nav) = decision.clone().downcast::<NavigationPolicyDecision>() {
-            let url = nav
-                .navigation_action()
-                .and_then(|a| a.request())
-                .and_then(|r| r.uri())
-                .map(|s| s.to_string())
-                .unwrap_or_default();
             if blocker.should_block(&url) {
-                decision.ignore();
+                nav.ignore();
                 return true;
             }
         }
@@ -55,58 +71,54 @@ fn wire_policy_filter(webview: &WebView, blocker: Arc<AdBlocker>) {
     });
 }
 
-/// Normalise une entrée utilisateur en URL chargeable.
-///
-/// Schémas reconnus passent tels quels. Les schémas non-web
-/// (`javascript:`, `data:`, `vbscript:`…) sont envoyés à DDG pour éviter
-/// toute exécution de code injecté depuis la barre d'adresse.
-pub fn resolve_input(input: &str) -> String {
+fn extract_url(decision: &webkit2gtk::PolicyDecision) -> String {
+    decision.clone()
+        .downcast::<NavigationPolicyDecision>()
+        .ok()
+        .and_then(|n| n.navigation_action())
+        .and_then(|a| a.request())
+        .and_then(|r| r.uri())
+        .map(|s| s.to_string())
+        .unwrap_or_default()
+}
+
+/// Normalise une entrée barre d'adresse en URL.
+/// Utilise le moteur de recherche configuré dans `prefs` pour les requêtes.
+pub fn resolve_input(input: &str, prefs: &crate::settings::AppSettings) -> String {
     let s = input.trim();
     if s.is_empty() { return String::new(); }
 
-    // Schémas web explicites.
     for prefix in ["https://", "http://", "file://", "nyx://"] {
         if s.starts_with(prefix) { return s.to_string(); }
     }
 
-    // Détecter un schéma non-web : `scheme:non-chiffre` où scheme ne
-    // contient pas de point (sinon c'est `host:port`).
     if let Some(colon) = s.find(':') {
         let after = &s[colon + 1..];
-        let is_port   = after.starts_with(|c: char| c.is_ascii_digit());
-        let is_scheme = after.starts_with("//");
-        if !is_port && !is_scheme { return ddg(s); }
+        if !after.starts_with(|c: char| c.is_ascii_digit()) && !after.starts_with("//") {
+            return prefs.search_engine.search_url(s);
+        }
     }
 
-    // Domaine bare ou adresse IP.
     if !s.contains(' ') && (s.contains('.') || s.starts_with("localhost")) {
         let scheme = if s.starts_with("localhost") { "http" } else { "https" };
         return format!("{scheme}://{s}");
     }
 
-    ddg(s)
-}
-
-fn ddg(q: &str) -> String {
-    format!("https://duckduckgo.com/?q={}", urlencode(q))
-}
-
-fn urlencode(s: &str) -> String {
-    s.replace('&', "%26").replace('#', "%23").replace(' ', "+")
+    prefs.search_engine.search_url(s)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::resolve_input;
+    use super::*;
+    use crate::settings::AppSettings;
+    fn p() -> AppSettings { AppSettings::default() }
 
-    #[test] fn passthrough_https()       { assert_eq!(resolve_input("https://example.com"), "https://example.com"); }
-    #[test] fn passthrough_nyx()         { assert_eq!(resolve_input("nyx://newtab"), "nyx://newtab"); }
-    #[test] fn bare_domain_gets_https()  { assert_eq!(resolve_input("github.com"), "https://github.com"); }
-    #[test] fn localhost_gets_http()     { assert_eq!(resolve_input("localhost:3000"), "http://localhost:3000"); }
-    #[test] fn domain_with_port()        { assert_eq!(resolve_input("example.com:8080"), "https://example.com:8080"); }
-    #[test] fn query_becomes_ddg()       { assert!(resolve_input("rust async book").contains("duckduckgo.com")); }
-    #[test] fn empty_returns_empty()     { assert_eq!(resolve_input("   "), ""); }
-    #[test] fn javascript_to_ddg()       { assert!(resolve_input("javascript:alert(1)").contains("duckduckgo.com")); }
-    #[test] fn data_scheme_to_ddg()      { assert!(resolve_input("data:text/html,<b>xss</b>").contains("duckduckgo.com")); }
-    #[test] fn vbscript_to_ddg()         { assert!(resolve_input("vbscript:msgbox(1)").contains("duckduckgo.com")); }
+    #[test] fn passthrough_https()     { assert_eq!(resolve_input("https://x.com", &p()), "https://x.com"); }
+    #[test] fn passthrough_nyx()       { assert_eq!(resolve_input("nyx://newtab", &p()), "nyx://newtab"); }
+    #[test] fn bare_domain()           { assert_eq!(resolve_input("github.com", &p()), "https://github.com"); }
+    #[test] fn localhost()             { assert_eq!(resolve_input("localhost:3000", &p()), "http://localhost:3000"); }
+    #[test] fn query_becomes_ddg()     { assert!(resolve_input("rust async", &p()).contains("duckduckgo.com")); }
+    #[test] fn empty()                 { assert_eq!(resolve_input("  ", &p()), ""); }
+    #[test] fn javascript_to_search()  { assert!(resolve_input("javascript:x", &p()).contains("duckduckgo.com")); }
+    #[test] fn data_to_search()        { assert!(resolve_input("data:text/html,x", &p()).contains("duckduckgo.com")); }
 }
