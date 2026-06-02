@@ -43,23 +43,19 @@ impl BrowserWindow {
         tabs.set_parent(&window);
         let nav_bar = navbar::build(&url_bar, &tabs, &settings, &bm);
 
-        // ── Revealer : tout le chrome (navbar) glisse depuis le haut ─
         let revealer = Revealer::builder()
             .transition_type(RevealerTransitionType::SlideDown)
-            .transition_duration(220)
+            .transition_duration(250)
             .reveal_child(true)
             .build();
         revealer.add(&nav_bar);
 
-        // État partagé : le chrome est-il caché (mode immersif newtab) ?
         let chrome_hidden = Rc::new(Cell::new(false));
 
-        // ── Zone de hover invisible en haut (10px) — déclenche le reveal ─
         let hover_zone = EventBox::new();
         hover_zone.set_above_child(true);
         hover_zone.set_visible_window(false);
         hover_zone.set_size_request(-1, 10);
-        hover_zone.style_context().add_class("nyx-hover-zone");
 
         let content_box = GtkBox::new(Orientation::Vertical, 0);
         content_box.pack_start(&tabs.notebook, true, true, 0);
@@ -78,13 +74,22 @@ impl BrowserWindow {
         vbox.pack_start(&overlay,  true,  true,  0);
         window.add(&vbox);
 
-        // ── Câblage autohide ────────────────────────────────────────
         wire_chrome_autohide(&revealer, &hover_zone, &nav_bar, &tabs, &chrome_hidden);
         wire_webview_hooks(&tabs, &url_bar, &progress, &revealer, &chrome_hidden);
         wire_tab_switch(&tabs, &url_bar, &progress, &revealer, &chrome_hidden);
         wire_last_tab(&window, &tabs, &settings);
         wire_double_click(&tabs);
         shortcuts::wire(&window, &tabs, &url_bar, &bm);
+
+        // Le premier onglet est toujours un newtab → cacher le chrome au démarrage.
+        {
+            let r = revealer.clone();
+            let t = tabs.clone();
+            let h = chrome_hidden.clone();
+            gtk::glib::idle_add_local_once(move || {
+                sync_chrome(&r, &t, &h);
+            });
+        }
 
         Self { window, tabs }
     }
@@ -93,31 +98,20 @@ impl BrowserWindow {
 }
 
 fn is_newtab(wv: &WebView) -> bool {
-    match wv.uri() {
-        Some(u) => {
-            let u = u.as_str();
-            u.is_empty()
-                || u.starts_with("nyx://newtab")
-                || (u.starts_with("file://") && u.contains("/assets/") && u.contains("newtab"))
-        }
-        None => true,
-    }
+    wv.widget_name().as_str() == "nyx-newtab"
 }
 
-/// Montre ou cache tout le chrome (navbar + onglets) selon la page active.
 fn set_chrome_visible(revealer: &Revealer, tabs: &TabBar, visible: bool, hidden: &Rc<Cell<bool>>) {
     revealer.set_reveal_child(visible);
     tabs.notebook.set_show_tabs(visible);
     hidden.set(!visible);
 }
 
-/// Synchronise le chrome : caché sur newtab, visible ailleurs.
 fn sync_chrome(revealer: &Revealer, tabs: &TabBar, hidden: &Rc<Cell<bool>>) {
     let on_newtab = tabs.current_webview().is_some_and(|wv| is_newtab(&wv));
     set_chrome_visible(revealer, tabs, !on_newtab, hidden);
 }
 
-/// Hover zone (entrée) → révèle le chrome. Sortie de la navbar → re-cache si newtab.
 fn wire_chrome_autohide(
     revealer: &Revealer, hover_zone: &EventBox, nav_bar: &GtkBox,
     tabs: &TabBar, hidden: &Rc<Cell<bool>>,
@@ -159,9 +153,7 @@ fn wire_last_tab(window: &ApplicationWindow, tabs: &TabBar, settings: &Settings)
     let t = tabs.clone();
     let s = settings.clone();
     tabs.notebook.connect_page_removed(move |nb, _, _| {
-        if nb.n_pages() != 0 {
-            return;
-        }
+        if nb.n_pages() != 0 { return; }
         match s.borrow().on_last_tab {
             LastTab::CloseWindow => w.close(),
             LastTab::Home => {
@@ -176,8 +168,7 @@ fn wire_double_click(tabs: &TabBar) {
     let t = tabs.clone();
     tabs.notebook.connect_button_press_event(move |_nb, ev| {
         if ev.event_type() == gtk::gdk::EventType::DoubleButtonPress
-            && ev.button() == 1
-            && ev.position().1 < 42.0
+            && ev.button() == 1 && ev.position().1 < 42.0
         {
             t.open_home();
             return gtk::glib::Propagation::Stop;
@@ -197,18 +188,33 @@ fn wire_webview_hooks(
     let h    = hidden.clone();
     tabs.set_on_new_webview(move |wv| {
         let ub2 = ub.clone();
-        wv.connect_uri_notify(move |w| { ub2.set_text(w.uri().as_deref().unwrap_or("")); });
+        let rev2 = rev.clone();
+        let t2   = t.clone();
+        let h2   = h.clone();
+        wv.connect_uri_notify(move |w| {
+            let uri = w.uri().map(|u| u.to_string()).unwrap_or_default();
+            ub2.set_text(&uri);
+            // Quand on navigue hors du newtab, effacer le tag.
+            if w.widget_name().as_str() == "nyx-newtab"
+                && !uri.is_empty()
+                && !uri.starts_with("nyx://newtab")
+                && !(uri.starts_with("file://") && uri.contains("newtab"))
+            {
+                w.set_widget_name("");
+                sync_chrome(&rev2, &t2, &h2);
+            }
+        });
         let prog2 = prog.clone();
         wv.connect_estimated_load_progress_notify(move |w| {
             let p = w.estimated_load_progress();
             prog2.set_fraction(p);
             prog2.set_visible(p > 0.0 && p < 1.0);
         });
-        let rev2 = rev.clone();
-        let t2   = t.clone();
-        let h2   = h.clone();
+        let rev3 = rev.clone();
+        let t3   = t.clone();
+        let h3   = h.clone();
         wv.connect_load_changed(move |_, _| {
-            sync_chrome(&rev2, &t2, &h2);
+            sync_chrome(&rev3, &t3, &h3);
         });
     });
 }

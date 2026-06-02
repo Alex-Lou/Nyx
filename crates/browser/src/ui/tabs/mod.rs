@@ -62,6 +62,7 @@ impl TabBar {
 
     pub fn open_new_tab(&self) -> WebView {
         let wv = self.build_webview(None);
+        wv.set_widget_name("nyx-newtab");
         wv.load_html(&newtab::html(), Some(&pages::assets_base_uri()));
         self.attach(&wv, "Nouvel onglet");
         wv
@@ -181,8 +182,8 @@ impl TabBar {
                 let wv = wv.clone();
                 move || {
                     if url.is_empty() || url.starts_with("nyx://") || url.starts_with("file://") {
-                        let html = newtab::html();
-                        wv.load_html(&html, Some(&pages::assets_base_uri()));
+                        wv.set_widget_name("nyx-newtab");
+                        wv.load_html(&newtab::html(), Some(&pages::assets_base_uri()));
                     } else {
                         wv.load_uri(&url);
                     }
