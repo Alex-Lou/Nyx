@@ -173,6 +173,23 @@ impl TabBar {
             Some(tabs.open_related(opener).upcast::<Widget>())
         });
 
+        // Crash recovery : si le processus web crash ou est tué par l'OOM-killer,
+        // on recharge la dernière URL (ou la page d'accueil si vierge).
+        wv.connect_web_process_terminated(|wv, _reason| {
+            let url = wv.uri().map(|u| u.to_string()).unwrap_or_default();
+            gtk::glib::idle_add_local_once({
+                let wv = wv.clone();
+                move || {
+                    if url.is_empty() || url.starts_with("nyx://") || url.starts_with("file://") {
+                        let html = newtab::html();
+                        wv.load_html(&html, Some(&pages::assets_base_uri()));
+                    } else {
+                        wv.load_uri(&url);
+                    }
+                }
+            });
+        });
+
         (self.on_new_webview.borrow())(&wv);
         wv
     }
