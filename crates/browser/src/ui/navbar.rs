@@ -2,12 +2,14 @@ use gtk::prelude::*;
 use gtk::{Box as GtkBox, Button, Entry, EntryIconPosition, Orientation};
 use webkit2gtk::{WebView, WebViewExt};
 
+use nyx_core::site_data_policy::{self, Scope};
+
 use crate::pages::{self, newtab};
 use crate::state::bookmarks::{self, Bookmarks};
 use crate::state::settings::Settings;
 use crate::ui::tabs::TabBar;
 use crate::ui::bookmarks_popover;
-use crate::web;
+use crate::web::{self, site_data};
 
 /// Construit la barre de navigation, câble ses boutons + la barre d'adresse,
 /// et renvoie le widget prêt à packer dans la fenêtre.
@@ -17,6 +19,7 @@ pub fn build(url_bar: &Entry, tabs: &TabBar, settings: &Settings, bm: &Bookmarks
     let reload   = nav_button("↺", "Recharger (Ctrl+R)");
     let home     = nav_button("⌂", "Accueil");
     let star     = nav_button("☆", "Favoris");
+    let forget   = nav_button("🛇", "Oublier ce site");
     let new_tab  = nav_button("+", "Nouvel onglet (Ctrl+T)");
     let settings_b = nav_button("⚙", "Paramètres (Ctrl+,)");
 
@@ -41,6 +44,7 @@ pub fn build(url_bar: &Entry, tabs: &TabBar, settings: &Settings, bm: &Bookmarks
     bar.pack_start(url_bar,  true,  true,  0);
     bar.pack_end(&settings_b, false, false, 0);
     bar.pack_end(&star,       false, false, 0);
+    bar.pack_end(&forget,     false, false, 0);
     bar.pack_end(&new_tab,    false, false, 4);
 
     let t = tabs.clone();
@@ -69,6 +73,12 @@ pub fn build(url_bar: &Entry, tabs: &TabBar, settings: &Settings, bm: &Bookmarks
     {
         let pop = bookmarks_popover::build(&star, tabs, bm);
         star.connect_clicked(move |_| pop.popup());
+    }
+
+    // 🛇 → "Oublier ce site" : popover avec 2 niveaux (origine / domaine).
+    {
+        let pop = build_forget_popover(&forget, tabs, url_bar);
+        forget.connect_clicked(move |_| pop.popup());
     }
 
     // Barre d'adresse → charger via le moteur configuré.
@@ -104,6 +114,69 @@ pub fn bookmark_current(tabs: &TabBar, bm: &Bookmarks, url_bar: &Entry) {
     gtk::glib::timeout_add_local_once(
         std::time::Duration::from_millis(1400),
         move || ub.set_text(&url),
+    );
+}
+
+/// Popover "Oublier ce site" — 2 niveaux : origine exacte ou domaine entier.
+/// L'exécution passe par `web::site_data::execute` ; la politique est dans
+/// `nyx-core::site_data_policy`.
+fn build_forget_popover(anchor: &Button, tabs: &TabBar, url_bar: &Entry) -> gtk::Popover {
+    use gtk::{Label, Orientation, Popover, PositionType};
+    let pop = Popover::new(Some(anchor));
+    pop.set_position(PositionType::Bottom);
+    pop.style_context().add_class("nyx-bm-pop");
+
+    let root = GtkBox::new(Orientation::Vertical, 8);
+    root.set_margin_top(10); root.set_margin_bottom(10);
+    root.set_margin_start(12); root.set_margin_end(12);
+
+    let title = Label::new(Some("Oublier ce site"));
+    title.set_xalign(0.0);
+    title.style_context().add_class("nyx-bm-title");
+
+    let origin_btn = Button::with_label("Cette origine seulement");
+    let domain_btn = Button::with_label("Tout le domaine");
+    origin_btn.style_context().add_class("nyx-nav-btn");
+    domain_btn.style_context().add_class("nyx-nav-btn");
+    origin_btn.set_relief(gtk::ReliefStyle::None);
+    domain_btn.set_relief(gtk::ReliefStyle::None);
+
+    root.pack_start(&title, false, false, 0);
+    root.pack_start(&origin_btn, false, false, 0);
+    root.pack_start(&domain_btn, false, false, 0);
+    pop.add(&root);
+    root.show_all();
+
+    let trigger = |scope: Scope, tabs: TabBar, url_bar: Entry, pop: Popover| -> Box<dyn Fn(&Button)> {
+        Box::new(move |_| {
+            let Some(wv) = tabs.current_webview() else { return };
+            let uri = wv.uri().map(|u| u.to_string()).unwrap_or_default();
+            let Some(plan) = site_data_policy::plan_for(&uri, scope) else {
+                flash(&url_bar, "  Aucun site web à oublier");
+                return;
+            };
+            if let Some(ctx) = wv.context() {
+                site_data::execute(&ctx, &plan);
+            }
+            flash(&url_bar, &format!("  🛇  Oublié : {}", plan.target));
+            wv.reload();
+            pop.popdown();
+        })
+    };
+
+    origin_btn.connect_clicked(trigger(Scope::Origin, tabs.clone(), url_bar.clone(), pop.clone()));
+    domain_btn.connect_clicked(trigger(Scope::Domain, tabs.clone(), url_bar.clone(), pop.clone()));
+    pop
+}
+
+/// Toast court dans la barre d'adresse (la valeur est restaurée après 1.4s).
+fn flash(url_bar: &Entry, msg: &str) {
+    let prev = url_bar.text().to_string();
+    url_bar.set_text(msg);
+    let ub = url_bar.clone();
+    gtk::glib::timeout_add_local_once(
+        std::time::Duration::from_millis(1400),
+        move || ub.set_text(&prev),
     );
 }
 
