@@ -66,7 +66,10 @@ headerbar.nyx-headerbar .title {
 
 headerbar.nyx-headerbar button {
     background: none;
+    background-image: none;
     border: none;
+    box-shadow: none;
+    outline: none;
     border-radius: 7px;
     color: @nyx_dim;
     padding: 2px 6px;
@@ -75,7 +78,11 @@ headerbar.nyx-headerbar button {
 
 headerbar.nyx-headerbar button:hover {
     background-color: @nyx_raised;
+    background-image: none;
     color: @nyx_star;
+    box-shadow: none;
+    outline: none;
+    border: none;
 }
 
 /* ── URL bar ───────────────────────────────────── */
@@ -109,7 +116,12 @@ headerbar.nyx-headerbar button:hover {
 
 .nyx-nav-btn {
     background: none;
+    background-image: none;
     border: none;
+    box-shadow: none;          /* tue le highlight blanc Adwaita */
+    outline: none;
+    -gtk-icon-shadow: none;
+    text-shadow: none;
     border-radius: 8px;
     color: @nyx_dim;
     font-size: 14px;
@@ -120,14 +132,24 @@ headerbar.nyx-headerbar button:hover {
                 color            150ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
+/* Spécificité 0,2,0 > `button:hover` (0,1,1) : on écrase le thème de base. */
 .nyx-nav-btn:hover {
     background-color: @nyx_raised;
+    background-image: none;
     color: @nyx_text;
+    border: none;
+    box-shadow: none;
+    outline: none;
 }
 
-.nyx-nav-btn:active {
+.nyx-nav-btn:active,
+.nyx-nav-btn:checked {
     background-color: @nyx_border;
+    background-image: none;
     color: @nyx_aurora;
+    border: none;
+    box-shadow: none;
+    outline: none;
 }
 
 .nyx-nav-btn:disabled { color: @nyx_ghost; }
@@ -178,7 +200,10 @@ notebook > header > tabs > tab:hover   .nyx-tab-favicon { opacity: 0.90; }
 /* Bouton ×  */
 .nyx-tab-close {
     background: none;
+    background-image: none;
     border: none;
+    box-shadow: none;
+    outline: none;
     border-radius: 50%;
     color: @nyx_ghost;
     font-size: 13px;
@@ -190,7 +215,11 @@ notebook > header > tabs > tab:hover   .nyx-tab-favicon { opacity: 0.90; }
 
 .nyx-tab-close:hover {
     background-color: alpha(@nyx_twilight, 0.18);
+    background-image: none;
     color: @nyx_twilight;
+    box-shadow: none;
+    outline: none;
+    border: none;
 }
 
 /* ── Barre de chargement ───────────────────────── */
