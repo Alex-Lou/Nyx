@@ -107,6 +107,14 @@ impl TabBar {
         wv
     }
 
+    /// Ouvre une URL dans un nouvel onglet (ex. clic sur un favori).
+    pub fn open_url(&self, url: &str) -> WebView {
+        let wv = self.build_webview(None);
+        wv.load_uri(url);
+        self.attach(&wv, "Chargement…");
+        wv
+    }
+
     pub fn current_webview(&self) -> Option<WebView> {
         let p = self.notebook.current_page()?;
         self.notebook.nth_page(Some(p))?.downcast::<WebView>().ok()

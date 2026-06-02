@@ -46,6 +46,37 @@ window, .background {
     border-radius: 14px;
 }
 
+/* ── Popover favoris ────────────────────────────── */
+
+.nyx-bm-pop {
+    background-color: @nyx_surface;
+    border: 1px solid @nyx_border;
+    border-radius: 12px;
+}
+
+.nyx-bm-title {
+    color: @nyx_moon;
+    font-size: 11px;
+    font-weight: bold;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+}
+
+.nyx-bm-empty {
+    color: @nyx_dim;
+    font-style: italic;
+}
+
+.nyx-bm-list { background-color: transparent; }
+
+.nyx-bm-list row {
+    background-color: transparent;
+    border-radius: 8px;
+    transition: background-color 150ms ease;
+}
+
+.nyx-bm-list row:hover { background-color: @nyx_raised; }
+
 /* ── Titlebar (HeaderBar CSD) ───────────────────── */
 
 headerbar.nyx-headerbar {
