@@ -7,117 +7,110 @@
 <title>Paramètres — Nyx</title>
 {{TOKENS}}
 <style>
-:root {
-    --bg:       #07070f;            /* bespoke */
-    --text:     #e8ecff;            /* bespoke */
-    --muted:    #7a82ac;            /* bespoke */
-    --faint:    #4a5078;            /* bespoke */
-    --accent:   var(--nyx-nebula);
-    --aurora:   var(--nyx-aurora);
-    --line:     linear-gradient(90deg, transparent, rgba(157,110,247,.35), rgba(74,242,200,.22), transparent);
-    --field-bg: rgba(255,255,255,.03);
-    --field-br: rgba(120,130,200,.14);
-}
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-html, body { background: var(--bg); color: var(--text); }
+html, body { background: var(--nyx-void); color: var(--nyx-text); }
 body {
     font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
     -webkit-font-smoothing: antialiased;
-    padding: 0 0 96px;
-    min-height: 100vh;
+    padding: 0 0 96px; min-height: 100vh;
 }
-
-/* Ambiance discrète */
 body::before {
     content: ''; position: fixed; inset: 0; z-index: 0; pointer-events: none;
     background:
-        radial-gradient(ellipse 60% 45% at 20% 0%, rgba(157,110,247,.08), transparent 60%),
-        radial-gradient(ellipse 50% 40% at 90% 100%, rgba(74,242,200,.05), transparent 60%);
+        radial-gradient(ellipse 60% 45% at 20% 0%, color-mix(in srgb, var(--nyx-nebula) 8%, transparent), transparent 60%),
+        radial-gradient(ellipse 50% 40% at 90% 100%, color-mix(in srgb, var(--nyx-aurora) 5%, transparent), transparent 60%);
 }
-
 .wrap { position: relative; z-index: 1; max-width: 620px; margin: 0 auto; padding: 64px 28px 0; }
 
 .title {
     font-size: 30px; font-weight: 200; letter-spacing: .14em;
-    background: linear-gradient(135deg, #d8e0ff, var(--aurora));
+    background: linear-gradient(135deg, var(--nyx-star), var(--nyx-aurora));
     -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
 }
-.subtitle { color: var(--faint); font-size: 12.5px; margin-top: 6px; letter-spacing: .03em; }
+.subtitle { color: var(--nyx-ghost); font-size: 12.5px; margin-top: 6px; letter-spacing: .03em; }
 
-/* ── Sections ─────────────────────────────────────────── */
 .section { margin-top: 44px; }
 .section-head {
     font-size: 11px; font-weight: 600; letter-spacing: .2em; text-transform: uppercase;
-    color: var(--accent); margin-bottom: 12px;
+    color: var(--nyx-nebula); margin-bottom: 12px;
 }
-.divider { height: 1px; background: var(--line); margin-bottom: 22px; }
+.divider {
+    height: 1px; margin-bottom: 22px;
+    background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--nyx-nebula) 35%, transparent),
+                color-mix(in srgb, var(--nyx-aurora) 22%, transparent), transparent);
+}
 
-/* ── Rows ─────────────────────────────────────────────── */
 .row {
     display: flex; align-items: center; justify-content: space-between;
     gap: 20px; padding: 12px 2px;
 }
-.row + .row { border-top: 1px solid rgba(120,130,200,.06); }
+.row + .row { border-top: 1px solid color-mix(in srgb, var(--nyx-border) 40%, transparent); }
 .row-text { flex: 1; min-width: 0; }
-.row-label { font-size: 14px; color: var(--text); }
-.row-desc  { font-size: 12px; color: var(--muted); margin-top: 3px; line-height: 1.45; }
+.row-label { font-size: 14px; }
+.row-desc  { font-size: 12px; color: var(--nyx-dim); margin-top: 3px; line-height: 1.45; }
 
-/* ── Chips (radio) ────────────────────────────────────── */
 .chips { display: flex; gap: 8px; flex-wrap: wrap; }
 .chips input { position: absolute; opacity: 0; pointer-events: none; }
 .chip {
     padding: 8px 15px; border-radius: 10px; cursor: pointer; font-size: 13px;
-    background: var(--field-bg); border: 1px solid var(--field-br); color: var(--muted);
+    background: var(--nyx-raised); border: 1px solid var(--nyx-border); color: var(--nyx-dim);
     transition: all .2s cubic-bezier(.22,1,.36,1); user-select: none;
 }
-.chip:hover { color: var(--text); border-color: rgba(157,110,247,.3); transform: translateY(-1px); }
+.chip:hover { color: var(--nyx-text); border-color: color-mix(in srgb, var(--nyx-nebula) 30%, transparent); transform: translateY(-1px); }
 input:checked + .chip {
-    background: rgba(74,242,200,.10); border-color: rgba(74,242,200,.45);
-    color: var(--aurora); box-shadow: 0 0 14px rgba(74,242,200,.10);
+    background: color-mix(in srgb, var(--nyx-aurora) 10%, transparent);
+    border-color: color-mix(in srgb, var(--nyx-aurora) 45%, transparent);
+    color: var(--nyx-aurora); box-shadow: 0 0 14px color-mix(in srgb, var(--nyx-aurora) 10%, transparent);
 }
 
-/* ── Toggle switch ────────────────────────────────────── */
 .toggle { position: relative; width: 46px; height: 26px; flex-shrink: 0; }
 .toggle input { position: absolute; opacity: 0; width: 0; height: 0; }
 .slider {
     position: absolute; inset: 0; cursor: pointer; border-radius: 26px;
-    background: rgba(157,110,247,.12); border: 1px solid rgba(157,110,247,.24);
+    background: color-mix(in srgb, var(--nyx-nebula) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--nyx-nebula) 24%, transparent);
     transition: all .26s cubic-bezier(.22,1,.36,1);
 }
 .slider::before {
     content: ''; position: absolute; width: 20px; height: 20px; left: 2px; top: 2px;
-    border-radius: 50%; background: rgba(200,210,255,.5);
+    border-radius: 50%; background: color-mix(in srgb, var(--nyx-star) 50%, transparent);
     transition: all .26s cubic-bezier(.22,1,.36,1); box-shadow: 0 1px 4px rgba(0,0,0,.4);
 }
-.toggle input:checked + .slider { background: rgba(74,242,200,.18); border-color: rgba(74,242,200,.55); }
+.toggle input:checked + .slider {
+    background: color-mix(in srgb, var(--nyx-aurora) 18%, transparent);
+    border-color: color-mix(in srgb, var(--nyx-aurora) 55%, transparent);
+}
 .toggle input:checked + .slider::before {
-    transform: translateX(20px); background: var(--aurora);
-    box-shadow: 0 0 10px rgba(74,242,200,.6);
+    transform: translateX(20px); background: var(--nyx-aurora);
+    box-shadow: 0 0 10px color-mix(in srgb, var(--nyx-aurora) 60%, transparent);
 }
 
-/* ── Champ texte + presets ────────────────────────────── */
 .stack { display: flex; flex-direction: column; gap: 12px; padding: 6px 2px; }
 .presets { display: flex; gap: 8px; }
 .preset {
     padding: 7px 14px; border-radius: 9px; cursor: pointer; font-size: 12.5px;
-    background: var(--field-bg); border: 1px solid var(--field-br); color: var(--muted);
+    background: var(--nyx-raised); border: 1px solid var(--nyx-border); color: var(--nyx-dim);
     transition: all .2s ease;
 }
-.preset:hover { color: var(--text); border-color: rgba(157,110,247,.3); }
+.preset:hover { color: var(--nyx-text); border-color: color-mix(in srgb, var(--nyx-nebula) 30%, transparent); }
 .field {
-    width: 100%; padding: 11px 14px; border-radius: 10px; color: var(--text);
-    background: var(--field-bg); border: 1px solid var(--field-br);
+    width: 100%; padding: 11px 14px; border-radius: 10px; color: var(--nyx-text);
+    background: var(--nyx-raised); border: 1px solid var(--nyx-border);
     font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 13px; outline: none;
     transition: border-color .2s, box-shadow .2s;
 }
-.field:focus { border-color: rgba(74,242,200,.4); box-shadow: 0 0 0 1px rgba(74,242,200,.14); }
+.field:focus {
+    border-color: color-mix(in srgb, var(--nyx-aurora) 40%, transparent);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--nyx-aurora) 14%, transparent);
+}
 
-/* ── Indicateur auto-save ─────────────────────────────── */
 #saved {
     position: fixed; top: 22px; right: 26px; z-index: 30;
     display: inline-flex; align-items: center; gap: 7px;
     padding: 8px 14px; border-radius: 20px; font-size: 12px;
-    background: rgba(74,242,200,.10); border: 1px solid rgba(74,242,200,.3); color: var(--aurora);
+    background: color-mix(in srgb, var(--nyx-aurora) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--nyx-aurora) 30%, transparent);
+    color: var(--nyx-aurora);
     opacity: 0; transform: translateY(-6px); transition: opacity .35s, transform .35s;
 }
 #saved.show { opacity: 1; transform: translateY(0); }
@@ -125,78 +118,73 @@ input:checked + .chip {
 </head>
 <body>
 <iframe id="sink" style="display:none" aria-hidden="true"></iframe>
-<div id="saved">✓ Enregistré</div>
+<div id="saved">Enregistre</div>
 
 <div class="wrap">
-    <h1 class="title">Paramètres</h1>
+    <h1 class="title">Parametres</h1>
     <p class="subtitle">Enregistrement automatique — aucune validation requise.</p>
 
     <form id="f" autocomplete="off">
 
-        <!-- RECHERCHE ─────────────────────────────────────────── -->
         <section class="section">
             <div class="section-head">Recherche</div>
             <div class="divider"></div>
             <div class="row">
-                <div class="row-text"><div class="row-label">Moteur par défaut</div>
-                    <div class="row-desc">Utilisé depuis la barre d'adresse. Aucun Google.</div></div>
+                <div class="row-text"><div class="row-label">Moteur par defaut</div>
+                    <div class="row-desc">Utilise depuis la barre d'adresse. Aucun Google.</div></div>
                 <div class="chips">
-                    <label><input type="radio" name="engine" value="ddg"{{ENGINE_DDG}}><span class="chip">🦆 DuckDuckGo</span></label>
-                    <label><input type="radio" name="engine" value="brave"{{ENGINE_BRAVE}}><span class="chip">🦁 Brave</span></label>
-                    <label><input type="radio" name="engine" value="ecosia"{{ENGINE_ECOSIA}}><span class="chip">🌳 Ecosia</span></label>
+                    <label><input type="radio" name="engine" value="ddg"{{ENGINE_DDG}}><span class="chip">DuckDuckGo</span></label>
+                    <label><input type="radio" name="engine" value="brave"{{ENGINE_BRAVE}}><span class="chip">Brave</span></label>
+                    <label><input type="radio" name="engine" value="ecosia"{{ENGINE_ECOSIA}}><span class="chip">Ecosia</span></label>
                 </div>
             </div>
         </section>
 
-        <!-- DÉMARRAGE ─────────────────────────────────────────── -->
         <section class="section">
-            <div class="section-head">Démarrage &amp; accueil</div>
+            <div class="section-head">Demarrage &amp; accueil</div>
             <div class="divider"></div>
             <div class="stack">
                 <div class="row-text"><div class="row-label">Page d'accueil</div>
-                    <div class="row-desc">Chargée par le bouton ⌂ et au démarrage.</div></div>
+                    <div class="row-desc">Chargee par le bouton et au demarrage.</div></div>
                 <div class="presets">
-                    <button type="button" class="preset" data-home="newtab">✦ Nouvel onglet Nyx</button>
-                    <button type="button" class="preset" data-home="custom">🔗 URL personnalisée</button>
+                    <button type="button" class="preset" data-home="newtab">Nouvel onglet Nyx</button>
+                    <button type="button" class="preset" data-home="custom">URL personnalisee</button>
                 </div>
                 <input type="text" name="home" id="home" class="field"
                        placeholder="https://…  ou  nyx://newtab" value="{{HOME_URL}}">
             </div>
         </section>
 
-        <!-- CONFIDENTIALITÉ ───────────────────────────────────── -->
         <section class="section">
-            <div class="section-head">Confidentialité &amp; sécurité</div>
+            <div class="section-head">Confidentialite &amp; securite</div>
             <div class="divider"></div>
             <div class="row">
                 <div class="row-text"><div class="row-label">NyxGuard</div>
-                    <div class="row-desc">Bouclier intégré : bloque pubs, trackers et analytics connus.</div></div>
+                    <div class="row-desc">Bouclier integre : bloque pubs, trackers et analytics connus.</div></div>
                 <label class="toggle"><input type="checkbox" name="adblock" value="true"{{ADBLOCK}}><span class="slider"></span></label>
             </div>
             <div class="row">
                 <div class="row-text"><div class="row-label">Bloquer les connexions tierces</div>
-                    <div class="row-desc">« Se connecter avec Google / Meta / Apple… » et leurs SDK.</div></div>
+                    <div class="row-desc">Se connecter avec Google / Meta / Apple et leurs SDK.</div></div>
                 <label class="toggle"><input type="checkbox" name="blockauth" value="true"{{BLOCKAUTH}}><span class="slider"></span></label>
             </div>
             <div class="row">
-                <div class="row-text"><div class="row-label">Navigation privée</div>
-                    <div class="row-desc">Nouveaux onglets sans trace disque (cookies/cache en RAM).
-                        S'applique aux prochains onglets.</div></div>
+                <div class="row-text"><div class="row-label">Navigation privee</div>
+                    <div class="row-desc">Nouveaux onglets sans trace disque (cookies/cache en RAM).</div></div>
                 <label class="toggle"><input type="checkbox" name="private" value="true"{{PRIVATE}}><span class="slider"></span></label>
             </div>
             <div class="row">
-                <div class="row-text"><div class="row-label">Forcer le mode sombre des sites</div>
-                    <div class="row-desc">Assombrit les sites clairs, images préservées.</div></div>
+                <div class="row-text"><div class="row-label">Mode sombre des sites</div>
+                    <div class="row-desc">Assombrit les sites clairs, images preservees.</div></div>
                 <label class="toggle"><input type="checkbox" name="dark" value="true"{{DARK}}><span class="slider"></span></label>
             </div>
         </section>
 
-        <!-- ONGLETS ───────────────────────────────────────────── -->
         <section class="section">
             <div class="section-head">Onglets</div>
             <div class="divider"></div>
             <div class="row">
-                <div class="row-text"><div class="row-label">À la fermeture du dernier onglet</div>
+                <div class="row-text"><div class="row-label">Fermeture du dernier onglet</div>
                     <div class="row-desc">Quand plus aucun onglet n'est ouvert.</div></div>
                 <div class="chips">
                     <label><input type="radio" name="lasttab" value="home"{{LASTTAB_HOME}}><span class="chip">Rouvrir l'accueil</span></label>
@@ -205,19 +193,18 @@ input:checked + .chip {
             </div>
         </section>
 
-        <!-- LANGUE ────────────────────────────────────────────── -->
         <section class="section">
             <div class="section-head">Langue</div>
             <div class="divider"></div>
             <div class="row">
                 <div class="row-text"><div class="row-label">Langue de l'interface</div></div>
                 <div class="chips">
-                    <label><input type="radio" name="lang" value="fr"{{LANG_FR}}><span class="chip">🇫🇷 FR</span></label>
-                    <label><input type="radio" name="lang" value="en"{{LANG_EN}}><span class="chip">🇬🇧 EN</span></label>
-                    <label><input type="radio" name="lang" value="es"{{LANG_ES}}><span class="chip">🇪🇸 ES</span></label>
-                    <label><input type="radio" name="lang" value="de"{{LANG_DE}}><span class="chip">🇩🇪 DE</span></label>
-                    <label><input type="radio" name="lang" value="it"{{LANG_IT}}><span class="chip">🇮🇹 IT</span></label>
-                    <label><input type="radio" name="lang" value="pt"{{LANG_PT}}><span class="chip">🇵🇹 PT</span></label>
+                    <label><input type="radio" name="lang" value="fr"{{LANG_FR}}><span class="chip">FR</span></label>
+                    <label><input type="radio" name="lang" value="en"{{LANG_EN}}><span class="chip">EN</span></label>
+                    <label><input type="radio" name="lang" value="es"{{LANG_ES}}><span class="chip">ES</span></label>
+                    <label><input type="radio" name="lang" value="de"{{LANG_DE}}><span class="chip">DE</span></label>
+                    <label><input type="radio" name="lang" value="it"{{LANG_IT}}><span class="chip">IT</span></label>
+                    <label><input type="radio" name="lang" value="pt"{{LANG_PT}}><span class="chip">PT</span></label>
                 </div>
             </div>
         </section>
@@ -234,15 +221,13 @@ input:checked + .chip {
     let timer;
 
     function save() {
-        const q = new URLSearchParams(new FormData(form)).toString();
-        sink.src = 'nyx://apply?' + q;            // appliqué par Rust, sans rechargement
+        sink.src = 'nyx://apply?' + new URLSearchParams(new FormData(form));
         ind.classList.add('show');
         clearTimeout(timer);
         timer = setTimeout(() => ind.classList.remove('show'), 1400);
     }
 
     form.querySelectorAll('input').forEach(el => el.addEventListener('change', save));
-
     document.querySelectorAll('[data-home]').forEach(btn =>
         btn.addEventListener('click', () => {
             if (btn.dataset.home === 'newtab') { home.value = 'nyx://newtab'; save(); }
