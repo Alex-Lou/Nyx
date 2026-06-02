@@ -1,9 +1,10 @@
 use std::sync::Arc;
 
+use gtk::glib::translate::IntoGlib;
 use gtk::prelude::*;
 use gtk::{
-    Application, ApplicationWindow, Box as GtkBox, Button, Entry,
-    Orientation, ProgressBar,
+    AccelFlags, AccelGroup, Application, ApplicationWindow, Box as GtkBox,
+    Button, Entry, Orientation, ProgressBar,
 };
 use webkit2gtk::WebViewExt;
 
@@ -12,9 +13,10 @@ use crate::tabs::TabBar;
 use crate::webview;
 
 pub struct BrowserWindow {
-    pub window: ApplicationWindow,
-    pub tabs: TabBar,
-    pub url_bar: Entry,
+    pub window:   ApplicationWindow,
+    pub tabs:     TabBar,
+    pub url_bar:  Entry,
+    pub progress: ProgressBar,
 }
 
 impl BrowserWindow {
@@ -26,13 +28,14 @@ impl BrowserWindow {
             .default_height(860)
             .build();
 
-        // ── Progress bar ────────────────────────────────────────────────
+        // ── Progress bar (masquée hors chargement) ──────────────────────
         let progress = ProgressBar::new();
         progress.style_context().add_class("nyx-progress");
         progress.set_fraction(0.0);
+        progress.set_no_show_all(true);
         progress.set_visible(false);
 
-        // ── Barre de navigation ──────────────────────────────────────────
+        // ── Navbar ──────────────────────────────────────────────────────
         let back_btn    = nav_button("◀");
         let forward_btn = nav_button("▶");
         let reload_btn  = nav_button("↺");
@@ -52,90 +55,102 @@ impl BrowserWindow {
         navbar.pack_start(&url_bar,     true,  true,  0);
         navbar.pack_end(&new_tab_btn,   false, false, 4);
 
-        // ── Onglets ──────────────────────────────────────────────────────
+        // ── Onglets ─────────────────────────────────────────────────────
         let tabs = TabBar::new(blocker);
 
-        // ── Layout ───────────────────────────────────────────────────────
+        // ── Layout ──────────────────────────────────────────────────────
         let vbox = GtkBox::new(Orientation::Vertical, 0);
         vbox.pack_start(&progress,      false, false, 0);
         vbox.pack_start(&navbar,        false, false, 0);
         vbox.pack_start(&tabs.notebook, true,  true,  0);
         window.add(&vbox);
 
-        // ── Raccourcis clavier ───────────────────────────────────────────
-        wire_shortcuts(&window, &tabs, &url_bar);
-
-        // ── Bouton nouvel onglet ─────────────────────────────────────────
-        // L'accès à TabBar ici est indirect via le notebook clone
-        // (ownership complet dans main.rs via la struct BrowserWindow)
+        // ── Chaque WebView neuve câble URL bar + progress (1.5) ─────────
         {
-            let nb = tabs.notebook.clone();
-            let ub = url_bar.clone();
-            let blocker2 = Arc::new(crate::adblock::AdBlocker::new());
-            new_tab_btn.connect_clicked(move |_| {
-                // Nouvel onglet : DuckDuckGo par défaut
-                // TODO Sprint 1.3 : page "new tab" Nyx custom
-                // Pour l'instant on passe par un signal global (voir main.rs)
-                let _ = &nb; // placeholder — câblage complet dans main.rs
+            let ub   = url_bar.clone();
+            let prog = progress.clone();
+            tabs.set_on_new_webview(move |wv| {
+                let ub2 = ub.clone();
+                wv.connect_uri_notify(move |w| {
+                    ub2.set_text(w.uri().as_deref().unwrap_or(""));
+                });
+                let prog2 = prog.clone();
+                wv.connect_estimated_load_progress_notify(move |w| {
+                    let p = w.estimated_load_progress();
+                    prog2.set_fraction(p);
+                    prog2.set_visible(p > 0.0 && p < 1.0);
+                });
             });
         }
 
-        // ── URL bar → charger ────────────────────────────────────────────
+        // ── Resync URL bar + progress quand on change d'onglet ──────────
         {
-            let nb = tabs.notebook.clone();
+            let ub   = url_bar.clone();
+            let prog = progress.clone();
+            tabs.notebook.connect_switch_page(move |_nb, page, _idx| {
+                if let Ok(wv) = page.clone().downcast::<webkit2gtk::WebView>() {
+                    ub.set_text(wv.uri().as_deref().unwrap_or(""));
+                    let p = wv.estimated_load_progress();
+                    prog.set_fraction(p);
+                    prog.set_visible(p > 0.0 && p < 1.0);
+                }
+            });
+        }
+
+        // ── Bouton "+" → nouvel onglet Nyx ──────────────────────────────
+        {
+            let t = tabs.clone();
+            new_tab_btn.connect_clicked(move |_| {
+                t.open_new_tab();
+            });
+        }
+
+        // ── URL bar → charger ───────────────────────────────────────────
+        {
+            let t = tabs.clone();
             url_bar.connect_activate(move |entry| {
                 let url = webview::resolve_input(&entry.text());
+                if url.is_empty() {
+                    return;
+                }
                 entry.set_text(&url);
-                if let Some(wv) = current_webview(&nb) {
+                if let Some(wv) = t.current_webview() {
                     wv.load_uri(&url);
                 }
             });
         }
 
-        // ── Boutons nav ──────────────────────────────────────────────────
+        // ── Boutons navigation ──────────────────────────────────────────
         {
-            let nb = tabs.notebook.clone();
+            let t = tabs.clone();
             back_btn.connect_clicked(move |_| {
-                if let Some(wv) = current_webview(&nb) { wv.go_back(); }
+                if let Some(wv) = t.current_webview() {
+                    wv.go_back();
+                }
             });
         }
         {
-            let nb = tabs.notebook.clone();
+            let t = tabs.clone();
             forward_btn.connect_clicked(move |_| {
-                if let Some(wv) = current_webview(&nb) { wv.go_forward(); }
+                if let Some(wv) = t.current_webview() {
+                    wv.go_forward();
+                }
             });
         }
         {
-            let nb = tabs.notebook.clone();
+            let t = tabs.clone();
             reload_btn.connect_clicked(move |_| {
-                if let Some(wv) = current_webview(&nb) { wv.reload(); }
-            });
-        }
-
-        // ── Sync URL bar ↔ onglet actif ──────────────────────────────────
-        {
-            let ub = url_bar.clone();
-            let prog = progress.clone();
-            tabs.notebook.connect_switch_page(move |nb, _, _| {
-                if let Some(wv) = current_webview(nb) {
-                    ub.set_text(&wv.uri().unwrap_or_default());
-
-                    let ub2 = ub.clone();
-                    wv.connect_uri_notify(move |w| {
-                        ub2.set_text(&w.uri().unwrap_or_default());
-                    });
-
-                    let prog2 = prog.clone();
-                    wv.connect_estimated_load_progress_notify(move |w| {
-                        let p = w.estimated_load_progress();
-                        prog2.set_fraction(p);
-                        prog2.set_visible(p > 0.0 && p < 1.0);
-                    });
+                if let Some(wv) = t.current_webview() {
+                    wv.reload();
                 }
             });
         }
 
-        Self { window, tabs, url_bar }
+        // ── Raccourcis clavier ──────────────────────────────────────────
+        // Ctrl+L, Ctrl+R, Ctrl+W ici ; Ctrl+T & Ctrl+Tab dans ticket 1.4.
+        wire_shortcuts(&window, &tabs, &url_bar);
+
+        Self { window, tabs, url_bar, progress }
     }
 
     pub fn show_all(&self) {
@@ -150,49 +165,43 @@ fn nav_button(label: &str) -> Button {
     btn
 }
 
-pub fn current_webview(nb: &gtk::Notebook) -> Option<webkit2gtk::WebView> {
-    let page = nb.current_page()?;
-    nb.nth_page(Some(page))?.downcast::<webkit2gtk::WebView>().ok()
-}
-
 fn wire_shortcuts(window: &ApplicationWindow, tabs: &TabBar, url_bar: &Entry) {
     use gtk::gdk::keys::constants as key;
+    use gtk::gdk::ModifierType;
 
-    let accel = gtk::AccelGroup::new();
+    let accel = AccelGroup::new();
     window.add_accel_group(&accel);
 
+    let ctrl  = ModifierType::CONTROL_MASK;
+    let flags = AccelFlags::VISIBLE;
+
     // Ctrl+L → focus URL bar
-    let ub = url_bar.clone();
-    accel.connect_accel_group(
-        key::l.into(),
-        gtk::gdk::ModifierType::CONTROL_MASK,
-        gtk::AccelFlags::VISIBLE,
-        move |_, _, _, _| { ub.grab_focus(); ub.select_region(0, -1); true },
-    );
+    {
+        let ub = url_bar.clone();
+        accel.connect_accel_group(key::l.into_glib(), ctrl, flags, move |_, _, _, _| {
+            ub.grab_focus();
+            ub.select_region(0, -1);
+            true
+        });
+    }
 
     // Ctrl+R → reload
-    let nb = tabs.notebook.clone();
-    accel.connect_accel_group(
-        key::r.into(),
-        gtk::gdk::ModifierType::CONTROL_MASK,
-        gtk::AccelFlags::VISIBLE,
-        move |_, _, _, _| {
-            if let Some(wv) = current_webview(&nb) { wv.reload(); }
-            true
-        },
-    );
-
-    // Ctrl+W → fermer onglet
-    let nb = tabs.notebook.clone();
-    accel.connect_accel_group(
-        key::w.into(),
-        gtk::gdk::ModifierType::CONTROL_MASK,
-        gtk::AccelFlags::VISIBLE,
-        move |_, _, _, _| {
-            if let Some(page) = nb.current_page() {
-                nb.remove_page(Some(page));
+    {
+        let t = tabs.clone();
+        accel.connect_accel_group(key::r.into_glib(), ctrl, flags, move |_, _, _, _| {
+            if let Some(wv) = t.current_webview() {
+                wv.reload();
             }
             true
-        },
-    );
+        });
+    }
+
+    // Ctrl+W → fermer onglet
+    {
+        let t = tabs.clone();
+        accel.connect_accel_group(key::w.into_glib(), ctrl, flags, move |_, _, _, _| {
+            t.close_current();
+            true
+        });
+    }
 }

@@ -1,4 +1,5 @@
 mod adblock;
+mod newtab;
 mod tabs;
 mod theme;
 mod webview;
@@ -12,8 +13,7 @@ use gtk::Application;
 use adblock::AdBlocker;
 use window::BrowserWindow;
 
-const APP_ID: &str    = "io.nyx.browser";
-const HOME_PAGE: &str = "https://duckduckgo.com";
+const APP_ID: &str = "io.nyx.browser";
 
 fn main() {
     let app = Application::builder()
@@ -21,40 +21,16 @@ fn main() {
         .build();
 
     app.connect_activate(|app| {
-        // Thème Nyx — doit être chargé avant toute création de widget
+        // Thème Nyx — doit être chargé avant la création des widgets.
         theme::load();
 
-        // TODO Sprint 2 : écran de déverrouillage vault ici
+        // TODO Sprint 2 : écran de déverrouillage vault ici.
 
         let blocker = Arc::new(AdBlocker::new());
-        let win = BrowserWindow::new(app, blocker.clone());
+        let win = BrowserWindow::new(app, blocker);
 
-        // Premier onglet
-        win.tabs.open(HOME_PAGE);
-
-        // Ctrl+T → nouvel onglet
-        {
-            let tabs_nb = win.tabs.notebook.clone();
-            let bl = blocker.clone();
-            win.window.connect_key_press_event(move |_, event| {
-                use gtk::gdk::keys::constants as key;
-                if event.state().contains(gtk::gdk::ModifierType::CONTROL_MASK)
-                    && event.keyval() == key::t
-                {
-                    let wv = webkit2gtk::WebView::new();
-                    wv.set_vexpand(true);
-                    wv.set_hexpand(true);
-                    webview::configure(&wv, bl.clone());
-                    let label = gtk::Label::new(Some("Nouveau"));
-                    let idx = tabs_nb.append_page(&wv, Some(&label));
-                    wv.load_uri(HOME_PAGE);
-                    tabs_nb.set_current_page(Some(idx));
-                    wv.show();
-                    return gtk::Inhibit(true);
-                }
-                gtk::Inhibit(false)
-            });
-        }
+        // Premier onglet : page de démarrage Nyx.
+        win.tabs.open_new_tab();
 
         win.show_all();
     });
