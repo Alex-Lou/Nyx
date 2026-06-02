@@ -70,7 +70,7 @@ impl TabBar {
 
     pub fn open_new_tab(&self) -> WebView {
         let wv = self.build_webview(None);
-        wv.load_html(newtab::html(), Some(&pages::assets_base_uri()));
+        wv.load_html(&newtab::html(), Some(&pages::assets_base_uri()));
         self.attach(&wv, "Nouvel onglet");
         wv
     }

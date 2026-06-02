@@ -8,6 +8,7 @@ pub fn html(s: &AppSettings) -> String {
     let flag = |on: bool| if on { " checked" } else { "" };
 
     TEMPLATE
+        .replace("{{TOKENS}}",        crate::pages::tokens::ROOT)
         .replace("{{ENGINE_DDG}}",    chk("ddg",    s.search_engine.id()))
         .replace("{{ENGINE_BRAVE}}",  chk("brave",  s.search_engine.id()))
         .replace("{{ENGINE_ECOSIA}}", chk("ecosia", s.search_engine.id()))

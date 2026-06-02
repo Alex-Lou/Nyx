@@ -5,14 +5,15 @@
 <meta http-equiv="Content-Security-Policy"
       content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; frame-src nyx:; img-src data:">
 <title>Paramètres — Nyx</title>
+{{TOKENS}}
 <style>
 :root {
-    --bg:       #07070f;
-    --text:     #e8ecff;
-    --muted:    #7a82ac;
-    --faint:    #4a5078;
-    --accent:   #9d6ef7;
-    --aurora:   #4af2c8;
+    --bg:       #07070f;            /* bespoke */
+    --text:     #e8ecff;            /* bespoke */
+    --muted:    #7a82ac;            /* bespoke */
+    --faint:    #4a5078;            /* bespoke */
+    --accent:   var(--nyx-nebula);
+    --aurora:   var(--nyx-aurora);
     --line:     linear-gradient(90deg, transparent, rgba(157,110,247,.35), rgba(74,242,200,.22), transparent);
     --field-bg: rgba(255,255,255,.03);
     --field-br: rgba(120,130,200,.14);

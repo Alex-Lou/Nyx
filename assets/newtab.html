@@ -5,11 +5,12 @@
 <meta http-equiv="Content-Security-Policy"
       content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:; form-action https://duckduckgo.com">
 <title>Nyx</title>
+{{TOKENS}}
 <style>
 :root {
-    --text:   #e8ecff;
-    --muted:  #7078a8;
-    --aurora: #4af2c8;
+    --text:   #e8ecff;             /* bespoke : plus clair que --nyx-text */
+    --muted:  var(--nyx-dim);
+    --aurora: var(--nyx-aurora);
     --glass:  rgba(10, 10, 26, 0.42);
     --glass-b:rgba(120, 130, 200, 0.12);
 }
