@@ -30,6 +30,7 @@ fn apply_privacy_settings(webview: &WebView) {
     let s = WebViewExt::settings(webview).expect("WebView sans Settings");
     s.set_enable_media_stream(false);
     s.set_javascript_can_open_windows_automatically(false);
+    s.set_javascript_can_access_clipboard(false);
     s.set_enable_developer_extras(false);
     s.set_enable_smooth_scrolling(true);
 }
