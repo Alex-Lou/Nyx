@@ -38,6 +38,11 @@ window, .background {
     min-height: 42px;
 }
 
+/* Zone invisible en haut de l'écran — déclenche la navbar au hover */
+.nyx-hover-zone {
+    background-color: transparent;
+}
+
 /* ── Modal Paramètres (fenêtre flottante) ───────── */
 
 .nyx-modal {
