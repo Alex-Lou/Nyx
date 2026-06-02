@@ -1,0 +1,17 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>IDN phishing</title></head>
+<body style="font-family:system-ui;padding:24px;background:#1a0a0a;color:#fff">
+<!--
+  ATTAQUE  : liens vers des homographes (cyrillique a/e/o/p/c, latin a/e/o/p/c).
+  ATTENDU  : navigation autorisée MAIS URL bar passe en .nyx-risk-dangerous.
+             Côté vault (Sprint 5) : autofill refusé sur ces domaines.
+-->
+<h1>IDN homograph attempts</h1>
+<ul>
+  <li><a href="http://pаypal.com">a) pаypal.com (а cyrillique U+0430)</a></li>
+  <li><a href="http://аррӏе.com">b) аррӏе.com (tout cyrillique, ressemble apple)</a></li>
+  <li><a href="http://gооgle.com">c) gооgle.com (о cyrilliques)</a></li>
+  <li><a href="https://bücher.de">d) bücher.de (IDN légitime → Suspicious, pas Dangerous)</a></li>
+  <li><a href="https://paypal.com">e) paypal.com (référence — doit rester Safe)</a></li>
+</ul>
+</body></html>
