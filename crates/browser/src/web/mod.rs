@@ -72,7 +72,7 @@ fn load_internal_page(wv: &WebView, page: Page, prefs: &Settings, bm: &Bookmarks
     let (html, base) = match page {
         Page::Settings  => (settings_page::html(&prefs.borrow()), Some(pages::assets_base_uri())),
         Page::Bookmarks => (bookmarks_page::page_html(&bm.borrow()), None),
-        Page::NewTab    => (newtab::html().to_string(), Some(pages::assets_base_uri())),
+        Page::NewTab    => (newtab::html(), Some(pages::assets_base_uri())),
     };
     let wv = wv.clone();
     gtk::glib::idle_add_local_once(move || {

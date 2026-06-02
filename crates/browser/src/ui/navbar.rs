@@ -119,7 +119,7 @@ fn nav_button(label: &str, tooltip: &str) -> Button {
 /// le policy filter (qui route les autres `nyx://`).
 fn load(wv: &WebView, url: &str) {
     if url == "nyx://newtab" {
-        wv.load_html(newtab::html(), Some(&pages::assets_base_uri()));
+        wv.load_html(&newtab::html(), Some(&pages::assets_base_uri()));
     } else {
         wv.load_uri(url);
     }

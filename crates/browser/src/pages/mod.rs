@@ -4,6 +4,7 @@
 pub mod bookmarks;
 pub mod newtab;
 pub mod settings;
+pub mod tokens;
 
 use std::path::Path;
 
