@@ -15,6 +15,10 @@ pub enum Verdict {
     Allow,
     /// Annuler la navigation, ne rien charger (pub bloquée, action non autorisée).
     Block,
+    /// Annuler la navigation : tentative d'accès au système de fichiers refusée.
+    /// Verdict distinct de `Block` pour permettre à l'UI d'afficher un message
+    /// dédié ("Nyx ne laisse pas une page web ouvrir vos fichiers locaux").
+    BlockFileAccess,
     /// Annuler la navigation et appliquer les réglages (`nyx://apply`).
     ApplySettings,
     /// Annuler la navigation et déplacer un favori (`nyx://move`).
@@ -42,6 +46,13 @@ pub fn decide(url: &str, page_internal: bool, guard: &NyxGuard) -> Verdict {
         if rest.starts_with("settings")  { return Verdict::Load(Page::Settings); }
         if rest.starts_with("bookmarks") { return Verdict::Load(Page::Bookmarks); }
         return Verdict::Load(Page::NewTab);
+    }
+    // Toute navigation vers file:// est bloquée. Les pages internes Nyx
+    // (newtab/settings/bookmarks) chargent leurs assets via `load_html(base_uri)`
+    // → les sub-resources passent par ResourceLoad, pas NavigationAction, donc
+    // ce bloc ne casse rien. Une page web ne peut JAMAIS atteindre file://.
+    if url.starts_with("file://") {
+        return Verdict::BlockFileAccess;
     }
     if guard.should_block(url) {
         return Verdict::Block;
@@ -74,6 +85,22 @@ mod tests {
     }
     #[test] fn move_from_remote_blocked() {
         assert_eq!(decide("nyx://move?idx=0&to=evil", false, &guard()), Verdict::Block);
+    }
+
+    // ── Restriction file:// — aucune page web ne lit le disque ───────────
+    #[test] fn blocks_file_from_remote() {
+        assert_eq!(decide("file:///etc/passwd", false, &guard()), Verdict::BlockFileAccess);
+    }
+    #[test] fn blocks_file_from_internal() {
+        // Même depuis une page interne, on refuse les file:// hors assets.
+        // (Nos assets passent par ResourceLoad, pas NavigationAction.)
+        assert_eq!(decide("file:///etc/passwd", true, &guard()), Verdict::BlockFileAccess);
+    }
+    #[test] fn blocks_ssh_keys() {
+        assert_eq!(decide("file:///home/user/.ssh/id_rsa", false, &guard()), Verdict::BlockFileAccess);
+    }
+    #[test] fn blocks_windows_path() {
+        assert_eq!(decide("file:///C:/Windows/System32/config", false, &guard()), Verdict::BlockFileAccess);
     }
     #[test] fn guard_off_allows_ad() {
         let g = guard();

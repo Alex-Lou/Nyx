@@ -47,7 +47,7 @@ fn wire_policy_filter(webview: &WebView, blocker: Arc<NyxGuard>, prefs: Settings
 
         match security::decide(&url, page_is_internal(wv), &blocker) {
             Verdict::Allow => false,
-            Verdict::Block => {
+            Verdict::Block | Verdict::BlockFileAccess => {
                 decision.ignore();
                 true
             }
