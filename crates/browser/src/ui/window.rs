@@ -1,3 +1,5 @@
+use std::cell::Cell;
+use std::rc::Rc;
 use std::sync::Arc;
 
 use gtk::prelude::*;
@@ -41,7 +43,7 @@ impl BrowserWindow {
         tabs.set_parent(&window);
         let nav_bar = navbar::build(&url_bar, &tabs, &settings, &bm);
 
-        // ── Revealer : la navbar glisse depuis le haut ──────────────
+        // ── Revealer : tout le chrome (navbar) glisse depuis le haut ─
         let revealer = Revealer::builder()
             .transition_type(RevealerTransitionType::SlideDown)
             .transition_duration(220)
@@ -49,21 +51,22 @@ impl BrowserWindow {
             .build();
         revealer.add(&nav_bar);
 
-        // ── Zone de hover invisible en haut (8px) ───────────────────
+        // État partagé : le chrome est-il caché (mode immersif newtab) ?
+        let chrome_hidden = Rc::new(Cell::new(false));
+
+        // ── Zone de hover invisible en haut (10px) — déclenche le reveal ─
         let hover_zone = EventBox::new();
         hover_zone.set_above_child(true);
         hover_zone.set_visible_window(false);
-        hover_zone.set_size_request(-1, 8);
+        hover_zone.set_size_request(-1, 10);
         hover_zone.style_context().add_class("nyx-hover-zone");
 
-        // Conteneur principal : overlay pour poser la hover zone par-dessus
         let content_box = GtkBox::new(Orientation::Vertical, 0);
         content_box.pack_start(&tabs.notebook, true, true, 0);
 
         let overlay = Overlay::new();
         overlay.add(&content_box);
 
-        // La hover zone est dans un GtkBox en haut de l'overlay
         let hover_box = GtkBox::new(Orientation::Vertical, 0);
         hover_box.pack_start(&hover_zone, false, false, 0);
         hover_box.set_valign(gtk::Align::Start);
@@ -75,10 +78,10 @@ impl BrowserWindow {
         vbox.pack_start(&overlay,  true,  true,  0);
         window.add(&vbox);
 
-        // ── Logique hover : montre/cache selon page + curseur ───────
-        wire_navbar_autohide(&revealer, &hover_zone, &nav_bar, &tabs);
-        wire_webview_hooks(&tabs, &url_bar, &progress, &revealer);
-        wire_tab_switch(&tabs, &url_bar, &progress, &revealer);
+        // ── Câblage autohide ────────────────────────────────────────
+        wire_chrome_autohide(&revealer, &hover_zone, &nav_bar, &tabs, &chrome_hidden);
+        wire_webview_hooks(&tabs, &url_bar, &progress, &revealer, &chrome_hidden);
+        wire_tab_switch(&tabs, &url_bar, &progress, &revealer, &chrome_hidden);
         wire_last_tab(&window, &tabs, &settings);
         wire_double_click(&tabs);
         shortcuts::wire(&window, &tabs, &url_bar, &bm);
@@ -89,7 +92,6 @@ impl BrowserWindow {
     pub fn show_all(&self) { self.window.show_all(); }
 }
 
-/// Retourne `true` si la WebView affiche la page d'accueil (newtab).
 fn is_newtab(wv: &WebView) -> bool {
     match wv.uri() {
         Some(u) => {
@@ -102,43 +104,50 @@ fn is_newtab(wv: &WebView) -> bool {
     }
 }
 
-/// Synchronise le revealer : caché sur newtab, visible sur les autres pages.
-fn sync_navbar(revealer: &Revealer, tabs: &TabBar) {
-    let hide = tabs.current_webview().is_some_and(|wv| is_newtab(&wv));
-    if hide {
-        revealer.set_reveal_child(false);
-    } else {
-        revealer.set_reveal_child(true);
-    }
+/// Montre ou cache tout le chrome (navbar + onglets) selon la page active.
+fn set_chrome_visible(revealer: &Revealer, tabs: &TabBar, visible: bool, hidden: &Rc<Cell<bool>>) {
+    revealer.set_reveal_child(visible);
+    tabs.notebook.set_show_tabs(visible);
+    hidden.set(!visible);
 }
 
-/// Câble le hover sur la zone invisible pour révéler la navbar sur newtab.
-fn wire_navbar_autohide(revealer: &Revealer, hover_zone: &EventBox, nav_bar: &GtkBox, tabs: &TabBar) {
-    // Souris entre dans la zone de hover → montrer la navbar
-    {
-        let r = revealer.clone();
-        hover_zone.connect_enter_notify_event(move |_, _| {
-            r.set_reveal_child(true);
-            gtk::glib::Propagation::Proceed
-        });
-    }
-    // Souris quitte la navbar → cacher si on est sur newtab
+/// Synchronise le chrome : caché sur newtab, visible ailleurs.
+fn sync_chrome(revealer: &Revealer, tabs: &TabBar, hidden: &Rc<Cell<bool>>) {
+    let on_newtab = tabs.current_webview().is_some_and(|wv| is_newtab(&wv));
+    set_chrome_visible(revealer, tabs, !on_newtab, hidden);
+}
+
+/// Hover zone (entrée) → révèle le chrome. Sortie de la navbar → re-cache si newtab.
+fn wire_chrome_autohide(
+    revealer: &Revealer, hover_zone: &EventBox, nav_bar: &GtkBox,
+    tabs: &TabBar, hidden: &Rc<Cell<bool>>,
+) {
     {
         let r = revealer.clone();
         let t = tabs.clone();
+        let h = hidden.clone();
+        hover_zone.connect_enter_notify_event(move |_, _| {
+            if h.get() {
+                set_chrome_visible(&r, &t, true, &h);
+            }
+            gtk::glib::Propagation::Proceed
+        });
+    }
+    {
+        let r = revealer.clone();
+        let t = tabs.clone();
+        let h = hidden.clone();
         nav_bar.connect_leave_notify_event(move |widget, ev| {
-            // Ignorer les leave causés par les enfants (boutons, entry)
             if ev.detail() == gtk::gdk::NotifyType::Inferior {
                 return gtk::glib::Propagation::Proceed;
             }
-            // Vérifier qu'on est vraiment sorti de la zone du widget
             let (_, ey) = ev.position();
             let alloc = widget.allocation();
             if ey >= 0.0 && ey <= alloc.height() as f64 {
                 return gtk::glib::Propagation::Proceed;
             }
             if t.current_webview().is_some_and(|wv| is_newtab(&wv)) {
-                r.set_reveal_child(false);
+                set_chrome_visible(&r, &t, false, &h);
             }
             gtk::glib::Propagation::Proceed
         });
@@ -177,11 +186,15 @@ fn wire_double_click(tabs: &TabBar) {
     });
 }
 
-fn wire_webview_hooks(tabs: &TabBar, url_bar: &Entry, progress: &ProgressBar, revealer: &Revealer) {
+fn wire_webview_hooks(
+    tabs: &TabBar, url_bar: &Entry, progress: &ProgressBar,
+    revealer: &Revealer, hidden: &Rc<Cell<bool>>,
+) {
     let ub   = url_bar.clone();
     let prog = progress.clone();
     let rev  = revealer.clone();
     let t    = tabs.clone();
+    let h    = hidden.clone();
     tabs.set_on_new_webview(move |wv| {
         let ub2 = ub.clone();
         wv.connect_uri_notify(move |w| { ub2.set_text(w.uri().as_deref().unwrap_or("")); });
@@ -191,20 +204,24 @@ fn wire_webview_hooks(tabs: &TabBar, url_bar: &Entry, progress: &ProgressBar, re
             prog2.set_fraction(p);
             prog2.set_visible(p > 0.0 && p < 1.0);
         });
-        // Quand une page finit de charger → sync navbar visibility
         let rev2 = rev.clone();
         let t2   = t.clone();
+        let h2   = h.clone();
         wv.connect_load_changed(move |_, _| {
-            sync_navbar(&rev2, &t2);
+            sync_chrome(&rev2, &t2, &h2);
         });
     });
 }
 
-fn wire_tab_switch(tabs: &TabBar, url_bar: &Entry, progress: &ProgressBar, revealer: &Revealer) {
+fn wire_tab_switch(
+    tabs: &TabBar, url_bar: &Entry, progress: &ProgressBar,
+    revealer: &Revealer, hidden: &Rc<Cell<bool>>,
+) {
     let ub   = url_bar.clone();
     let prog = progress.clone();
     let rev  = revealer.clone();
     let t    = tabs.clone();
+    let h    = hidden.clone();
     tabs.notebook.connect_switch_page(move |_nb, page, _| {
         if let Ok(wv) = page.clone().downcast::<webkit2gtk::WebView>() {
             ub.set_text(wv.uri().as_deref().unwrap_or(""));
@@ -212,6 +229,6 @@ fn wire_tab_switch(tabs: &TabBar, url_bar: &Entry, progress: &ProgressBar, revea
             prog.set_fraction(p);
             prog.set_visible(p > 0.0 && p < 1.0);
         }
-        sync_navbar(&rev, &t);
+        sync_chrome(&rev, &t, &h);
     });
 }
