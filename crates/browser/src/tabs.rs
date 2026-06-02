@@ -2,10 +2,15 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
 
+use gtk::cairo;
+use gtk::gdk_pixbuf::InterpType;
 use gtk::pango::EllipsizeMode;
 use gtk::prelude::*;
-use gtk::{Box as GtkBox, Button, Label, Notebook, Orientation};
+use gtk::{Box as GtkBox, Button, IconSize, Image, Label, Notebook, Orientation};
 use webkit2gtk::{WebContext, WebView, WebViewExt};
+
+/// Taille (px) de la favicon dans l'onglet — alignée sur IconSize::Menu (16).
+const FAVICON_PX: i32 = 16;
 
 use crate::adblock::AdBlocker;
 use crate::{newtab, webview};
@@ -111,6 +116,11 @@ impl TabBar {
 }
 
 fn build_tab_label(webview: &WebView, notebook: &Notebook, initial: &str) -> GtkBox {
+    let favicon = Image::new();
+    favicon.set_pixel_size(FAVICON_PX);
+    favicon.style_context().add_class("nyx-tab-favicon");
+    set_fallback_favicon(&favicon);
+
     let label = Label::new(Some(initial));
     label.set_max_width_chars(20);
     label.set_ellipsize(EllipsizeMode::End);
@@ -120,8 +130,9 @@ fn build_tab_label(webview: &WebView, notebook: &Notebook, initial: &str) -> Gtk
     close.set_relief(gtk::ReliefStyle::None);
 
     let row = GtkBox::new(Orientation::Horizontal, 6);
-    row.pack_start(&label, true, true, 0);
-    row.pack_start(&close, false, false, 0);
+    row.pack_start(&favicon, false, false, 0);
+    row.pack_start(&label,   true,  true,  0);
+    row.pack_start(&close,   false, false, 0);
     row.show_all();
 
     // Titre dynamique (Ticket 1.2)
@@ -138,6 +149,14 @@ fn build_tab_label(webview: &WebView, notebook: &Notebook, initial: &str) -> Gtk
         });
     }
 
+    // Favicon dynamique (Ticket 1.3)
+    {
+        let img = favicon.clone();
+        webview.connect_favicon_notify(move |wv| {
+            update_favicon(&img, wv);
+        });
+    }
+
     // Bouton fermeture
     {
         let nb = notebook.clone();
@@ -150,4 +169,36 @@ fn build_tab_label(webview: &WebView, notebook: &Notebook, initial: &str) -> Gtk
     }
 
     row
+}
+
+/// Convertit la `cairo::Surface` exposée par WebKit en `Pixbuf` 16×16
+/// et l'affiche dans l'`Image` ; tombe sur l'icône globe par défaut si la
+/// favicon est absente ou non-image.
+fn update_favicon(img: &Image, wv: &WebView) {
+    let Some(surface) = wv.favicon() else {
+        set_fallback_favicon(img);
+        return;
+    };
+    let Ok(image_surf) = cairo::ImageSurface::try_from(surface) else {
+        set_fallback_favicon(img);
+        return;
+    };
+    let w = image_surf.width();
+    let h = image_surf.height();
+    if w <= 0 || h <= 0 {
+        set_fallback_favicon(img);
+        return;
+    }
+    let Some(pixbuf) = gtk::gdk::pixbuf_get_from_surface(&image_surf, 0, 0, w, h) else {
+        set_fallback_favicon(img);
+        return;
+    };
+    let scaled = pixbuf
+        .scale_simple(FAVICON_PX, FAVICON_PX, InterpType::Bilinear)
+        .unwrap_or(pixbuf);
+    img.set_from_pixbuf(Some(&scaled));
+}
+
+fn set_fallback_favicon(img: &Image) {
+    img.set_from_icon_name(Some("text-html-symbolic"), IconSize::Menu);
 }
