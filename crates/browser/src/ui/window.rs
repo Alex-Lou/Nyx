@@ -124,7 +124,9 @@ fn schedule_fade_out(chrome: &GtkBox, tabs: &TabBar, timer: &Rc<Cell<Option<Sour
     if !on_newtab(tabs) { return; }
     let cb = chrome.clone();
     let t  = tabs.clone();
+    let ft = timer.clone();
     let id = glib::timeout_add_local_once(std::time::Duration::from_secs(4), move || {
+        ft.set(None); // la source s'auto-détruit ici : clear le Cell pour éviter le double-remove
         if on_newtab(&t) {
             hide_chrome(&cb, &t);
         }
