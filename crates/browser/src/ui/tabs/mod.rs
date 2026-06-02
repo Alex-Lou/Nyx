@@ -85,6 +85,7 @@ impl TabBar {
         modal.connect_destroy(move |_| { *slot.borrow_mut() = None; });
         *self.settings_modal.borrow_mut() = Some(modal.clone());
         modal.show_all();
+        crate::ui::anim::fade_in(&modal); // fondu d'apparition du modal
     }
 
     /// Ouvre la page d'accueil configurée (par défaut : nouvel onglet Nyx).
