@@ -1,6 +1,7 @@
 //! Couche interface GTK : fenêtre, barre de navigation, onglets, raccourcis,
 //! thème. Consomme `crate::web` (moteur) et `crate::state` (réglages/favoris).
 
+pub mod chrome;
 pub mod navbar;
 pub mod settings_window;
 pub mod shortcuts;
