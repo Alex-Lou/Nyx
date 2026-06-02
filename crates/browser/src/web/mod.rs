@@ -62,16 +62,18 @@ fn wire_policy_filter(webview: &WebView, blocker: Arc<AdBlocker>, prefs: Setting
 fn route_internal(wv: &WebView, url: &str, prefs: &Settings, blocker: &Arc<AdBlocker>, bm: &Bookmarks) {
     let rest = url.trim_start_matches("nyx://");
 
-    let (html, base) = if rest.starts_with("apply") {
-        // SÉCURITÉ : la mutation des réglages n'est honorée que si la page
-        // émettrice est interne. Une page distante ne peut pas désactiver
-        // l'adblock via location='nyx://apply?adblock=false'.
-        if !page_is_internal(wv) {
-            return;
+    // Auto-save : la page paramètres POST chaque changement dans une iframe
+    // cachée → on applique SANS recharger (la page garde son état JS).
+    // SÉCURITÉ : mutation honorée uniquement si la page émettrice est interne.
+    // Une page distante ne peut pas faire location='nyx://apply?adblock=false'.
+    if rest.starts_with("apply") {
+        if page_is_internal(wv) {
+            settings::apply_from_url(url, prefs, blocker);
         }
-        settings::apply_from_url(url, prefs, blocker);
-        (settings_page::html(&prefs.borrow()), Some(pages::assets_base_uri()))
-    } else if rest.starts_with("settings") {
+        return;
+    }
+
+    let (html, base) = if rest.starts_with("settings") {
         (settings_page::html(&prefs.borrow()), Some(pages::assets_base_uri()))
     } else if rest.starts_with("bookmarks") {
         (bookmarks_page::page_html(&bm.borrow()), None)
@@ -79,6 +81,8 @@ fn route_internal(wv: &WebView, url: &str, prefs: &Settings, blocker: &Arc<AdBlo
         (newtab::html().to_string(), Some(pages::assets_base_uri()))
     };
 
+    // Le `load_html` est différé via `idle_add_local_once` : charger de façon
+    // ré-entrante depuis `decide-policy` laisse parfois la WebView blanche.
     let wv = wv.clone();
     gtk::glib::idle_add_local_once(move || {
         wv.load_html(&html, base.as_deref());
@@ -147,4 +151,25 @@ mod tests {
     #[test] fn empty()               { assert_eq!(resolve_input("  ", &p()), ""); }
     #[test] fn javascript_neutered() { assert!(resolve_input("javascript:x", &p()).contains("duckduckgo.com")); }
     #[test] fn data_neutered()       { assert!(resolve_input("data:text/html,x", &p()).contains("duckduckgo.com")); }
+
+    /// Fuzz « centaines d'entrées » : aucune ne doit paniquer, et aucun schéma
+    /// dangereux ne doit passer en clair (toujours neutralisé en recherche).
+    #[test]
+    fn stress_fuzz_inputs() {
+        let prefs = p();
+        let fragments = [
+            "", " ", "a", "google.com", "rust async", "http://x", "https://y.z",
+            "javascript:alert(1)", "data:text/html,x", "vbscript:x", "file:///etc",
+            "nyx://settings", "localhost:8080", "192.168.0.1:3000", "日本:9000",
+            "a b c d", "::", "ftp://h", "mailto:a@b.c", "a.b.c.d.e.f.g",
+        ];
+        for i in 0..10_000 {
+            let s = fragments[i % fragments.len()];
+            let out = resolve_input(s, &prefs); // ne doit pas paniquer
+            // Un schéma exécutable ne ressort jamais tel quel.
+            assert!(!out.starts_with("javascript:"));
+            assert!(!out.starts_with("data:"));
+            assert!(!out.starts_with("vbscript:"));
+        }
+    }
 }

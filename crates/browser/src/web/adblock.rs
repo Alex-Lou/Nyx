@@ -2,40 +2,62 @@ use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 /// Bloqueur minimal (Sprint 3 : crate `adblock` de Brave + EasyList).
-/// `enabled` est atomique : le toggle des réglages agit immédiatement sur
-/// tous les onglets, qui partagent le même `Arc<AdBlocker>`.
+///
+/// Deux jeux de règles indépendants, chacun avec son interrupteur atomique
+/// (le toggle des réglages agit immédiatement sur tous les onglets, qui
+/// partagent le même `Arc<AdBlocker>`) :
+///   • pub/trackers — activé par défaut
+///   • connexions tierces (Google/Meta/Apple… auth & SDK) — option opt-in
 pub struct AdBlocker {
-    enabled: AtomicBool,
-    domains: HashSet<String>,
-    paths:   Vec<String>,
+    ads_on:      AtomicBool,
+    accounts_on: AtomicBool,
+    ad_domains:  HashSet<String>,
+    ad_paths:    Vec<String>,
+    accounts:    HashSet<String>,
 }
 
 impl AdBlocker {
     pub fn new() -> Self {
-        let (mut domains, mut paths) = (HashSet::new(), Vec::new());
-        for rule in RULES {
-            if rule.contains('/') { paths.push(rule.to_string()); }
-            else                  { domains.insert(rule.to_string()); }
+        let (mut ad_domains, mut ad_paths) = (HashSet::new(), Vec::new());
+        for rule in AD_RULES {
+            if rule.contains('/') { ad_paths.push(rule.to_string()); }
+            else                  { ad_domains.insert(rule.to_string()); }
         }
-        Self { enabled: AtomicBool::new(true), domains, paths }
+        Self {
+            ads_on:      AtomicBool::new(true),
+            accounts_on: AtomicBool::new(false),
+            ad_domains,
+            ad_paths,
+            accounts:    ACCOUNT_DOMAINS.iter().map(|s| s.to_string()).collect(),
+        }
     }
 
-    pub fn set_enabled(&self, v: bool) {
-        self.enabled.store(v, Ordering::Relaxed);
-    }
+    pub fn set_enabled(&self, v: bool)        { self.ads_on.store(v, Ordering::Relaxed); }
+    pub fn set_block_accounts(&self, v: bool) { self.accounts_on.store(v, Ordering::Relaxed); }
 
     pub fn should_block(&self, url: &str) -> bool {
-        if !self.enabled.load(Ordering::Relaxed) {
-            return false;
-        }
         let host = extract_host(url);
-        self.domains.iter().any(|d| host == d || host.ends_with(&format!(".{d}")))
-            || self.paths.iter().any(|p| url_contains_path(url, p))
+        if self.ads_on.load(Ordering::Relaxed) {
+            let ad = self.ad_domains.iter().any(|d| host_matches(host, d))
+                || self.ad_paths.iter().any(|p| url_contains_path(url, p));
+            if ad { return true; }
+        }
+        if self.accounts_on.load(Ordering::Relaxed)
+            && self.accounts.iter().any(|d| host_matches(host, d))
+        {
+            return true;
+        }
+        false
     }
 }
 
 impl Default for AdBlocker {
     fn default() -> Self { Self::new() }
+}
+
+/// `host == d` ou sous-domaine de `d` (`.d`). Évite l'injection `d.evil.com`.
+fn host_matches(host: &str, d: &str) -> bool {
+    host == d || host.ends_with(&format!(".{d}"))
 }
 
 /// `"https://ads.x.com/img"` → `"ads.x.com"`.
@@ -55,12 +77,21 @@ fn url_contains_path(url: &str, rule: &str) -> bool {
     })
 }
 
-const RULES: &[&str] = &[
+const AD_RULES: &[&str] = &[
     "doubleclick.net", "googlesyndication.com",
     "googletagmanager.com", "googletagservices.com",
     "ads.twitter.com", "facebook.com/tr",
     "analytics.google.com", "hotjar.com",
     "scorecardresearch.com", "quantserve.com",
+];
+
+/// Domaines d'authentification / SDK tiers — « Se connecter avec Google… ».
+const ACCOUNT_DOMAINS: &[&str] = &[
+    "accounts.google.com", "apis.google.com", "oauth2.googleapis.com",
+    "connect.facebook.net", "graph.facebook.com",
+    "appleid.apple.com",
+    "login.microsoftonline.com", "login.live.com",
+    "api.linkedin.com", "platform.twitter.com",
 ];
 
 #[cfg(test)]
@@ -75,9 +106,60 @@ mod tests {
     #[test] fn blocks_path()       { assert!(b().should_block("https://www.facebook.com/tr?id=1")); }
     #[test] fn no_fp_path_prefix() { assert!(!b().should_block("https://www.facebook.com/trending")); }
     #[test] fn allows_clean()      { assert!(!b().should_block("https://duckduckgo.com/?q=rust")); }
-    #[test] fn toggle_disable() {
+
+    #[test] fn toggle_ads() {
         let b = b();
         b.set_enabled(false);
         assert!(!b.should_block("https://doubleclick.net/ad.js"));
+    }
+
+    #[test] fn accounts_opt_in() {
+        let b = b();
+        // off par défaut
+        assert!(!b.should_block("https://accounts.google.com/o/oauth2/auth"));
+        b.set_block_accounts(true);
+        assert!(b.should_block("https://accounts.google.com/o/oauth2/auth"));
+        assert!(b.should_block("https://appleid.apple.com/auth/authorize"));
+        // un site légitime non-auth reste autorisé
+        assert!(!b.should_block("https://www.google.com/search?q=x"));
+    }
+
+    /// « Centaines d'utilisateurs » : 50 000 vérifications d'URL variées sur un
+    /// bloqueur partagé, en basculant les flags. Doit rester correct et rapide,
+    /// sans paniquer (slicing UTF-8 sûr sur des URLs tordues).
+    #[test]
+    fn stress_many_urls() {
+        let b = b();
+        b.set_block_accounts(true);
+        let hosts = [
+            "doubleclick.net", "ad.doubleclick.net", "example.com",
+            "accounts.google.com", "duckduckgo.com", "sub.hotjar.com",
+            "notdoubleclick.net", "facebook.com", "crates.io",
+        ];
+        let mut blocked = 0usize;
+        for i in 0..50_000 {
+            let h = hosts[i % hosts.len()];
+            let url = format!("https://{h}/path/{i}?q={i}#frag");
+            if b.should_block(&url) { blocked += 1; }
+        }
+        // Une fraction notable est bloquée, le reste passe → les deux jeux marchent.
+        assert!(blocked > 0 && blocked < 50_000);
+    }
+
+    /// URLs malformées / unicode : extract_host & slicing ne doivent jamais paniquer.
+    #[test]
+    fn stress_malformed_urls() {
+        let b = b();
+        let weird = [
+            "", "::::", "https://", "https://////", "nyx://newtab",
+            "ht!tp://@@@/x", "https://日本語.example.com/ぺージ",
+            "https://doubleclick.net", "https://x.com:443/a#b?c",
+            "javascript:alert(1)", "data:text/html,<b>x</b>",
+        ];
+        for _ in 0..5_000 {
+            for w in &weird {
+                let _ = b.should_block(w); // ne doit pas paniquer
+            }
+        }
     }
 }

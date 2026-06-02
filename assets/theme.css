@@ -38,6 +38,38 @@ window, .background {
     min-height: 42px;
 }
 
+/* ── Titlebar (HeaderBar CSD) ───────────────────── */
+
+headerbar.nyx-headerbar {
+    background: linear-gradient(180deg, @nyx_surface, @nyx_deep);
+    border-bottom: 1px solid @nyx_border;
+    box-shadow: none;
+    min-height: 32px;
+    padding: 2px 6px;
+    color: @nyx_star;
+}
+
+headerbar.nyx-headerbar .title {
+    color: @nyx_moon;
+    font-weight: 600;
+    font-size: 12px;
+    letter-spacing: 0.22em;
+}
+
+headerbar.nyx-headerbar button {
+    background: none;
+    border: none;
+    border-radius: 7px;
+    color: @nyx_dim;
+    padding: 2px 6px;
+    transition: background-color 150ms ease, color 150ms ease;
+}
+
+headerbar.nyx-headerbar button:hover {
+    background-color: @nyx_raised;
+    color: @nyx_star;
+}
+
 /* ── URL bar ───────────────────────────────────── */
 
 .nyx-urlbar {

@@ -28,6 +28,7 @@ pub struct TabBar {
     settings:       Settings,
     bookmarks:      Bookmarks,
     on_new_webview: WebViewHook,
+    settings_tab:   Rc<RefCell<Option<WebView>>>,
 }
 
 impl TabBar {
@@ -36,6 +37,7 @@ impl TabBar {
         Self {
             notebook, blocker, settings, bookmarks: bm,
             on_new_webview: Rc::new(RefCell::new(Box::new(|_| {}))),
+            settings_tab:   Rc::new(RefCell::new(None)),
         }
     }
 
@@ -56,11 +58,32 @@ impl TabBar {
         wv
     }
 
+    /// Ouvre les paramètres — réutilise l'onglet existant s'il est encore
+    /// ouvert (au lieu d'en empiler un nouveau à chaque clic).
     pub fn open_settings(&self) -> WebView {
+        if let Some(wv) = self.settings_tab.borrow().clone() {
+            if let Some(idx) = self.notebook.page_num(&wv) {
+                self.notebook.set_current_page(Some(idx));
+                return wv;
+            }
+        }
         let html = settings_page::html(&self.settings.borrow());
         let wv = self.build_webview(None);
         wv.load_html(&html, Some(&pages::assets_base_uri()));
         self.attach(&wv, "Paramètres");
+        *self.settings_tab.borrow_mut() = Some(wv.clone());
+        wv
+    }
+
+    /// Ouvre la page d'accueil configurée (par défaut : nouvel onglet Nyx).
+    pub fn open_home(&self) -> WebView {
+        let url = self.settings.borrow().home_url.clone();
+        if url.is_empty() || url == "nyx://newtab" {
+            return self.open_new_tab();
+        }
+        let wv = self.build_webview(None);
+        wv.load_uri(&url);
+        self.attach(&wv, "Chargement…");
         wv
     }
 
@@ -93,7 +116,13 @@ impl TabBar {
         let wv = match parent {
             Some(p) => WebView::with_related_view(p),
             None => {
-                let ctx = WebContext::new();
+                // Mode privé : contexte éphémère (rien sur disque — cookies,
+                // cache, historique vivent en RAM et disparaissent à la fermeture).
+                let ctx = if self.settings.borrow().private_mode {
+                    WebContext::new_ephemeral()
+                } else {
+                    WebContext::new()
+                };
                 // SÉCURITÉ : bac à sable des processus web (avant le 1er WebView).
                 ctx.set_sandbox_enabled(true);
 
