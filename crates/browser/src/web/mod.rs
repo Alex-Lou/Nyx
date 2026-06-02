@@ -1,3 +1,10 @@
+//! Couche moteur web : configuration WebKit, filtrage de navigation
+//! (adblock + routage des pages internes `nyx://`), résolution de la barre
+//! d'adresse. Le rendu HTML appartient à `crate::pages`.
+
+pub mod adblock;
+pub mod darkmode;
+
 use std::sync::Arc;
 
 use gtk::prelude::*;
@@ -6,10 +13,10 @@ use webkit2gtk::{
     PolicyDecisionExt, PolicyDecisionType, URIRequestExt, WebView, WebViewExt,
 };
 
-use crate::adblock::AdBlocker;
-use crate::bookmarks::Bookmarks;
-use crate::settings::Settings;
-use crate::{newtab, settings, settings_page};
+use crate::pages::{self, bookmarks as bookmarks_page, newtab, settings as settings_page};
+use crate::state::bookmarks::Bookmarks;
+use crate::state::settings::{self, AppSettings, Settings};
+use adblock::AdBlocker;
 
 pub fn configure(webview: &WebView, blocker: Arc<AdBlocker>, prefs: Settings, bm: Bookmarks) {
     apply_privacy_settings(webview);
@@ -48,30 +55,28 @@ fn wire_policy_filter(webview: &WebView, blocker: Arc<AdBlocker>, prefs: Setting
     });
 }
 
-/// Route un schéma `nyx://` vers la bonne page interne.
+/// Route un schéma `nyx://` vers la page interne correspondante.
 ///
-/// Le `load_html` est **différé** via `idle_add_local_once` : appeler un load
-/// de façon ré-entrante depuis le callback `decide-policy` laisse parfois la
-/// WebView dans un état incohérent (page blanche). On laisse la décision se
-/// terminer, puis on charge.
+/// Le `load_html` est **différé** via `idle_add_local_once` : charger de façon
+/// ré-entrante depuis `decide-policy` laisse parfois la WebView blanche.
 fn route_internal(wv: &WebView, url: &str, prefs: &Settings, blocker: &Arc<AdBlocker>, bm: &Bookmarks) {
     let rest = url.trim_start_matches("nyx://");
 
     let (html, base) = if rest.starts_with("apply") {
-        // SÉCURITÉ : la mutation des réglages n'est honorée que si la page qui
-        // soumet est interne. Une page web distante ne peut pas désactiver
+        // SÉCURITÉ : la mutation des réglages n'est honorée que si la page
+        // émettrice est interne. Une page distante ne peut pas désactiver
         // l'adblock via location='nyx://apply?adblock=false'.
         if !page_is_internal(wv) {
             return;
         }
         settings::apply_from_url(url, prefs, blocker);
-        (settings_page::html(&prefs.borrow()), Some(settings_page::base_uri()))
+        (settings_page::html(&prefs.borrow()), Some(pages::assets_base_uri()))
     } else if rest.starts_with("settings") {
-        (settings_page::html(&prefs.borrow()), Some(settings_page::base_uri()))
+        (settings_page::html(&prefs.borrow()), Some(pages::assets_base_uri()))
     } else if rest.starts_with("bookmarks") {
-        (crate::bookmarks::page_html(&bm.borrow()), None)
+        (bookmarks_page::page_html(&bm.borrow()), None)
     } else {
-        (newtab::html().to_string(), Some(newtab::base_uri()))
+        (newtab::html().to_string(), Some(pages::assets_base_uri()))
     };
 
     let wv = wv.clone();
@@ -80,16 +85,15 @@ fn route_internal(wv: &WebView, url: &str, prefs: &Settings, blocker: &Arc<AdBlo
     });
 }
 
-/// Une page est « interne » si elle vient de notre dossier assets (`file://`)
-/// ou d'un schéma `nyx://`. Sert de frontière de confiance pour les actions
-/// sensibles.
+/// Frontière de confiance : une page est interne si elle vient de nos assets
+/// (`file://…/assets/`) ou d'un schéma `nyx://`.
 fn page_is_internal(wv: &WebView) -> bool {
     match wv.uri() {
         Some(u) => {
             let u = u.as_str();
             u.starts_with("nyx://") || (u.starts_with("file://") && u.contains("/assets/"))
         }
-        None => true, // WebView fraîche (ouverte par nous) avant tout load
+        None => true, // WebView fraîche ouverte par nous, avant tout load
     }
 }
 
@@ -106,7 +110,7 @@ fn extract_url(decision: &PolicyDecision) -> String {
 }
 
 /// Normalise une entrée barre d'adresse en URL, via le moteur configuré.
-pub fn resolve_input(input: &str, prefs: &crate::settings::AppSettings) -> String {
+pub fn resolve_input(input: &str, prefs: &AppSettings) -> String {
     let s = input.trim();
     if s.is_empty() {
         return String::new();
@@ -132,15 +136,15 @@ pub fn resolve_input(input: &str, prefs: &crate::settings::AppSettings) -> Strin
 #[cfg(test)]
 mod tests {
     use super::resolve_input;
-    use crate::settings::AppSettings;
+    use crate::state::settings::AppSettings;
     fn p() -> AppSettings { AppSettings::default() }
 
-    #[test] fn passthrough_https()    { assert_eq!(resolve_input("https://x.com", &p()), "https://x.com"); }
-    #[test] fn passthrough_nyx()      { assert_eq!(resolve_input("nyx://newtab", &p()), "nyx://newtab"); }
-    #[test] fn bare_domain()          { assert_eq!(resolve_input("github.com", &p()), "https://github.com"); }
-    #[test] fn localhost()            { assert_eq!(resolve_input("localhost:3000", &p()), "http://localhost:3000"); }
-    #[test] fn query_to_engine()      { assert!(resolve_input("rust async", &p()).contains("duckduckgo.com")); }
-    #[test] fn empty()                { assert_eq!(resolve_input("  ", &p()), ""); }
-    #[test] fn javascript_neutered()  { assert!(resolve_input("javascript:x", &p()).contains("duckduckgo.com")); }
-    #[test] fn data_neutered()        { assert!(resolve_input("data:text/html,x", &p()).contains("duckduckgo.com")); }
+    #[test] fn passthrough_https()   { assert_eq!(resolve_input("https://x.com", &p()), "https://x.com"); }
+    #[test] fn passthrough_nyx()     { assert_eq!(resolve_input("nyx://newtab", &p()), "nyx://newtab"); }
+    #[test] fn bare_domain()         { assert_eq!(resolve_input("github.com", &p()), "https://github.com"); }
+    #[test] fn localhost()           { assert_eq!(resolve_input("localhost:3000", &p()), "http://localhost:3000"); }
+    #[test] fn query_to_engine()     { assert!(resolve_input("rust async", &p()).contains("duckduckgo.com")); }
+    #[test] fn empty()               { assert_eq!(resolve_input("  ", &p()), ""); }
+    #[test] fn javascript_neutered() { assert!(resolve_input("javascript:x", &p()).contains("duckduckgo.com")); }
+    #[test] fn data_neutered()       { assert!(resolve_input("data:text/html,x", &p()).contains("duckduckgo.com")); }
 }

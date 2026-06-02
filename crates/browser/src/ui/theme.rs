@@ -1,7 +1,7 @@
 use gtk::prelude::*;
 use gtk::{CssProvider, StyleContext};
 
-const THEME_CSS: &str = include_str!("../../../assets/theme.css");
+const THEME_CSS: &str = include_str!("../../../../assets/theme.css");
 
 pub fn load() {
     let provider = CssProvider::new();

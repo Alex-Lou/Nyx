@@ -2,21 +2,25 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
 
-use gtk::pango::EllipsizeMode;
 use gtk::prelude::*;
-use gtk::{Box as GtkBox, Button, Image, Label, Notebook, Orientation, Widget};
+use gtk::{Notebook, Widget};
 use webkit2gtk::{
     UserContentManager, UserContentManagerExt, WebContext, WebContextExt,
     WebView, WebViewExt,
 };
 
-use crate::adblock::AdBlocker;
-use crate::bookmarks::Bookmarks;
-use crate::settings::Settings;
-use crate::{darkmode, favicon, newtab, settings_page, webview};
+use crate::pages::{self, newtab, settings as settings_page};
+use crate::state::bookmarks::Bookmarks;
+use crate::state::settings::Settings;
+use crate::web::{self, adblock::AdBlocker, darkmode};
+
+mod favicon;
+mod label;
 
 type WebViewHook = Rc<RefCell<Box<dyn Fn(&WebView)>>>;
 
+/// Gestion des onglets. `Clone` est cheap (champs ref-comptés) → les closures
+/// GTK capturent une `TabBar` clonée sans coût mémoire significatif.
 #[derive(Clone)]
 pub struct TabBar {
     pub notebook:   Notebook,
@@ -35,6 +39,8 @@ impl TabBar {
         }
     }
 
+    /// Hook appelé après création de chaque WebView (URL bar + progress câblés
+    /// une seule fois par la fenêtre).
     pub fn set_on_new_webview<F: Fn(&WebView) + 'static>(&self, cb: F) {
         *self.on_new_webview.borrow_mut() = Box::new(cb);
     }
@@ -45,7 +51,7 @@ impl TabBar {
 
     pub fn open_new_tab(&self) -> WebView {
         let wv = self.build_webview(None);
-        wv.load_html(newtab::html(), Some(&newtab::base_uri()));
+        wv.load_html(newtab::html(), Some(&pages::assets_base_uri()));
         self.attach(&wv, "Nouvel onglet");
         wv
     }
@@ -53,22 +59,8 @@ impl TabBar {
     pub fn open_settings(&self) -> WebView {
         let html = settings_page::html(&self.settings.borrow());
         let wv = self.build_webview(None);
-        wv.load_html(&html, Some(&settings_page::base_uri()));
+        wv.load_html(&html, Some(&pages::assets_base_uri()));
         self.attach(&wv, "Paramètres");
-        wv
-    }
-
-    #[allow(dead_code)]
-    pub fn open(&self, url: &str) -> WebView {
-        let wv = self.build_webview(None);
-        wv.load_uri(url);
-        self.attach(&wv, "Chargement…");
-        wv
-    }
-
-    pub fn open_related(&self, parent: &WebView) -> WebView {
-        let wv = self.build_webview(Some(parent));
-        self.attach(&wv, "Chargement…");
         wv
     }
 
@@ -90,13 +82,19 @@ impl TabBar {
         self.notebook.set_current_page(Some((cur + 1) % n));
     }
 
+    /// Onglet enfant lié à `parent` (signal `create-web-view`).
+    fn open_related(&self, parent: &WebView) -> WebView {
+        let wv = self.build_webview(Some(parent));
+        self.attach(&wv, "Chargement…");
+        wv
+    }
+
     fn build_webview(&self, parent: Option<&WebView>) -> WebView {
         let wv = match parent {
             Some(p) => WebView::with_related_view(p),
-            None    => {
+            None => {
                 let ctx = WebContext::new();
-                // SÉCURITÉ : bac à sable des processus web (doit être activé
-                // avant la création du premier WebView du contexte).
+                // SÉCURITÉ : bac à sable des processus web (avant le 1er WebView).
                 ctx.set_sandbox_enabled(true);
 
                 // Mode sombre forcé : injecté via un UserContentManager dédié.
@@ -113,8 +111,9 @@ impl TabBar {
         };
         wv.set_vexpand(true);
         wv.set_hexpand(true);
-        webview::configure(&wv, self.blocker.clone(), self.settings.clone(), self.bookmarks.clone());
+        web::configure(&wv, self.blocker.clone(), self.settings.clone(), self.bookmarks.clone());
 
+        // Liens target=_blank / window.open → nouvel onglet.
         let tabs = self.clone();
         wv.connect_create(move |opener, _| {
             Some(tabs.open_related(opener).upcast::<Widget>())
@@ -125,47 +124,10 @@ impl TabBar {
     }
 
     fn attach(&self, wv: &WebView, initial: &str) {
-        let label = build_tab_label(wv, &self.notebook, initial);
-        let idx   = self.notebook.append_page(wv, Some(&label));
+        let tab = label::build(wv, &self.notebook, initial);
+        let idx = self.notebook.append_page(wv, Some(&tab));
         self.notebook.set_tab_reorderable(wv, true);
         self.notebook.set_current_page(Some(idx));
         wv.show();
     }
-}
-
-fn build_tab_label(wv: &WebView, nb: &Notebook, initial: &str) -> GtkBox {
-    let icon = Image::new();
-    icon.set_pixel_size(favicon::FAVICON_PX);
-    icon.style_context().add_class("nyx-tab-favicon");
-    favicon::set_fallback(&icon);
-    favicon::bind(&icon, wv);
-
-    let label = Label::new(Some(initial));
-    label.set_max_width_chars(20);
-    label.set_ellipsize(EllipsizeMode::End);
-
-    let close = Button::with_label("×");
-    close.style_context().add_class("nyx-tab-close");
-    close.set_relief(gtk::ReliefStyle::None);
-
-    let row = GtkBox::new(Orientation::Horizontal, 6);
-    row.pack_start(&icon,  false, false, 0);
-    row.pack_start(&label, true,  true,  0);
-    row.pack_start(&close, false, false, 0);
-    row.show_all();
-
-    let lbl = label.clone();
-    wv.connect_title_notify(move |wv| {
-        let t = wv.title().map(|s| s.to_string())
-            .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| "Nouvel onglet".into());
-        lbl.set_text(&t);
-        lbl.set_tooltip_text(Some(&t));
-    });
-
-    let nb = nb.clone(); let wv = wv.clone();
-    close.connect_clicked(move |_| {
-        if let Some(i) = nb.page_num(&wv) { nb.remove_page(Some(i)); }
-    });
-    row
 }

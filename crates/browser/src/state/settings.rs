@@ -1,6 +1,8 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use crate::web::adblock::AdBlocker;
+
 pub type Settings = Rc<RefCell<AppSettings>>;
 
 #[derive(Clone, Debug)]
@@ -24,7 +26,11 @@ impl Default for AppSettings {
     }
 }
 
-// ── Moteurs de recherche (privé par défaut — pas de Google/Bing) ────────
+pub fn new() -> Settings {
+    Rc::new(RefCell::new(AppSettings::default()))
+}
+
+// ── Moteurs de recherche (privés par défaut — jamais Google/Bing) ──────────
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum SearchEngine { DuckDuckGo, Brave, Ecosia }
@@ -46,7 +52,7 @@ impl SearchEngine {
     }
 }
 
-// ── Langue ───────────────────────────────────────────────────────────────
+// ── Langue ─────────────────────────────────────────────────────────────────
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Language { French, English, Spanish, German, Italian, Portuguese }
@@ -54,33 +60,26 @@ pub enum Language { French, English, Spanish, German, Italian, Portuguese }
 impl Language {
     pub fn id(&self) -> &'static str {
         match self {
-            Self::French     => "fr", Self::English   => "en", Self::Spanish  => "es",
-            Self::German     => "de", Self::Italian   => "it", Self::Portuguese => "pt",
+            Self::French => "fr", Self::English => "en", Self::Spanish    => "es",
+            Self::German => "de", Self::Italian => "it", Self::Portuguese => "pt",
         }
     }
     pub fn from_id(s: &str) -> Self {
         match s {
             "en" => Self::English, "es" => Self::Spanish, "de" => Self::German,
-            "it" => Self::Italian, "pt" => Self::Portuguese, _  => Self::French,
+            "it" => Self::Italian, "pt" => Self::Portuguese, _ => Self::French,
         }
     }
 }
 
-// ── Constructeur ─────────────────────────────────────────────────────────
+// ── Application des réglages depuis nyx://apply?... ─────────────────────────
 
-pub fn new() -> Settings {
-    Rc::new(RefCell::new(AppSettings::default()))
-}
-
-fn urlencode(s: &str) -> String {
-    s.replace('&', "%26").replace('#', "%23").replace(' ', "+")
-}
-
-/// Parse `key=value&...` depuis une URL `nyx://apply?...` et applique les
-/// changements à `settings`. Retourne `true` si au moins un param reconnu.
-pub fn apply_from_url(url: &str, settings: &Settings, blocker: &crate::adblock::AdBlocker) -> bool {
+/// Parse `key=value&…` et applique. Retourne `true` si la query n'était pas vide.
+pub fn apply_from_url(url: &str, settings: &Settings, blocker: &AdBlocker) -> bool {
     let query = url.splitn(2, '?').nth(1).unwrap_or("");
-    if query.is_empty() { return false; }
+    if query.is_empty() {
+        return false;
+    }
 
     let params: std::collections::HashMap<&str, &str> = query
         .split('&')
@@ -91,11 +90,11 @@ pub fn apply_from_url(url: &str, settings: &Settings, blocker: &crate::adblock::
         .collect();
 
     let mut s = settings.borrow_mut();
-    if let Some(e) = params.get("engine")  { s.search_engine = SearchEngine::from_id(e); }
-    if let Some(h) = params.get("home")    { s.home_url = urldecode(h); }
-    if let Some(l) = params.get("lang")    { s.language = Language::from_id(l); }
+    if let Some(e) = params.get("engine") { s.search_engine = SearchEngine::from_id(e); }
+    if let Some(h) = params.get("home")   { s.home_url = urldecode(h); }
+    if let Some(l) = params.get("lang")   { s.language = Language::from_id(l); }
 
-    // Checkboxes : présentes uniquement si cochées → absent = false.
+    // Checkboxes : présentes seulement si cochées → absent = false.
     let adblock_on = params.get("adblock").map(|v| *v == "true").unwrap_or(false);
     s.adblock_enabled = adblock_on;
     blocker.set_enabled(adblock_on);
@@ -104,11 +103,12 @@ pub fn apply_from_url(url: &str, settings: &Settings, blocker: &crate::adblock::
     true
 }
 
+fn urlencode(s: &str) -> String {
+    s.replace('&', "%26").replace('#', "%23").replace(' ', "+")
+}
+
 fn urldecode(s: &str) -> String {
     s.replace('+', " ")
-     .replace("%26", "&")
-     .replace("%23", "#")
-     .replace("%3A", ":")
-     .replace("%2F", "/")
-     .replace("%3F", "?")
+     .replace("%26", "&").replace("%23", "#")
+     .replace("%3A", ":").replace("%2F", "/").replace("%3F", "?")
 }
