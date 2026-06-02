@@ -4,6 +4,7 @@
 //! Le compilateur enforce cette frontière (pas de `gtk` dans Cargo.toml).
 
 pub mod domain_risk;
+pub mod download_policy;
 pub mod nyxguard;
 pub mod permissions;
 pub mod sec_log;
