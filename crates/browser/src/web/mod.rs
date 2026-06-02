@@ -4,6 +4,7 @@
 
 pub mod darkmode;
 pub mod nyxguard;
+pub mod security;
 
 use std::sync::Arc;
 
@@ -17,6 +18,7 @@ use crate::pages::{self, bookmarks as bookmarks_page, newtab, settings as settin
 use crate::state::bookmarks::Bookmarks;
 use crate::state::settings::{self, AppSettings, Settings};
 use nyxguard::NyxGuard;
+use security::{Page, Verdict};
 
 pub fn configure(webview: &WebView, blocker: Arc<NyxGuard>, prefs: Settings, bm: Bookmarks) {
     apply_privacy_settings(webview);
@@ -39,50 +41,39 @@ fn wire_policy_filter(webview: &WebView, blocker: Arc<NyxGuard>, prefs: Settings
         }
         let url = extract_url(decision);
 
-        if url.starts_with("nyx://") {
-            decision.ignore();
-            route_internal(wv, &url, &prefs, &blocker, &bm);
-            return true;
-        }
-
-        if let Ok(nav) = decision.clone().downcast::<NavigationPolicyDecision>() {
-            if blocker.should_block(&url) {
-                nav.ignore();
-                return true;
+        // La *décision* vit dans `security` (pur) ; ici on n'exécute que la
+        // *mécanique* WebKit correspondante.
+        match security::decide(&url, page_is_internal(wv), &blocker) {
+            Verdict::Allow => false,
+            Verdict::Block => {
+                decision.ignore();
+                true
+            }
+            Verdict::ApplySettings => {
+                // Auto-save : on applique sans recharger (la page garde son
+                // état JS, soumis via une iframe cachée).
+                decision.ignore();
+                settings::apply_from_url(&url, &prefs, &blocker);
+                true
+            }
+            Verdict::Load(page) => {
+                decision.ignore();
+                load_internal_page(wv, page, &prefs, &bm);
+                true
             }
         }
-        false
     });
 }
 
-/// Route un schéma `nyx://` vers la page interne correspondante.
-///
-/// Le `load_html` est **différé** via `idle_add_local_once` : charger de façon
-/// ré-entrante depuis `decide-policy` laisse parfois la WebView blanche.
-fn route_internal(wv: &WebView, url: &str, prefs: &Settings, blocker: &Arc<NyxGuard>, bm: &Bookmarks) {
-    let rest = url.trim_start_matches("nyx://");
-
-    // Auto-save : la page paramètres POST chaque changement dans une iframe
-    // cachée → on applique SANS recharger (la page garde son état JS).
-    // SÉCURITÉ : mutation honorée uniquement si la page émettrice est interne.
-    // Une page distante ne peut pas faire location='nyx://apply?adblock=false'.
-    if rest.starts_with("apply") {
-        if page_is_internal(wv) {
-            settings::apply_from_url(url, prefs, blocker);
-        }
-        return;
-    }
-
-    let (html, base) = if rest.starts_with("settings") {
-        (settings_page::html(&prefs.borrow()), Some(pages::assets_base_uri()))
-    } else if rest.starts_with("bookmarks") {
-        (bookmarks_page::page_html(&bm.borrow()), None)
-    } else {
-        (newtab::html().to_string(), Some(pages::assets_base_uri()))
+/// Charge une page interne. Le `load_html` est **différé** via
+/// `idle_add_local_once` : charger de façon ré-entrante depuis `decide-policy`
+/// laisse parfois la WebView blanche.
+fn load_internal_page(wv: &WebView, page: Page, prefs: &Settings, bm: &Bookmarks) {
+    let (html, base) = match page {
+        Page::Settings  => (settings_page::html(&prefs.borrow()), Some(pages::assets_base_uri())),
+        Page::Bookmarks => (bookmarks_page::page_html(&bm.borrow()), None),
+        Page::NewTab    => (newtab::html().to_string(), Some(pages::assets_base_uri())),
     };
-
-    // Le `load_html` est différé via `idle_add_local_once` : charger de façon
-    // ré-entrante depuis `decide-policy` laisse parfois la WebView blanche.
     let wv = wv.clone();
     gtk::glib::idle_add_local_once(move || {
         wv.load_html(&html, base.as_deref());
