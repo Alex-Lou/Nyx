@@ -2,10 +2,12 @@ use std::cell::Cell;
 use std::rc::Rc;
 use std::sync::Arc;
 
+use gtk::glib;
+use gtk::glib::SourceId;
 use gtk::prelude::*;
 use gtk::{
     Application, ApplicationWindow, Box as GtkBox, Entry, EventBox,
-    Orientation, Overlay, ProgressBar, Revealer, RevealerTransitionType,
+    Orientation, Overlay, ProgressBar,
 };
 use webkit2gtk::{WebView, WebViewExt};
 
@@ -39,56 +41,48 @@ impl BrowserWindow {
             .hexpand(true).build();
         url_bar.style_context().add_class("nyx-urlbar");
 
-        let tabs   = TabBar::new(blocker, settings.clone(), bm.clone());
+        let tabs = TabBar::new(blocker, settings.clone(), bm.clone());
         tabs.set_parent(&window);
         let nav_bar = navbar::build(&url_bar, &tabs, &settings, &bm);
 
-        let revealer = Revealer::builder()
-            .transition_type(RevealerTransitionType::SlideDown)
-            .transition_duration(250)
-            .reveal_child(true)
-            .build();
-        revealer.add(&nav_bar);
+        // ── Chrome flottant : progress + navbar dans un overlay ──────
+        let chrome_box = GtkBox::new(Orientation::Vertical, 0);
+        chrome_box.style_context().add_class("nyx-chrome");
+        chrome_box.pack_start(&progress, false, false, 0);
+        chrome_box.pack_start(&nav_bar, false, false, 0);
+        chrome_box.set_valign(gtk::Align::Start);
 
-        let chrome_hidden = Rc::new(Cell::new(false));
-
+        // Zone de détection hover (couvre le chrome + une marge de 10px en dessous)
         let hover_zone = EventBox::new();
-        hover_zone.set_above_child(true);
-        hover_zone.set_visible_window(false);
-        hover_zone.set_size_request(-1, 10);
+        hover_zone.set_above_child(false);
+        hover_zone.add(&chrome_box);
+        hover_zone.set_valign(gtk::Align::Start);
 
-        let content_box = GtkBox::new(Orientation::Vertical, 0);
-        content_box.pack_start(&tabs.notebook, true, true, 0);
-
+        // Layout : notebook plein écran, chrome en overlay par-dessus
         let overlay = Overlay::new();
-        overlay.add(&content_box);
-
-        let hover_box = GtkBox::new(Orientation::Vertical, 0);
-        hover_box.pack_start(&hover_zone, false, false, 0);
-        hover_box.set_valign(gtk::Align::Start);
-        overlay.add_overlay(&hover_box);
+        overlay.add(&tabs.notebook);
+        overlay.add_overlay(&hover_zone);
 
         let vbox = GtkBox::new(Orientation::Vertical, 0);
-        vbox.pack_start(&progress, false, false, 0);
-        vbox.pack_start(&revealer, false, false, 0);
-        vbox.pack_start(&overlay,  true,  true,  0);
+        vbox.pack_start(&overlay, true, true, 0);
         window.add(&vbox);
 
-        wire_chrome_autohide(&revealer, &hover_zone, &nav_bar, &tabs, &chrome_hidden);
-        wire_webview_hooks(&tabs, &url_bar, &progress, &revealer, &chrome_hidden);
-        wire_tab_switch(&tabs, &url_bar, &progress, &revealer, &chrome_hidden);
+        // Timer de fade-out (4s d'inactivité sur newtab)
+        let fade_timer: Rc<Cell<Option<SourceId>>> = Rc::new(Cell::new(None));
+
+        wire_chrome_fade(&hover_zone, &chrome_box, &tabs, &fade_timer);
+        wire_webview_hooks(&tabs, &url_bar, &progress, &chrome_box, &fade_timer);
+        wire_tab_switch(&tabs, &url_bar, &progress, &chrome_box, &fade_timer);
         wire_last_tab(&window, &tabs, &settings);
         wire_double_click(&tabs);
         shortcuts::wire(&window, &tabs, &url_bar, &bm);
 
-        // Le premier onglet est toujours un newtab → cacher le chrome au démarrage.
+        // Premier onglet = newtab → lancer le timer de fade-out
         {
-            let r = revealer.clone();
-            let t = tabs.clone();
-            let h = chrome_hidden.clone();
-            gtk::glib::idle_add_local_once(move || {
-                sync_chrome(&r, &t, &h);
-            });
+            let cb = chrome_box.clone();
+            let t  = tabs.clone();
+            let ft = fade_timer.clone();
+            glib::idle_add_local_once(move || { schedule_fade_out(&cb, &t, &ft); });
         }
 
         Self { window, tabs }
@@ -101,49 +95,71 @@ fn is_newtab(wv: &WebView) -> bool {
     wv.widget_name().as_str() == "nyx-newtab"
 }
 
-fn set_chrome_visible(revealer: &Revealer, tabs: &TabBar, visible: bool, hidden: &Rc<Cell<bool>>) {
-    revealer.set_reveal_child(visible);
-    tabs.notebook.set_show_tabs(visible);
-    hidden.set(!visible);
+fn on_newtab(tabs: &TabBar) -> bool {
+    tabs.current_webview().is_some_and(|wv| is_newtab(&wv))
 }
 
-fn sync_chrome(revealer: &Revealer, tabs: &TabBar, hidden: &Rc<Cell<bool>>) {
-    let on_newtab = tabs.current_webview().is_some_and(|wv| is_newtab(&wv));
-    set_chrome_visible(revealer, tabs, !on_newtab, hidden);
+/// Cache le chrome (fade out via CSS class).
+fn hide_chrome(chrome: &GtkBox, tabs: &TabBar) {
+    chrome.style_context().add_class("nyx-hidden");
+    tabs.notebook.set_show_tabs(false);
 }
 
-fn wire_chrome_autohide(
-    revealer: &Revealer, hover_zone: &EventBox, nav_bar: &GtkBox,
-    tabs: &TabBar, hidden: &Rc<Cell<bool>>,
+/// Montre le chrome (fade in via CSS class).
+fn show_chrome(chrome: &GtkBox, tabs: &TabBar) {
+    chrome.style_context().remove_class("nyx-hidden");
+    tabs.notebook.set_show_tabs(true);
+}
+
+/// Annule le timer en cours s'il y en a un.
+fn cancel_timer(timer: &Rc<Cell<Option<SourceId>>>) {
+    if let Some(id) = timer.take() {
+        glib::source_remove(id);
+    }
+}
+
+/// Programme un fade-out dans 4 secondes (seulement si on est sur newtab).
+fn schedule_fade_out(chrome: &GtkBox, tabs: &TabBar, timer: &Rc<Cell<Option<SourceId>>>) {
+    cancel_timer(timer);
+    if !on_newtab(tabs) { return; }
+    let cb = chrome.clone();
+    let t  = tabs.clone();
+    let id = glib::timeout_add_local_once(std::time::Duration::from_secs(4), move || {
+        if on_newtab(&t) {
+            hide_chrome(&cb, &t);
+        }
+    });
+    timer.set(Some(id));
+}
+
+fn wire_chrome_fade(
+    hover_zone: &EventBox, chrome: &GtkBox, tabs: &TabBar,
+    timer: &Rc<Cell<Option<SourceId>>>,
 ) {
+    // Souris entre dans la zone chrome → montrer immédiatement + annuler le timer
     {
-        let r = revealer.clone();
-        let t = tabs.clone();
-        let h = hidden.clone();
+        let cb = chrome.clone();
+        let t  = tabs.clone();
+        let ft = timer.clone();
         hover_zone.connect_enter_notify_event(move |_, _| {
-            if h.get() {
-                set_chrome_visible(&r, &t, true, &h);
+            cancel_timer(&ft);
+            if on_newtab(&t) {
+                show_chrome(&cb, &t);
             }
-            gtk::glib::Propagation::Proceed
+            glib::Propagation::Proceed
         });
     }
+    // Souris quitte la zone chrome → relancer le timer de 4s
     {
-        let r = revealer.clone();
-        let t = tabs.clone();
-        let h = hidden.clone();
-        nav_bar.connect_leave_notify_event(move |widget, ev| {
+        let cb = chrome.clone();
+        let t  = tabs.clone();
+        let ft = timer.clone();
+        hover_zone.connect_leave_notify_event(move |_, ev| {
             if ev.detail() == gtk::gdk::NotifyType::Inferior {
-                return gtk::glib::Propagation::Proceed;
+                return glib::Propagation::Proceed;
             }
-            let (_, ey) = ev.position();
-            let alloc = widget.allocation();
-            if ey >= 0.0 && ey <= alloc.height() as f64 {
-                return gtk::glib::Propagation::Proceed;
-            }
-            if t.current_webview().is_some_and(|wv| is_newtab(&wv)) {
-                set_chrome_visible(&r, &t, false, &h);
-            }
-            gtk::glib::Propagation::Proceed
+            schedule_fade_out(&cb, &t, &ft);
+            glib::Propagation::Proceed
         });
     }
 }
@@ -158,7 +174,7 @@ fn wire_last_tab(window: &ApplicationWindow, tabs: &TabBar, settings: &Settings)
             LastTab::CloseWindow => w.close(),
             LastTab::Home => {
                 let t2 = t.clone();
-                gtk::glib::idle_add_local_once(move || { t2.open_home(); });
+                glib::idle_add_local_once(move || { t2.open_home(); });
             }
         }
     });
@@ -171,37 +187,37 @@ fn wire_double_click(tabs: &TabBar) {
             && ev.button() == 1 && ev.position().1 < 42.0
         {
             t.open_home();
-            return gtk::glib::Propagation::Stop;
+            return glib::Propagation::Stop;
         }
-        gtk::glib::Propagation::Proceed
+        glib::Propagation::Proceed
     });
 }
 
 fn wire_webview_hooks(
     tabs: &TabBar, url_bar: &Entry, progress: &ProgressBar,
-    revealer: &Revealer, hidden: &Rc<Cell<bool>>,
+    chrome: &GtkBox, timer: &Rc<Cell<Option<SourceId>>>,
 ) {
     let ub   = url_bar.clone();
     let prog = progress.clone();
-    let rev  = revealer.clone();
+    let cb   = chrome.clone();
     let t    = tabs.clone();
-    let h    = hidden.clone();
+    let ft   = timer.clone();
     tabs.set_on_new_webview(move |wv| {
         let ub2 = ub.clone();
-        let rev2 = rev.clone();
-        let t2   = t.clone();
-        let h2   = h.clone();
+        let cb2 = cb.clone();
+        let t2  = t.clone();
+        let ft2 = ft.clone();
         wv.connect_uri_notify(move |w| {
             let uri = w.uri().map(|u| u.to_string()).unwrap_or_default();
             ub2.set_text(&uri);
-            // Quand on navigue hors du newtab, effacer le tag.
             if w.widget_name().as_str() == "nyx-newtab"
                 && !uri.is_empty()
                 && !uri.starts_with("nyx://newtab")
                 && !(uri.starts_with("file://") && uri.contains("newtab"))
             {
                 w.set_widget_name("");
-                sync_chrome(&rev2, &t2, &h2);
+                show_chrome(&cb2, &t2);
+                cancel_timer(&ft2);
             }
         });
         let prog2 = prog.clone();
@@ -210,24 +226,29 @@ fn wire_webview_hooks(
             prog2.set_fraction(p);
             prog2.set_visible(p > 0.0 && p < 1.0);
         });
-        let rev3 = rev.clone();
-        let t3   = t.clone();
-        let h3   = h.clone();
+        let cb3 = cb.clone();
+        let t3  = t.clone();
+        let ft3 = ft.clone();
         wv.connect_load_changed(move |_, _| {
-            sync_chrome(&rev3, &t3, &h3);
+            if on_newtab(&t3) {
+                schedule_fade_out(&cb3, &t3, &ft3);
+            } else {
+                show_chrome(&cb3, &t3);
+                cancel_timer(&ft3);
+            }
         });
     });
 }
 
 fn wire_tab_switch(
     tabs: &TabBar, url_bar: &Entry, progress: &ProgressBar,
-    revealer: &Revealer, hidden: &Rc<Cell<bool>>,
+    chrome: &GtkBox, timer: &Rc<Cell<Option<SourceId>>>,
 ) {
     let ub   = url_bar.clone();
     let prog = progress.clone();
-    let rev  = revealer.clone();
+    let cb   = chrome.clone();
     let t    = tabs.clone();
-    let h    = hidden.clone();
+    let ft   = timer.clone();
     tabs.notebook.connect_switch_page(move |_nb, page, _| {
         if let Ok(wv) = page.clone().downcast::<webkit2gtk::WebView>() {
             ub.set_text(wv.uri().as_deref().unwrap_or(""));
@@ -235,6 +256,11 @@ fn wire_tab_switch(
             prog.set_fraction(p);
             prog.set_visible(p > 0.0 && p < 1.0);
         }
-        sync_chrome(&rev, &t, &h);
+        if on_newtab(&t) {
+            schedule_fade_out(&cb, &t, &ft);
+        } else {
+            show_chrome(&cb, &t);
+            cancel_timer(&ft);
+        }
     });
 }

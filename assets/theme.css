@@ -29,6 +29,18 @@ window, .background {
     color: @nyx_text;
 }
 
+/* ── Chrome flottant (navbar + progress, overlay) ─ */
+
+.nyx-chrome {
+    opacity: 1;
+    transition: opacity 350ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.nyx-chrome.nyx-hidden {
+    opacity: 0;
+    transition: opacity 800ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
 /* ── Barre de navigation ───────────────────────── */
 
 .nyx-navbar {
@@ -36,11 +48,6 @@ window, .background {
     border-bottom: 1px solid @nyx_border;
     padding: 6px 8px;
     min-height: 42px;
-}
-
-/* Zone invisible en haut de l'écran — déclenche la navbar au hover */
-.nyx-hover-zone {
-    background-color: transparent;
 }
 
 /* ── Modal Paramètres (fenêtre flottante) ───────── */
