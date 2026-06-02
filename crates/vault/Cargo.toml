@@ -1,0 +1,14 @@
+[package]
+name    = "vault"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow     = { workspace = true }
+serde      = { workspace = true }
+serde_json = { workspace = true }
+chrono     = { workspace = true }
+
+# rusqlite avec le feature "sqlcipher" utilise SQLCipher pour le chiffrement AES-256
+# Requiert libsqlcipher-dev installé sur le système
+rusqlite = { version = "0.31", features = ["sqlcipher"] }

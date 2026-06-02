@@ -1,0 +1,233 @@
+/* ══════════════════════════════════════════════════
+   NYX — Theme GTK3
+   La nuit n'est pas l'absence de lumière.
+   C'est une lumière plus douce.
+   ══════════════════════════════════════════════════ */
+
+@define-color nyx_void     #06060f;
+@define-color nyx_deep     #0a0a18;
+@define-color nyx_surface  #0f0f22;
+@define-color nyx_raised   #141430;
+@define-color nyx_border   #1e1e40;
+
+@define-color nyx_star     #c8d6ff;
+@define-color nyx_moon     #7b8cde;
+@define-color nyx_nebula   #9d6ef7;
+@define-color nyx_aurora   #4af2c8;
+@define-color nyx_twilight #ff7eb3;
+
+@define-color nyx_text     #dde4ff;
+@define-color nyx_dim      #7078a8;
+@define-color nyx_ghost    #3d4466;
+
+/* ── Base ──────────────────────────────────────── */
+
+* {
+    -gtk-icon-style: regular;
+}
+
+window, .background {
+    background-color: @nyx_deep;
+    color: @nyx_text;
+}
+
+/* ── Barre de navigation ───────────────────────── */
+
+.nyx-navbar {
+    background-color: @nyx_surface;
+    border-bottom: 1px solid @nyx_border;
+    padding: 6px 8px;
+}
+
+/* ── URL bar ───────────────────────────────────── */
+
+.nyx-urlbar {
+    background-color: @nyx_raised;
+    border: 1px solid @nyx_border;
+    border-radius: 10px;
+    color: @nyx_text;
+    font-family: "JetBrains Mono", "Fira Code", monospace;
+    font-size: 13px;
+    padding: 4px 12px;
+    transition: border-color 180ms ease, box-shadow 180ms ease;
+    caret-color: @nyx_aurora;
+}
+
+.nyx-urlbar:focus {
+    border-color: @nyx_aurora;
+    box-shadow: 0 0 0 3px alpha(@nyx_aurora, 0.18);
+    outline: none;
+}
+
+.nyx-urlbar selection {
+    background-color: alpha(@nyx_aurora, 0.25);
+    color: @nyx_star;
+}
+
+/* ── Boutons navigation ────────────────────────── */
+
+.nyx-nav-btn {
+    background: none;
+    border: none;
+    border-radius: 8px;
+    color: @nyx_dim;
+    padding: 5px 11px;
+    min-width: 0;
+    transition: background-color 180ms ease, color 180ms ease;
+}
+
+.nyx-nav-btn:hover {
+    background-color: @nyx_raised;
+    color: @nyx_text;
+}
+
+.nyx-nav-btn:active {
+    background-color: @nyx_border;
+    color: @nyx_aurora;
+}
+
+.nyx-nav-btn:disabled {
+    color: @nyx_ghost;
+}
+
+/* ── Onglets (GtkNotebook) ─────────────────────── */
+
+notebook {
+    background-color: @nyx_deep;
+}
+
+notebook > header {
+    background-color: @nyx_surface;
+    border-bottom: 1px solid @nyx_border;
+    padding: 4px 8px 0 8px;
+}
+
+notebook > header > tabs > tab {
+    background-color: transparent;
+    border: none;
+    border-radius: 8px 8px 0 0;
+    color: @nyx_dim;
+    min-width: 80px;
+    margin: 0 2px;
+    padding: 6px 14px;
+    transition: background-color 180ms ease, color 180ms ease;
+}
+
+notebook > header > tabs > tab:hover {
+    background-color: @nyx_raised;
+    color: @nyx_text;
+}
+
+notebook > header > tabs > tab:checked {
+    background-color: @nyx_raised;
+    color: @nyx_star;
+    border-bottom: 2px solid @nyx_aurora;
+    box-shadow: 0 0 10px alpha(@nyx_aurora, 0.12);
+}
+
+.nyx-tab-close {
+    background: none;
+    border: none;
+    border-radius: 50%;
+    color: @nyx_ghost;
+    font-size: 12px;
+    min-height: 16px;
+    min-width: 16px;
+    padding: 0;
+    transition: background-color 120ms ease, color 120ms ease;
+}
+
+.nyx-tab-close:hover {
+    background-color: alpha(@nyx_twilight, 0.2);
+    color: @nyx_twilight;
+}
+
+/* ── Barre de chargement ───────────────────────── */
+
+.nyx-progress {
+    min-height: 2px;
+    padding: 0;
+    border: none;
+    background-color: transparent;
+}
+
+.nyx-progress > trough {
+    background-color: transparent;
+    border: none;
+    min-height: 2px;
+}
+
+.nyx-progress > trough > progress {
+    background-color: @nyx_aurora;
+    border-radius: 2px;
+    box-shadow: 0 0 8px alpha(@nyx_aurora, 0.5);
+    min-height: 2px;
+    transition: all 120ms ease;
+}
+
+/* ── Scrollbars ────────────────────────────────── */
+
+scrollbar {
+    background-color: transparent;
+    border: none;
+    opacity: 0;
+    transition: opacity 300ms ease;
+}
+
+scrollbar:hover {
+    opacity: 1;
+}
+
+scrollbar slider {
+    background-color: @nyx_border;
+    border-radius: 4px;
+    min-width: 4px;
+    min-height: 4px;
+    transition: background-color 180ms ease;
+}
+
+scrollbar slider:hover {
+    background-color: @nyx_moon;
+}
+
+/* ── Sidebar vault ─────────────────────────────── */
+
+.nyx-sidebar {
+    background-color: alpha(@nyx_deep, 0.97);
+    border-right: 1px solid @nyx_border;
+}
+
+.nyx-sidebar-section {
+    color: @nyx_moon;
+    font-size: 11px;
+    font-weight: bold;
+    letter-spacing: 0.08em;
+    padding: 16px 16px 8px 16px;
+}
+
+.nyx-list-row {
+    background-color: transparent;
+    border-radius: 8px;
+    color: @nyx_text;
+    padding: 6px 12px;
+    transition: background-color 150ms ease;
+}
+
+.nyx-list-row:hover {
+    background-color: @nyx_raised;
+}
+
+/* ── Dialogs & popups ──────────────────────────── */
+
+dialog {
+    background-color: @nyx_surface;
+    border: 1px solid @nyx_border;
+    border-radius: 14px;
+    box-shadow: 0 8px 32px alpha(@nyx_void, 0.8);
+    color: @nyx_text;
+}
+
+dialog .dialog-action-area {
+    border-top: 1px solid @nyx_border;
+    padding: 8px;
+}

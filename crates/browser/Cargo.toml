@@ -1,0 +1,14 @@
+[package]
+name    = "nyx"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+vault      = { path = "../vault" }
+anyhow     = { workspace = true }
+serde_json = { workspace = true }
+
+# GTK3 + WebKitGTK 4.1 — most mature Rust bindings available today
+gtk        = { version = "0.18", features = ["v3_24"] }
+webkit2gtk = { version = "0.20", features = ["v2_40"] }
+glib       = "0.18"
