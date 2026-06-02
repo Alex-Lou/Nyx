@@ -162,6 +162,14 @@ main * { pointer-events: auto; }
     let t = 0, last = 0;
     let mx = -1e4, my = -1e4;
 
+    // ── Perf adaptative ────────────────────────────────────────────────────
+    // Qualité initiale selon les cœurs CPU, puis ajustée en continu par le FPS
+    // mesuré : le navigateur détecte la puissance dispo et s'adapte. Sur une
+    // machine faible on réduit densité + connexions → jamais de saccade.
+    const CORES = navigator.hardwareConcurrency || 4;
+    let quality = Math.max(0.4, Math.min(1, CORES / 8));
+    let fpsFrames = 0, fpsTimer = 0;
+
     const rnd = (a, b) => a + Math.random() * (b - a);
     const hex2rgb = h => { const n = parseInt(h.slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
 
@@ -186,25 +194,31 @@ main * { pointer-events: auto; }
         canvas.style.width = innerWidth + 'px'; canvas.style.height = innerHeight + 'px';
     }
 
-    function seed() {
-        parts = [];
-        const bands = 7, bandW = W / bands;
-        for (let i = 0; i < M.count; i++) {
-            const hex = M.palette[(Math.random() * M.palette.length) | 0];
-            const band = (Math.random() * bands) | 0;
-            parts.push({
-                x: Math.random() * W, y: Math.random() * H,
-                vx: 0, vy: 0,
-                z: rnd(0.35, 1),
-                r: rnd(0.8, 2.2),
-                tw: Math.random() * 6.28, tws: rnd(0.5, 1.6),
-                hex,
-                homeX: band * bandW + bandW / 2 + rnd(-bandW / 5, bandW / 5),
-                amp: rnd(50, 120), phase: Math.random() * 6.28,
-                big: Math.random() < 0.18,            // étoiles « brillantes » (ciel)
-            });
-        }
+    function makeParticle() {
+        const hex = M.palette[(Math.random() * M.palette.length) | 0];
+        const bandW = W / 7, band = (Math.random() * 7) | 0;
+        return {
+            x: Math.random() * W, y: Math.random() * H,
+            vx: 0, vy: 0,
+            z: rnd(0.35, 1),
+            r: rnd(0.8, 2.2),
+            tw: Math.random() * 6.28, tws: rnd(0.5, 1.6),
+            hex,
+            homeX: band * bandW + bandW / 2 + rnd(-bandW / 5, bandW / 5),
+            amp: rnd(50, 120), phase: Math.random() * 6.28,
+            big: Math.random() < 0.18,                // étoiles « brillantes » (ciel)
+        };
     }
+
+    // Ajuste la densité à la qualité courante SANS réinitialiser les positions
+    // existantes → aucun « saut » quand le gouverneur FPS change la qualité.
+    function setDensity() {
+        const target = Math.round(M.count * quality);
+        if (parts.length > target) parts.length = target;
+        else while (parts.length < target) parts.push(makeParticle());
+    }
+
+    function seed() { parts = []; setDensity(); }
 
     function setMode(name) {
         mode = name; M = MODES[name] || MODES.nebula;
@@ -266,7 +280,8 @@ main * { pointer-events: auto; }
     }
 
     function drawLinks() {
-        if (M.linkMode === 'none') return;
+        // Connexions O(N²) : coupées en premier quand la machine peine.
+        if (M.linkMode === 'none' || quality < 0.6) return;
         const constellation = M.linkMode === 'constellation';
         const max = (constellation ? 150 : 96) * DPR;
         const maxSq = max * max, baseA = constellation ? 0.22 : 0.10;
@@ -307,8 +322,21 @@ main * { pointer-events: auto; }
     }
 
     function frame(now) {
-        const k = Math.min(2, Math.max(0.4, (now - last) / 16.67)) || 1;
+        if (!last) { last = now; requestAnimationFrame(frame); return; }
+        const dt = now - last;
+        const k = Math.min(2, Math.max(0.4, dt / 16.67)) || 1;
         last = now; t += 0.006 * k;
+
+        // Gouverneur FPS : échantillonne ~1 s et ajuste la qualité (re-seed).
+        fpsFrames++; fpsTimer += dt;
+        if (fpsTimer >= 1000) {
+            const fps = fpsFrames * 1000 / fpsTimer;
+            fpsFrames = 0; fpsTimer = 0;
+            const nq = fps < 45 ? Math.max(0.3, quality - 0.15)
+                     : fps > 57 ? Math.min(1, quality + 0.1) : quality;
+            if (Math.abs(nq - quality) > 0.001) { quality = nq; setDensity(); }
+        }
+
         ctx.clearRect(0, 0, W, H);
 
         const step = STEP[mode];
@@ -352,6 +380,8 @@ main * { pointer-events: auto; }
         if (ripples.length > 5) ripples.shift();
     });
     document.querySelectorAll('.ambiance button').forEach(b => b.addEventListener('click', () => setMode(b.dataset.mode)));
+    // Évite un saut de dt (sursaut de l'anim) au retour sur l'onglet.
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) last = performance.now(); });
 
     // ── Démarrage ──────────────────────────────────────────────────────────
     resize(); setMode('nebula');

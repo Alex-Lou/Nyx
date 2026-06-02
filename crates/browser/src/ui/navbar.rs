@@ -1,11 +1,12 @@
 use gtk::prelude::*;
-use gtk::{Box as GtkBox, Button, Entry, Orientation};
+use gtk::{Box as GtkBox, Button, Entry, EntryIconPosition, Orientation};
 use webkit2gtk::{WebView, WebViewExt};
 
 use crate::pages::{self, newtab};
-use crate::state::bookmarks::{Bookmark, Bookmarks};
+use crate::state::bookmarks::{self, Bookmarks};
 use crate::state::settings::Settings;
 use crate::ui::tabs::TabBar;
+use crate::ui::bookmarks_popover;
 use crate::web;
 
 /// Construit la barre de navigation, câble ses boutons + la barre d'adresse,
@@ -15,9 +16,21 @@ pub fn build(url_bar: &Entry, tabs: &TabBar, settings: &Settings, bm: &Bookmarks
     let forward  = nav_button("▶", "Suivant");
     let reload   = nav_button("↺", "Recharger (Ctrl+R)");
     let home     = nav_button("⌂", "Accueil");
-    let star     = nav_button("☆", "Favori (Ctrl+D)");
+    let star     = nav_button("☆", "Favoris");
     let new_tab  = nav_button("+", "Nouvel onglet (Ctrl+T)");
     let settings_b = nav_button("⚙", "Paramètres (Ctrl+,)");
+
+    // ⭐ dans la barre d'adresse → ajout direct du favori courant.
+    url_bar.set_icon_from_icon_name(EntryIconPosition::Secondary, Some("starred-symbolic"));
+    url_bar.set_icon_tooltip_text(EntryIconPosition::Secondary, Some("Ajouter aux favoris"));
+    {
+        let (t, b) = (tabs.clone(), bm.clone());
+        url_bar.connect_icon_press(move |entry, pos, _| {
+            if pos == EntryIconPosition::Secondary {
+                bookmark_current(&t, &b, entry);
+            }
+        });
+    }
 
     let bar = GtkBox::new(Orientation::Horizontal, 4);
     bar.style_context().add_class("nyx-navbar");
@@ -52,11 +65,11 @@ pub fn build(url_bar: &Entry, tabs: &TabBar, settings: &Settings, bm: &Bookmarks
         }
     });
 
-    // Favori courant.
-    let t = tabs.clone();
-    let b = bm.clone();
-    let ub = url_bar.clone();
-    star.connect_clicked(move |_| bookmark_current(&t, &b, &ub));
+    // ☆ → petit gestionnaire de favoris (popover).
+    {
+        let pop = bookmarks_popover::build(&star, tabs, bm);
+        star.connect_clicked(move |_| pop.popup());
+    }
 
     // Barre d'adresse → charger via le moteur configuré.
     let t = tabs.clone();
@@ -71,19 +84,25 @@ pub fn build(url_bar: &Entry, tabs: &TabBar, settings: &Settings, bm: &Bookmarks
     bar
 }
 
-/// Ajoute la page courante aux favoris + toast 1,5 s dans la barre d'adresse.
-/// Partagé entre le bouton ☆ et le raccourci Ctrl+D.
+/// Ajoute la page courante aux favoris + court toast dans la barre d'adresse.
+/// Partagé entre la ⭐ de la barre et le raccourci Ctrl+D.
 pub fn bookmark_current(tabs: &TabBar, bm: &Bookmarks, url_bar: &Entry) {
     let Some(wv) = tabs.current_webview() else { return };
     let url = wv.uri().map(|s| s.to_string()).unwrap_or_default();
-    if url.is_empty() { return; }
+    if url.is_empty() {
+        return;
+    }
     let title = wv.title().map(|s| s.to_string()).unwrap_or_else(|| url.clone());
-    bm.borrow_mut().push(Bookmark { url: url.clone(), title });
+    let msg = if bookmarks::add(bm, url.clone(), title) {
+        "  ★  Favori ajouté"
+    } else {
+        "  ★  Déjà en favori"
+    };
 
     let ub = url_bar.clone();
-    url_bar.set_text("  ★  Favori ajouté");
+    url_bar.set_text(msg);
     gtk::glib::timeout_add_local_once(
-        std::time::Duration::from_millis(1500),
+        std::time::Duration::from_millis(1400),
         move || ub.set_text(&url),
     );
 }

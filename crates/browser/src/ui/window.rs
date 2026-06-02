@@ -2,14 +2,14 @@ use std::sync::Arc;
 
 use gtk::prelude::*;
 use gtk::{
-    Application, ApplicationWindow, Box as GtkBox, Entry, HeaderBar, Orientation, ProgressBar,
+    Application, ApplicationWindow, Box as GtkBox, Entry, Orientation, ProgressBar,
 };
 use webkit2gtk::WebViewExt;
 
 use crate::state::bookmarks::Bookmarks;
 use crate::state::settings::{LastTab, Settings};
 use crate::ui::tabs::TabBar;
-use crate::ui::{navbar, shortcuts};
+use crate::ui::{chrome, navbar, shortcuts};
 use crate::web::nyxguard::NyxGuard;
 
 pub struct BrowserWindow {
@@ -24,13 +24,7 @@ impl BrowserWindow {
             .default_width(1400).default_height(860)
             .build();
 
-        // Titlebar Nyx (CSD) : remplace la barre système « froide » par une
-        // barre thémée, cohérente avec le reste de la fenêtre.
-        let header = HeaderBar::new();
-        header.set_show_close_button(true);
-        header.set_title(Some("Nyx"));
-        header.style_context().add_class("nyx-headerbar");
-        window.set_titlebar(Some(&header));
+        chrome::apply_titlebar(&window, "Nyx");
 
         let progress = ProgressBar::new();
         progress.style_context().add_class("nyx-progress");

@@ -21,14 +21,6 @@ mod label;
 
 type WebViewHook = Rc<RefCell<Box<dyn Fn(&WebView)>>>;
 
-/// Le sandbox WebKit (bubblewrap) segfault sous WSL. On le détecte via
-/// `/proc/version` (« microsoft ») pour ne l'activer que sur un vrai Linux.
-fn sandbox_supported() -> bool {
-    std::fs::read_to_string("/proc/version")
-        .map(|v| !v.to_lowercase().contains("microsoft"))
-        .unwrap_or(true)
-}
-
 /// Gestion des onglets. `Clone` est cheap (champs ref-comptés) → les closures
 /// GTK capturent une `TabBar` clonée sans coût mémoire significatif.
 #[derive(Clone)]
@@ -107,6 +99,14 @@ impl TabBar {
         wv
     }
 
+    /// Ouvre une URL dans un nouvel onglet (ex. clic sur un favori).
+    pub fn open_url(&self, url: &str) -> WebView {
+        let wv = self.build_webview(None);
+        wv.load_uri(url);
+        self.attach(&wv, "Chargement…");
+        wv
+    }
+
     pub fn current_webview(&self) -> Option<WebView> {
         let p = self.notebook.current_page()?;
         self.notebook.nth_page(Some(p))?.downcast::<WebView>().ok()
@@ -146,7 +146,7 @@ impl TabBar {
                 // SÉCURITÉ : bac à sable des processus web (avant le 1er WebView).
                 // bubblewrap segfault sous WSL (pas de bus-proxy) → actif
                 // partout SAUF là. Sur un vrai Linux, le sandbox reste ON.
-                if sandbox_supported() {
+                if !crate::platform::is_wsl() {
                     ctx.set_sandbox_enabled(true);
                 }
 

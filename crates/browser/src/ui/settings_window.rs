@@ -7,6 +7,7 @@ use webkit2gtk::{WebView, WebViewExt};
 use crate::pages::{self, settings as settings_page};
 use crate::state::bookmarks::Bookmarks;
 use crate::state::settings::Settings;
+use crate::ui::chrome;
 use crate::web::{self, nyxguard::NyxGuard};
 
 /// Fenêtre Paramètres : flottante, redimensionnable et déplaçable (gérée par
@@ -21,6 +22,7 @@ pub fn build(parent: Option<&Window>, blocker: Arc<NyxGuard>, prefs: Settings, b
         .resizable(true)
         .build();
     win.style_context().add_class("nyx-modal");
+    chrome::apply_titlebar(&win, "Paramètres — Nyx");
     win.set_modal(false);
     if let Some(p) = parent {
         win.set_transient_for(Some(p));
