@@ -130,7 +130,6 @@ notebook > header > tabs > tab:checked {
 .nyx-tab-favicon {
     opacity: 0.70;
     transition: opacity 180ms ease;
-    -gtk-icon-size: 16px;
 }
 
 notebook > header > tabs > tab:checked .nyx-tab-favicon { opacity: 1; }

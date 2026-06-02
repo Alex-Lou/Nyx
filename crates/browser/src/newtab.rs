@@ -2,9 +2,6 @@ use std::path::Path;
 
 const HTML: &str = include_str!("../../../assets/newtab.html");
 
-/// URI affichée dans la barre d'adresse.
-pub const URI: &str = "nyx://newtab";
-
 /// Chemin vers le dossier assets à compile-time — utilisé comme base_uri
 /// pour que les chemins relatifs (vidéos, futures icônes) se résolvent
 /// via file://. Sprint 6 remplacera cette const par un chemin d'installation.

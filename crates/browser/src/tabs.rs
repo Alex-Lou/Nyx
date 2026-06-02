@@ -55,7 +55,8 @@ impl TabBar {
         wv
     }
 
-    /// Ouvre un onglet sur une URL — utilisé par les appels directs (bookmarks, etc.)
+    /// Ouvre un onglet sur une URL — appelé par bookmarks / historique (Sprint 2).
+    #[allow(dead_code)]
     pub fn open(&self, url: &str) -> WebView {
         let wv = self.build_webview(None);
         wv.load_uri(url);

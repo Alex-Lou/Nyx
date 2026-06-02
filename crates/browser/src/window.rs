@@ -12,10 +12,8 @@ use crate::tabs::TabBar;
 use crate::{shortcuts, webview};
 
 pub struct BrowserWindow {
-    pub window:   ApplicationWindow,
-    pub tabs:     TabBar,
-    pub url_bar:  Entry,
-    pub progress: ProgressBar,
+    pub window: ApplicationWindow,
+    pub tabs:   TabBar,
 }
 
 impl BrowserWindow {
@@ -52,7 +50,7 @@ impl BrowserWindow {
         wire_navbar_buttons(&navbar, &tabs, &url_bar);
         shortcuts::wire(&window, &tabs, &url_bar);
 
-        Self { window, tabs, url_bar, progress }
+        Self { window, tabs }
     }
 
     pub fn show_all(&self) { self.window.show_all(); }
