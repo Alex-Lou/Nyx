@@ -63,8 +63,7 @@ fn host_matches(host: &str, d: &str) -> bool {
 /// `"https://ads.x.com/img"` → `"ads.x.com"`.
 fn extract_host(url: &str) -> &str {
     let after = url.find("://").map(|i| &url[i + 3..]).unwrap_or(url);
-    let end   = after.find(|c: char| c == '/' || c == ':' || c == '?' || c == '#')
-                     .unwrap_or(after.len());
+    let end   = after.find(['/', ':', '?', '#']).unwrap_or(after.len());
     &after[..end]
 }
 

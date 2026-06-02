@@ -12,3 +12,6 @@ chrono     = { workspace = true }
 # rusqlite avec le feature "sqlcipher" utilise SQLCipher pour le chiffrement AES-256
 # Requiert libsqlcipher-dev installé sur le système
 rusqlite = { version = "0.31", features = ["sqlcipher"] }
+
+[lints]
+workspace = true

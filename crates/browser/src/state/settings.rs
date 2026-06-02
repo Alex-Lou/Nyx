@@ -97,7 +97,7 @@ impl Language {
 /// Parse `key=value&…` et applique aux réglages + au bloqueur. Retourne `true`
 /// si la query n'était pas vide.
 pub fn apply_from_url(url: &str, settings: &Settings, blocker: &AdBlocker) -> bool {
-    let query = url.splitn(2, '?').nth(1).unwrap_or("");
+    let query = url.split_once('?').map(|x| x.1).unwrap_or("");
     if query.is_empty() {
         return false;
     }
