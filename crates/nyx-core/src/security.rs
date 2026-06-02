@@ -17,6 +17,8 @@ pub enum Verdict {
     Block,
     /// Annuler la navigation et appliquer les réglages (`nyx://apply`).
     ApplySettings,
+    /// Annuler la navigation et déplacer un favori (`nyx://move`).
+    MoveBookmark,
     /// Annuler la navigation et charger une page interne.
     Load(Page),
 }
@@ -33,6 +35,9 @@ pub fn decide(url: &str, page_internal: bool, guard: &NyxGuard) -> Verdict {
     if let Some(rest) = url.strip_prefix("nyx://") {
         if rest.starts_with("apply") {
             return if page_internal { Verdict::ApplySettings } else { Verdict::Block };
+        }
+        if rest.starts_with("move") {
+            return if page_internal { Verdict::MoveBookmark } else { Verdict::Block };
         }
         if rest.starts_with("settings")  { return Verdict::Load(Page::Settings); }
         if rest.starts_with("bookmarks") { return Verdict::Load(Page::Bookmarks); }
@@ -63,6 +68,12 @@ mod tests {
     #[test] fn apply_from_remote_blocked() {
         // SÉCURITÉ : une page distante ne peut pas muter les réglages.
         assert_eq!(decide("nyx://apply?adblock=false", false, &guard()), Verdict::Block);
+    }
+    #[test] fn move_from_internal_ok() {
+        assert_eq!(decide("nyx://move?idx=0&to=Travail", true, &guard()), Verdict::MoveBookmark);
+    }
+    #[test] fn move_from_remote_blocked() {
+        assert_eq!(decide("nyx://move?idx=0&to=evil", false, &guard()), Verdict::Block);
     }
     #[test] fn guard_off_allows_ad() {
         let g = guard();

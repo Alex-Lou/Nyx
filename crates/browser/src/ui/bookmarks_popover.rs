@@ -77,38 +77,49 @@ fn repopulate(list: &ListBox, tabs: &TabBar, bm: &Bookmarks, pop: &Popover) {
         return;
     }
 
-    for (i, b) in items.iter().enumerate() {
-        let row = GtkBox::new(Orientation::Horizontal, 6);
-
-        let label = if b.title.is_empty() { &b.url } else { &b.title };
-        let open = Button::with_label(&truncate(label, 36));
-        open.set_relief(gtk::ReliefStyle::None);
-        open.set_tooltip_text(Some(&b.url));
-        if let Some(lbl) = open.child().and_then(|c| c.downcast::<Label>().ok()) {
-            lbl.set_xalign(0.0);
-        }
-        let del = flat_button("×", "Supprimer");
-
-        row.pack_start(&open, true, true, 0);
-        row.pack_end(&del, false, false, 0);
-        list.add(&row);
-
-        {
-            let (t, url, p) = (tabs.clone(), b.url.clone(), pop.clone());
-            open.connect_clicked(move |_| {
-                t.open_url(&url);
-                p.popdown();
-            });
-        }
-        {
-            let (list, tabs, bm, pop) = (list.clone(), tabs.clone(), bm.clone(), pop.clone());
-            del.connect_clicked(move |_| {
-                bookmarks::remove(&bm, i);
-                repopulate(&list, &tabs, &bm, &pop);
-            });
+    // Affichage groupé : racine d'abord, puis chaque dossier.
+    let mut paths = vec![String::new()];
+    paths.extend(bookmarks::folders(&items));
+    for path in &paths {
+        add_group_header(list, path);
+        for (i, b) in items.iter().enumerate().filter(|(_, b)| &b.folder == path) {
+            add_row(list, tabs, bm, pop, i, b);
         }
     }
     list.show_all();
+}
+
+fn add_group_header(list: &ListBox, path: &str) {
+    let txt = if path.is_empty() { "Racine".to_string() } else { path.to_string() };
+    let label = Label::new(Some(&txt));
+    label.set_xalign(0.0);
+    label.set_margin_top(8);
+    label.style_context().add_class("nyx-bm-title");
+    list.add(&label);
+}
+
+fn add_row(list: &ListBox, tabs: &TabBar, bm: &Bookmarks, pop: &Popover, i: usize, b: &bookmarks::Bookmark) {
+    let row = GtkBox::new(Orientation::Horizontal, 6);
+    let label = if b.title.is_empty() { &b.url } else { &b.title };
+    let open = Button::with_label(&truncate(label, 36));
+    open.set_relief(gtk::ReliefStyle::None);
+    open.set_tooltip_text(Some(&b.url));
+    if let Some(lbl) = open.child().and_then(|c| c.downcast::<Label>().ok()) {
+        lbl.set_xalign(0.0);
+    }
+    let del = flat_button("×", "Supprimer");
+    row.pack_start(&open, true, true, 0);
+    row.pack_end(&del, false, false, 0);
+    list.add(&row);
+
+    let (t, url, p) = (tabs.clone(), b.url.clone(), pop.clone());
+    open.connect_clicked(move |_| { t.open_url(&url); p.popdown(); });
+
+    let (list, tabs, bm, pop) = (list.clone(), tabs.clone(), bm.clone(), pop.clone());
+    del.connect_clicked(move |_| {
+        bookmarks::remove(&bm, i);
+        repopulate(&list, &tabs, &bm, &pop);
+    });
 }
 
 fn export_dialog(anchor: &Button, bm: &Bookmarks) {
@@ -142,7 +153,7 @@ fn import_dialog(anchor: &Button, bm: &Bookmarks) {
         if let Some(path) = chooser.filename() {
             if let Ok(html) = std::fs::read_to_string(path) {
                 for b in bookmarks::import_netscape(&html) {
-                    bookmarks::add(bm, b.url, b.title);
+                    bookmarks::add_in(bm, b.url, b.title, b.folder);
                 }
             }
         }

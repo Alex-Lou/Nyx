@@ -16,7 +16,7 @@ use webkit2gtk::{
 };
 
 use crate::pages::{self, bookmarks as bookmarks_page, newtab, settings as settings_page};
-use crate::state::bookmarks::Bookmarks;
+use crate::state::bookmarks::{self, Bookmarks};
 use crate::state::settings::{self, Settings};
 use nyxguard::NyxGuard;
 use security::{Page, Verdict};
@@ -56,6 +56,11 @@ fn wire_policy_filter(webview: &WebView, blocker: Arc<NyxGuard>, prefs: Settings
                 settings::apply_from_url(&url, &prefs, &blocker);
                 true
             }
+            Verdict::MoveBookmark => {
+                decision.ignore();
+                apply_move(&url, &bm);
+                true
+            }
             Verdict::Load(page) => {
                 decision.ignore();
                 load_internal_page(wv, page, &prefs, &bm);
@@ -85,6 +90,48 @@ fn page_is_internal(wv: &WebView) -> bool {
         }
         None => true,
     }
+}
+
+/// Parse `nyx://move?idx=N&to=Folder` et applique le déplacement.
+/// Folder est urldecoded (+ → espace, %xx → octet).
+fn apply_move(url: &str, bm: &Bookmarks) {
+    let Some(query) = url.split_once('?').map(|x| x.1) else { return };
+    let (mut idx, mut to) = (None::<usize>, String::new());
+    for pair in query.split('&') {
+        let (k, v) = pair.split_once('=').unwrap_or((pair, ""));
+        match k {
+            "idx" => idx = v.parse().ok(),
+            "to"  => to = urldecode(v),
+            _ => {}
+        }
+    }
+    if let Some(i) = idx {
+        bookmarks::move_to(bm, i, to);
+    }
+}
+
+fn urldecode(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let b = s.as_bytes();
+    let mut i = 0;
+    while i < b.len() {
+        match b[i] {
+            b'+' => { out.push(' '); i += 1; }
+            b'%' if i + 2 < b.len() => {
+                let h = std::str::from_utf8(&b[i + 1..i + 3]).ok()
+                    .and_then(|h| u8::from_str_radix(h, 16).ok());
+                if let Some(byte) = h {
+                    out.push(byte as char);
+                    i += 3;
+                } else {
+                    out.push(b[i] as char);
+                    i += 1;
+                }
+            }
+            c => { out.push(c as char); i += 1; }
+        }
+    }
+    out
 }
 
 fn extract_url(decision: &PolicyDecision) -> String {

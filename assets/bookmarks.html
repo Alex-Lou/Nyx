@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; frame-src nyx:; img-src data:">
+<title>Favoris — Nyx</title>
+{{TOKENS}}
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { background: var(--nyx-void); color: var(--nyx-text); }
+body {
+    font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+    -webkit-font-smoothing: antialiased;
+    padding: 0 0 96px; min-height: 100vh;
+}
+body::before {
+    content: ''; position: fixed; inset: 0; z-index: 0; pointer-events: none;
+    background:
+        radial-gradient(ellipse 60% 45% at 20% 0%, color-mix(in srgb, var(--nyx-nebula) 8%, transparent), transparent 60%),
+        radial-gradient(ellipse 50% 40% at 90% 100%, color-mix(in srgb, var(--nyx-aurora) 5%, transparent), transparent 60%);
+}
+.wrap { position: relative; z-index: 1; max-width: 720px; margin: 0 auto; padding: 64px 28px 0; }
+
+.title {
+    font-size: 30px; font-weight: 200; letter-spacing: .14em;
+    background: linear-gradient(135deg, var(--nyx-star), var(--nyx-aurora));
+    -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+}
+.subtitle { color: var(--nyx-ghost); font-size: 12.5px; margin-top: 6px; letter-spacing: .03em; }
+.empty { margin-top: 40px; color: var(--nyx-dim); font-style: italic; }
+
+.folder { margin-top: 36px; }
+.folder-head {
+    font-size: 11px; font-weight: 600; letter-spacing: .2em; text-transform: uppercase;
+    color: var(--nyx-nebula); margin-bottom: 12px;
+    display: flex; align-items: center; gap: 10px;
+}
+.folder-head .crumb { color: var(--nyx-ghost); font-weight: 400; letter-spacing: .1em; }
+.divider {
+    height: 1px; margin-bottom: 12px;
+    background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--nyx-nebula) 35%, transparent),
+                color-mix(in srgb, var(--nyx-aurora) 22%, transparent), transparent);
+}
+
+.items { display: flex; flex-direction: column; gap: 4px; min-height: 8px; }
+
+.item {
+    display: flex; align-items: center; gap: 14px; padding: 10px 14px;
+    border-radius: 10px; border: 1px solid transparent;
+    cursor: grab; transition: background-color .18s, border-color .18s, transform .18s;
+}
+.item:hover {
+    background: color-mix(in srgb, var(--nyx-raised) 60%, transparent);
+    border-color: color-mix(in srgb, var(--nyx-border) 80%, transparent);
+}
+.item.dragging { opacity: .35; cursor: grabbing; }
+.item .arrow { color: var(--nyx-aurora); font-family: monospace; font-size: 14px; flex-shrink: 0; }
+.item .label { flex: 1; min-width: 0; color: var(--nyx-text); text-decoration: none;
+               overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
+.item .url   { color: var(--nyx-ghost); font-size: 11px; font-family: 'JetBrains Mono', monospace;
+               max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.items.drop-target {
+    background: color-mix(in srgb, var(--nyx-aurora) 8%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--nyx-aurora) 40%, transparent);
+    border-radius: 12px;
+}
+</style>
+</head>
+<body>
+<iframe id="sink" style="display:none" aria-hidden="true"></iframe>
+
+<div class="wrap">
+    <h1 class="title">Favoris</h1>
+    <p class="subtitle">Glisser-déposer un favori dans un dossier pour le ranger.</p>
+    {{CONTENT}}
+</div>
+
+<script>
+(function () {
+    'use strict';
+    const sink = document.getElementById('sink');
+    let dragging = null;
+
+    document.querySelectorAll('.item').forEach(el => {
+        el.setAttribute('draggable', 'true');
+        el.addEventListener('dragstart', e => {
+            dragging = el;
+            el.classList.add('dragging');
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData('text/plain', el.dataset.idx);
+        });
+        el.addEventListener('dragend', () => {
+            el.classList.remove('dragging');
+            dragging = null;
+            document.querySelectorAll('.items.drop-target').forEach(t => t.classList.remove('drop-target'));
+        });
+    });
+
+    document.querySelectorAll('.items').forEach(zone => {
+        zone.addEventListener('dragover', e => {
+            if (!dragging) return;
+            e.preventDefault();
+            zone.classList.add('drop-target');
+            e.dataTransfer.dropEffect = 'move';
+        });
+        zone.addEventListener('dragleave', () => zone.classList.remove('drop-target'));
+        zone.addEventListener('drop', e => {
+            if (!dragging) return;
+            e.preventDefault();
+            zone.classList.remove('drop-target');
+            const idx = dragging.dataset.idx;
+            const folder = zone.dataset.folder || '';
+            if (dragging.dataset.folder !== folder) {
+                sink.src = 'nyx://move?idx=' + idx + '&to=' + encodeURIComponent(folder);
+                setTimeout(() => location.reload(), 80);
+            }
+        });
+    });
+})();
+</script>
+</body>
+</html>
