@@ -114,7 +114,7 @@ fn show_chrome(chrome: &GtkBox, tabs: &TabBar) {
 /// Annule le timer en cours s'il y en a un.
 fn cancel_timer(timer: &Rc<Cell<Option<SourceId>>>) {
     if let Some(id) = timer.take() {
-        glib::source_remove(id);
+        id.remove();
     }
 }
 
