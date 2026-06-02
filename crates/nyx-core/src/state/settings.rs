@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use crate::web::nyxguard::NyxGuard;
+use crate::nyxguard::NyxGuard;
 
 pub type Settings = Rc<RefCell<AppSettings>>;
 
@@ -142,7 +142,7 @@ fn urldecode(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::web::nyxguard::NyxGuard;
+    use crate::nyxguard::NyxGuard;
 
     fn setup() -> (Settings, NyxGuard) { (new(), NyxGuard::new()) }
 

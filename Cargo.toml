@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "crates/browser",
+    "crates/nyx-core",
     "crates/vault",
 ]
 resolver = "2"

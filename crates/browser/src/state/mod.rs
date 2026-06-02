@@ -1,5 +1,4 @@
-//! État applicatif & modèles : réglages utilisateur, favoris.
-//! Pas de GTK ici — du pur état, testable isolément.
+//! Réexporte les modules d'état depuis nyx-core.
 
-pub mod bookmarks;
-pub mod settings;
+pub use nyx_core::state::bookmarks;
+pub use nyx_core::state::settings;

@@ -6,7 +6,7 @@
 //! (Sprint 4-5 : TLS, IDN/punycode, permissions viendront enrichir ce module,
 //! candidat à devenir la crate `nyx-security`.)
 
-use crate::web::nyxguard::NyxGuard;
+use crate::nyxguard::NyxGuard;
 
 /// Ce que la couche moteur doit faire d'une navigation.
 #[derive(Debug, PartialEq, Eq)]
