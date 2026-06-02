@@ -38,6 +38,14 @@ window, .background {
     min-height: 42px;
 }
 
+/* ── Modal Paramètres (fenêtre flottante) ───────── */
+
+.nyx-modal {
+    background-color: @nyx_void;
+    border: 1px solid @nyx_border;
+    border-radius: 14px;
+}
+
 /* ── Titlebar (HeaderBar CSD) ───────────────────── */
 
 headerbar.nyx-headerbar {

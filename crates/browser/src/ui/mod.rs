@@ -2,6 +2,7 @@
 //! thème. Consomme `crate::web` (moteur) et `crate::state` (réglages/favoris).
 
 pub mod navbar;
+pub mod settings_window;
 pub mod shortcuts;
 pub mod tabs;
 pub mod theme;

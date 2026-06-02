@@ -2,16 +2,18 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
 
+use gtk::glib::WeakRef;
 use gtk::prelude::*;
-use gtk::{Notebook, Widget};
+use gtk::{ApplicationWindow, Notebook, Widget, Window};
 use webkit2gtk::{
     UserContentManager, UserContentManagerExt, WebContext, WebContextExt,
     WebView, WebViewExt,
 };
 
-use crate::pages::{self, newtab, settings as settings_page};
+use crate::pages::{self, newtab};
 use crate::state::bookmarks::Bookmarks;
 use crate::state::settings::Settings;
+use crate::ui::settings_window;
 use crate::web::{self, darkmode, nyxguard::NyxGuard};
 
 mod favicon;
@@ -28,7 +30,8 @@ pub struct TabBar {
     settings:       Settings,
     bookmarks:      Bookmarks,
     on_new_webview: WebViewHook,
-    settings_tab:   Rc<RefCell<Option<WebView>>>,
+    settings_modal: Rc<RefCell<Option<Window>>>,
+    parent:         Rc<RefCell<Option<WeakRef<Window>>>>,
 }
 
 impl TabBar {
@@ -37,8 +40,14 @@ impl TabBar {
         Self {
             notebook, blocker, settings, bookmarks: bm,
             on_new_webview: Rc::new(RefCell::new(Box::new(|_| {}))),
-            settings_tab:   Rc::new(RefCell::new(None)),
+            settings_modal: Rc::new(RefCell::new(None)),
+            parent:         Rc::new(RefCell::new(None)),
         }
+    }
+
+    /// Mémorise la fenêtre principale (weak) pour ancrer le modal Paramètres.
+    pub fn set_parent(&self, w: &ApplicationWindow) {
+        *self.parent.borrow_mut() = Some(w.clone().upcast::<Window>().downgrade());
     }
 
     /// Hook appelé après création de chaque WebView (URL bar + progress câblés
@@ -58,21 +67,24 @@ impl TabBar {
         wv
     }
 
-    /// Ouvre les paramètres — réutilise l'onglet existant s'il est encore
-    /// ouvert (au lieu d'en empiler un nouveau à chaque clic).
-    pub fn open_settings(&self) -> WebView {
-        if let Some(wv) = self.settings_tab.borrow().clone() {
-            if let Some(idx) = self.notebook.page_num(&wv) {
-                self.notebook.set_current_page(Some(idx));
-                return wv;
-            }
+    /// Ouvre les paramètres dans un modal flottant (déplaçable/redimensionnable).
+    /// Single-instance : un nouveau clic ramène la fenêtre existante au premier plan.
+    pub fn open_settings(&self) {
+        if let Some(w) = self.settings_modal.borrow().as_ref() {
+            w.present();
+            return;
         }
-        let html = settings_page::html(&self.settings.borrow());
-        let wv = self.build_webview(None);
-        wv.load_html(&html, Some(&pages::assets_base_uri()));
-        self.attach(&wv, "Paramètres");
-        *self.settings_tab.borrow_mut() = Some(wv.clone());
-        wv
+        let parent = self.parent.borrow().as_ref().and_then(WeakRef::upgrade);
+        let modal = settings_window::build(
+            parent.as_ref(),
+            self.blocker.clone(),
+            self.settings.clone(),
+            self.bookmarks.clone(),
+        );
+        let slot = self.settings_modal.clone();
+        modal.connect_destroy(move |_| { *slot.borrow_mut() = None; });
+        *self.settings_modal.borrow_mut() = Some(modal.clone());
+        modal.show_all();
     }
 
     /// Ouvre la page d'accueil configurée (par défaut : nouvel onglet Nyx).

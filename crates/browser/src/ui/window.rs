@@ -43,6 +43,7 @@ impl BrowserWindow {
         url_bar.style_context().add_class("nyx-urlbar");
 
         let tabs   = TabBar::new(blocker, settings.clone(), bm.clone());
+        tabs.set_parent(&window);  // ancre le modal Paramètres
         let navbar = navbar::build(&url_bar, &tabs, &settings, &bm);
 
         let vbox = GtkBox::new(Orientation::Vertical, 0);
