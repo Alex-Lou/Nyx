@@ -210,10 +210,10 @@ fn wire_webview_hooks(
         wv.connect_uri_notify(move |w| {
             let uri = w.uri().map(|u| u.to_string()).unwrap_or_default();
             ub2.set_text(&uri);
+            // On efface le tag newtab seulement à la navigation vers une URL externe.
+            // (file:// vise nos assets, on garde le tag.)
             if w.widget_name().as_str() == "nyx-newtab"
-                && !uri.is_empty()
-                && !uri.starts_with("nyx://newtab")
-                && !(uri.starts_with("file://") && uri.contains("newtab"))
+                && (uri.starts_with("http://") || uri.starts_with("https://"))
             {
                 w.set_widget_name("");
                 show_chrome(&cb2, &t2);
