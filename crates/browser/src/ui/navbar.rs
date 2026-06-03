@@ -1,5 +1,5 @@
 use gtk::prelude::*;
-use gtk::{Box as GtkBox, Button, Entry, EntryIconPosition, Orientation};
+use gtk::{Box as GtkBox, Button, Entry, EntryIconPosition, IconSize, Image, Orientation};
 use webkit2gtk::{WebView, WebViewExt};
 
 use nyx_core::site_data_policy::{self, Scope};
@@ -23,7 +23,7 @@ pub fn build(
     let reload   = nav_button("↺", "Recharger (Ctrl+R)");
     let home     = nav_button("⌂", "Accueil");
     let star     = nav_button("☆", "Favoris");
-    let forget   = nav_button("🛇", "Oublier ce site");
+    let forget   = nav_icon_button("edit-clear-all-symbolic", "Oublier ce site");
     let new_tab  = nav_button("+", "Nouvel onglet (Ctrl+T)");
     let settings_b = nav_button("⚙", "Paramètres (Ctrl+,)");
     let dl_btn   = downloads_ui::install(downloads, settings);
@@ -188,6 +188,19 @@ fn flash(url_bar: &Entry, msg: &str) {
 
 fn nav_button(label: &str, tooltip: &str) -> Button {
     let btn = Button::with_label(label);
+    btn.style_context().add_class("nyx-nav-btn");
+    btn.set_relief(gtk::ReliefStyle::None);
+    btn.set_tooltip_text(Some(tooltip));
+    btn
+}
+
+/// Variante icône : pour les actions où aucun glyph Unicode ne rend bien
+/// (forget, …). Style `nyx-nav-btn` partagé, image symbolique GTK
+/// thème-aware.
+fn nav_icon_button(icon_name: &str, tooltip: &str) -> Button {
+    let btn = Button::new();
+    btn.set_image(Some(&Image::from_icon_name(Some(icon_name), IconSize::Button)));
+    btn.set_always_show_image(true);
     btn.style_context().add_class("nyx-nav-btn");
     btn.set_relief(gtk::ReliefStyle::None);
     btn.set_tooltip_text(Some(tooltip));
