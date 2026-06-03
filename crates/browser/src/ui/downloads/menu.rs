@@ -31,7 +31,11 @@ pub fn build(parent: Option<Window>, settings: Settings) -> MenuButton {
         Some("view-more-symbolic"), IconSize::Button,
     )));
     btn.set_relief(gtk::ReliefStyle::None);
-    btn.set_tooltip_text(Some("Plus"));
+    // Pas de set_tooltip_text : GTK3 calcule la position du tooltip dans
+    // le repère du popover parent (la shelf de DL), ce qui le projette
+    // très loin à gauche quand le popover est en haut-droite de l'écran.
+    // L'icône view-more-symbolic est universellement comprise — pas de
+    // perte d'UX à virer ce tooltip-là spécifiquement.
     btn.style_context().add_class("nyx-nav-btn");
     btn.style_context().add_class("nyx-dl-action");
 
