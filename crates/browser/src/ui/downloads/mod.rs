@@ -21,6 +21,7 @@ mod menu;
 mod popover;
 mod row;
 
+use gtk::prelude::*;
 use gtk::Button;
 
 use crate::state::downloads::DownloadsHandle;

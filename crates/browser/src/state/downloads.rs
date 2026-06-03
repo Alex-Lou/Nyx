@@ -7,9 +7,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-pub use nyx_core::downloads::{
-    DownloadEntry, DownloadId, DownloadStatus, DownloadStore,
-};
+use nyx_core::downloads::DownloadStore;
 
 pub type DownloadsHandle = Rc<RefCell<DownloadStore>>;
 
