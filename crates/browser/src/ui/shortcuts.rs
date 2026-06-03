@@ -62,6 +62,10 @@ fn toggle_inspector(tabs: &TabBar) {
             insp.close();
         } else {
             insp.show();
+            // Tente le theming après chaque show : la WebView interne
+            // n'est dispo qu'après le show, donc si le 1er essai échoue
+            // (None retourné), le prochain toggle re-tentera.
+            crate::web::inspector::theme(&insp);
         }
     });
 }
