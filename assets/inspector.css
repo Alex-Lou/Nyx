@@ -1,0 +1,118 @@
+/* ══════════════════════════════════════════════════
+   NYX — Web Inspector theme overrides
+
+   L'inspecteur WebKit est rendu en interne avec son propre arbre
+   CSS. On peut INJECTER des overrides via UserStyleSheet sur la
+   WebView interne, mais certains panneaux (Elements tree, Console)
+   utilisent du Shadow DOM que les overrides n'atteignent pas.
+
+   Stratégie : forcer les variables CSS racine + sélecteurs
+   pragmatiques sur les éléments lights (top-level chrome). Le
+   résultat n'égalera jamais un thème natif, mais bascule la base
+   en dark Nyx au lieu du gris/blanc système.
+   ══════════════════════════════════════════════════ */
+
+:root {
+    --nyx-void:    #06060f;
+    --nyx-deep:    #0a0a18;
+    --nyx-surface: #0f0f22;
+    --nyx-raised:  #141430;
+    --nyx-border:  #1e1e40;
+    --nyx-star:    #c8d6ff;
+    --nyx-moon:    #7b8cde;
+    --nyx-aurora:  #4af2c8;
+    --nyx-text:    #dde4ff;
+    --nyx-dim:     #7078a8;
+
+    /* Overrides des variables WebKit Inspector connues —
+       leur nommage évolue version à version. */
+    --background-color:                   var(--nyx-deep);
+    --background-color-content:           var(--nyx-deep);
+    --background-color-secondary:         var(--nyx-surface);
+    --background-color-tertiary:          var(--nyx-raised);
+    --text-color:                         var(--nyx-text);
+    --text-color-secondary:               var(--nyx-dim);
+    --text-color-tertiary:                var(--nyx-dim);
+    --text-color-active:                  var(--nyx-star);
+    --selected-background-color:          var(--nyx-raised);
+    --selected-secondary-background-color: var(--nyx-border);
+    --selected-foreground-color:          var(--nyx-aurora);
+    --border-color:                       var(--nyx-border);
+    --divider-color:                      var(--nyx-border);
+    --button-background-color:            var(--nyx-raised);
+    --button-background-color-hover:      var(--nyx-border);
+    --menu-background-color:              var(--nyx-surface);
+    --console-background-color:           var(--nyx-deep);
+    --console-secondary-text-color:       var(--nyx-dim);
+    --tab-background-color:               var(--nyx-surface);
+    --tab-selected-background-color:      var(--nyx-raised);
+    --scrollbar-track-color:              transparent;
+    --scrollbar-thumb-color:              var(--nyx-border);
+    --link-text-color:                    var(--nyx-aurora);
+
+    color-scheme: dark;
+}
+
+html, body {
+    background-color: var(--nyx-deep) !important;
+    color:            var(--nyx-text) !important;
+}
+
+/* Lignes / cellules de tableau dans Network / Resources. */
+.data-grid tr,
+.data-grid td {
+    background-color: transparent !important;
+    color:            var(--nyx-text) !important;
+    border-color:     var(--nyx-border) !important;
+}
+.data-grid tr.selected {
+    background-color: var(--nyx-raised) !important;
+    color:            var(--nyx-aurora) !important;
+}
+
+/* Sidebar / panel headers. */
+.sidebar,
+.navigation-bar,
+.tab-bar {
+    background-color: var(--nyx-surface) !important;
+    border-color:     var(--nyx-border) !important;
+}
+
+/* Boutons toolbar. */
+.toolbar > .item,
+.toolbar button,
+button.toolbar {
+    background-color: transparent !important;
+    color:            var(--nyx-dim) !important;
+    border:           none !important;
+}
+.toolbar > .item:hover,
+.toolbar button:hover {
+    background-color: var(--nyx-raised) !important;
+    color:            var(--nyx-aurora) !important;
+}
+
+/* Console : prompt + log items. */
+.console-prompt,
+.console-user-command,
+.console-message {
+    background-color: transparent !important;
+    color:            var(--nyx-text) !important;
+    border-color:     var(--nyx-border) !important;
+}
+.console-error-level   { color: #ff7eb3 !important; }
+.console-warning-level { color: #ffc56a !important; }
+.console-info-level    { color: var(--nyx-moon) !important; }
+
+/* Scrollbars. */
+::-webkit-scrollbar {
+    width: 8px; height: 8px;
+    background: transparent;
+}
+::-webkit-scrollbar-thumb {
+    background: var(--nyx-border);
+    border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+    background: var(--nyx-moon);
+}
