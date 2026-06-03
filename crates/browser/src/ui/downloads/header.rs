@@ -90,26 +90,24 @@ pub fn build(
 }
 
 fn open_destination_chooser(parent: Option<Window>, settings: Settings, toaster: ToastHandle) {
-    // Sous WSL : on tente l'explorateur Windows (FolderBrowserDialog
-    // WinForms via powershell.exe) → rassurant pour l'utilisateur Windows
-    // qui ne veut pas d'UI Linux à l'intérieur de Windows.
-    // Hors WSL OU si powershell ne répond pas : fallback FileChooserDialog
-    // GTK in-process (themable via .nyx-filechooser).
-    if let Some(picked) = crate::platform::wsl_pick_windows_folder(
-        "Dossier de téléchargement Nyx"
-    ) {
-        let s = picked.to_string_lossy().into_owned();
-        settings.borrow_mut().downloads_dir = Some(s.clone());
-        toaster.push(ToastLevel::Info, &format!(
-            "Dossier de téléchargement : {}",
-            short_path(&s),
-        ));
+    // ─── Sous WSL : EXPLORATEUR WINDOWS UNIQUEMENT ─────────────────────
+    // L'user nous a explicitement demandé : « si WSL → QUE Windows ».
+    // Annulation côté Windows = on s'arrête là, pas de fallback GTK
+    // (sinon le dialog Linux apparaissait DERRIÈRE le Windows à la
+    // fermeture — bug rapporté).
+    if crate::platform::is_wsl() {
+        if let Some(picked) = crate::platform::wsl_pick_windows_folder(
+            "Dossier de téléchargement Nyx"
+        ) {
+            apply_dir_change(&settings, &toaster, picked);
+        }
         return;
     }
 
-    // FileChooserDialog (pas FileChooserNative) : in-process, donc notre
-    // CSS .nyx-filechooser s'applique. FileChooserNative passe par le
-    // portail XDG → autre process → notre theme ne le touche pas.
+    // ─── Hors WSL (Linux natif, macOS) : FileChooserDialog GTK ──────────
+    // In-process → notre CSS .nyx-filechooser s'applique. FileChooserNative
+    // passe par le portail XDG → autre process → notre theme ne le touche
+    // pas (d'où le 'blanc horrible' rapporté avant).
     let dlg = FileChooserDialog::new(
         Some("Dossier de téléchargement"),
         parent.as_ref(),
@@ -130,15 +128,19 @@ fn open_destination_chooser(parent: Option<Window>, settings: Settings, toaster:
     let response = dlg.run();
     if response == ResponseType::Accept {
         if let Some(path) = dlg.filename() {
-            let s = path.to_string_lossy().into_owned();
-            settings.borrow_mut().downloads_dir = Some(s.clone());
-            toaster.push(ToastLevel::Info, &format!(
-                "Dossier de téléchargement : {}",
-                short_path(&s),
-            ));
+            apply_dir_change(&settings, &toaster, path);
         }
     }
     dlg.close();
+}
+
+fn apply_dir_change(settings: &Settings, toaster: &ToastHandle, path: std::path::PathBuf) {
+    let s = path.to_string_lossy().into_owned();
+    settings.borrow_mut().downloads_dir = Some(s.clone());
+    toaster.push(ToastLevel::Info, &format!(
+        "Dossier de téléchargement : {}",
+        short_path(&s),
+    ));
 }
 
 fn current_dir(settings: &Settings) -> Option<std::path::PathBuf> {
