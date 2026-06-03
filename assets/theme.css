@@ -374,7 +374,12 @@ tooltip decoration { background: transparent; box-shadow: none; }
     font-size: 13px;
 }
 
-.nyx-confirm-actions {
+/* action_area de gtk::Dialog : ciblée via les sélecteurs GTK standard
+   (la méthode action_area() est dépréciée en gtk-rs 0.18). */
+.nyx-confirm-actions,
+.nyx-confirm buttonbox,
+.nyx-confirm .dialog-action-box,
+.nyx-confirm box.horizontal:last-child {
     background: alpha(@nyx_surface, 0.32);
     border-top: 1px solid alpha(@nyx_border, 0.4);
     padding: 14px 22px;
