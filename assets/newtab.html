@@ -116,15 +116,18 @@ main * { pointer-events: auto; }
     // ── Constantes d'interaction — réglage du sillage Kelvin + ripples.
     // Pousse ces valeurs pour ajuster la sensation sans toucher au shader.
     const TUNING = {
-        // ── LAME : le curseur fend le liquide, V derrière, rien autour ──
-        // Pas de halo, pas de cercle, pas de dépression radiale (l'user
-        // ne veut PAS l'effet "doigt qui pousse"). Juste le sillon
-        // directionnel — comme une lame fine qui glisse à fleur d'eau.
-        wakeStrength:        1.5,   // intensité du push transverse sur les branches du V
-        wakeLength:          0.52,  // longueur du sillon avant fade complet
-        wakeWidth:           0.080, // largeur de chaque branche (gaussien)
-        wakeAngleTan:        0.38,  // tan(angle V) — 0.35≈19° Kelvin pur
-        wakeUndulation:      0.009, // amplitude de l'ondulation organique des branches
+        // ── LAME : le curseur fend le liquide ──
+        // Falloff transverse VRAI gaussien (exp(-bw²·SHARPNESS)) — fini
+        // les longues queues de 1/(1+x²) qui peignaient un rectangle plein
+        // derrière le curseur (= barre horizontale du T perçu). Maintenant
+        // ce sont DEUX LIGNES FINES qui s'évanouissent en bout de fade
+        // longitudinal lent, sans aucun bord visible.
+        wakeStrength:        0.9,   // amplitude push — réduite car le warp léger suffit
+        wakeLength:          0.65,  // fade plus long → extrémité invisible
+        wakeWidth:           0.090, // épaisseur des lignes (sigma du gaussien)
+        wakeSharpness:       3.2,   // raideur du gaussien — + élevé = ligne + fine
+        wakeAngleTan:        0.36,  // tan(angle V) — 0.35 ≈ 19° Kelvin
+        wakeUndulation:      0.010, // amplitude de l'ondulation organique
 
         // ── Click : caillou tombe dans l'eau ──
         clickRippleStrength: 0.028,
@@ -239,6 +242,7 @@ uniform vec3 u_p0,u_p1,u_p2,u_p3,u_glow;uniform float u_warp,u_vbias,u_speed;
 const float WAKE_STRENGTH         = ${F(TUNING.wakeStrength)};
 const float WAKE_LENGTH           = ${F(TUNING.wakeLength)};
 const float WAKE_WIDTH            = ${F(TUNING.wakeWidth)};
+const float WAKE_SHARPNESS        = ${F(TUNING.wakeSharpness)};
 const float WAKE_UNDULATION       = ${F(TUNING.wakeUndulation)};
 const float CLICK_RIPPLE_STRENGTH = ${F(TUNING.clickRippleStrength)};
 const float CLICK_RIPPLE_SPEED    = ${F(TUNING.clickRippleSpeed)};
@@ -288,26 +292,32 @@ void main(){
  float undulation=sin(backward*22.0-u_time*4.0)*WAKE_UNDULATION;
  float branchDist=abs(lateral+undulation*sign(lateral))-KELVIN_TAN*backward;
 
- // Falloff transversal — gaussien cheap 1/(1+x²) (pas d'exp).
- float wakeTrans=(WAKE_WIDTH*WAKE_WIDTH)/(WAKE_WIDTH*WAKE_WIDTH+branchDist*branchDist);
+ // Falloff transversal — VRAI gaussien exp(-bw²·SHARPNESS).
+ // L'ancien 1/(1+x²) avait de longues queues qui peignaient un rectangle
+ // plein derrière le curseur (= barre horizontale du T perçu). Le
+ // gaussien tombe exponentiellement → DEUX LIGNES FINES, sans aire.
+ float bw=branchDist/WAKE_WIDTH;
+ float wakeTrans=exp(-bw*bw*WAKE_SHARPNESS);
  // Décroissance longitudinale — smoothstep QUINTIQUE wl³(6wl²-15wl+10).
  // C2-continu, dérivée nulle aux deux bouts → fondu velouté, pas de
  // 'trait coupant'. NOTE : variable 'wl' et PAS 'r' (collision avec
  // vec2 r plus bas → shader fail silently). ATTENTION : pas de backticks
- // dans ce commentaire (cf. bug 286, template literal JS).
+ // dans ce commentaire (cf. bug récurrent, template literal JS).
  float wl=max(0.0,1.0-backward/WAKE_LENGTH);
  float wakeLong=wl*wl*wl*(wl*(wl*6.0-15.0)+10.0);
  // Anti-front : aucun effet devant le curseur, transition douce.
- float wakeFront=smoothstep(0.0,0.012,backward);
+ float wakeFront=smoothstep(0.0,0.025,backward);
  // Magnitude unique — sert au warp ET à la light de trace.
  float wakeMag=wakeTrans*wakeLong*wakeFront*u_mvel*WAKE_STRENGTH;
 
  // Push perpendiculaire à D, vers l'extérieur des branches, biais
- // arrière. wakeDir normalisée une fois (length+divide, pas inversesqrt).
- vec2 rawWakeDir=Nperp*sign(lateral)-D*0.30;
+ // arrière. wakeDir normalisée une fois.
+ vec2 rawWakeDir=Nperp*sign(lateral)-D*0.28;
  vec2 wakeDir=rawWakeDir/max(length(rawWakeDir),0.001);
- // Magnitude finale : 0.048 (vs 0.038 avant — +26% intensité demandée).
- vec2 wakePush=wakeDir*wakeMag*0.048;
+ // Warp léger (0.028) : le pattern fbm se DÉPLACE doucement le long des
+ // lignes, sans distordre violemment. La présence visible vient surtout
+ // de la light (col += warm * wakeMag), pas de la déformation.
+ vec2 wakePush=wakeDir*wakeMag*0.028;
 
  // ─── Click ripples : caillou tombe — dépression + 3 anneaux amortis ───
  vec2 rippleDisp=vec2(0.0);
@@ -364,12 +374,11 @@ void main(){
  // EUX qui créaient le 'rond' indésirable. La lame est invisible au
  // point du curseur ; on ne voit QUE le V derrière.
 
- // ─── Trace lumineuse le long des branches du V — uniquement ───
- // wakeMag déjà calculé (réutilisé, pas recalcul) → coût quasi nul.
- // Couleur chaude pour le tracé du sillon (réfraction de la lumière
- // ambiante sur les crêtes du sillage).
+ // ─── Trace lumineuse le long des branches du V — UNIQUE source ───
+ // wakeMag réutilisé (1 mul vs 5 ops d'un calcul séparé). La présence
+ // visible passe surtout par cette lumière (le warp est très léger).
  vec3 warm=mix(u_glow,vec3(1.0,0.78,0.55),0.5);
- col+=warm*wakeMag*0.060;
+ col+=warm*wakeMag*0.085;
 
  // Ondulations lumineuses des ripples (en plus du displacement).
  col+=u_glow*wave*0.12;
