@@ -116,24 +116,15 @@ main * { pointer-events: auto; }
     // ── Constantes d'interaction — réglage du sillage Kelvin + ripples.
     // Pousse ces valeurs pour ajuster la sensation sans toucher au shader.
     const TUNING = {
-        // ── Doigt qui PRESSE le liquide : dépression + bourrelet ──
-        // Le curseur n'est plus un halo de surface, c'est un point qui
-        // creuse vraiment le fluide. Compression au centre (le pattern
-        // est aspiré vers le curseur), bourrelet de fluide expulsé en
-        // couronne autour, ombre + éclat le long du rebord.
-        pressDepth:          0.090, // profondeur de l'aspiration au centre (0..0.2)
-        pressRadius:         0.062, // rayon du noyau de la dépression (UV)
-        pressRimRadius:      0.135, // rayon externe du bourrelet (UV)
-        pressRimHeight:      0.052, // hauteur du bourrelet expulsé
-        pressShadeDark:      0.34,  // assombrissement au creux (0..1)
-        pressShadeRim:       0.18,  // éclat sur la crête du bourrelet (caustique)
-
-        // ── Sillage en V (Kelvin) — traîne directionnelle derrière ──
-        wakeStrength:        1.1,   // atténué : la dépression centrale fait le gros du travail
-        wakeLength:          0.50,
-        wakeWidth:           0.085,
-        wakeAngleTan:        0.38,
-        wakeUndulation:      0.008,
+        // ── LAME : le curseur fend le liquide, V derrière, rien autour ──
+        // Pas de halo, pas de cercle, pas de dépression radiale (l'user
+        // ne veut PAS l'effet "doigt qui pousse"). Juste le sillon
+        // directionnel — comme une lame fine qui glisse à fleur d'eau.
+        wakeStrength:        1.5,   // intensité du push transverse sur les branches du V
+        wakeLength:          0.52,  // longueur du sillon avant fade complet
+        wakeWidth:           0.080, // largeur de chaque branche (gaussien)
+        wakeAngleTan:        0.38,  // tan(angle V) — 0.35≈19° Kelvin pur
+        wakeUndulation:      0.009, // amplitude de l'ondulation organique des branches
 
         // ── Click : caillou tombe dans l'eau ──
         clickRippleStrength: 0.028,
@@ -245,24 +236,14 @@ uniform vec3 u_trail0,u_trail1,u_trail2,u_trail3;
 uniform vec3 u_ripples[16];
 uniform vec3 u_p0,u_p1,u_p2,u_p3,u_glow;uniform float u_warp,u_vbias,u_speed;
 // Constantes interaction (injectées depuis TUNING côté JS).
-// — Dépression curseur (doigt qui pénètre le fluide) —
-const float PRESS_DEPTH         = ${F(TUNING.pressDepth)};
-const float PRESS_RADIUS        = ${F(TUNING.pressRadius)};
-const float PRESS_RIM_RADIUS    = ${F(TUNING.pressRimRadius)};
-const float PRESS_RIM_HEIGHT    = ${F(TUNING.pressRimHeight)};
-const float PRESS_SHADE_DARK    = ${F(TUNING.pressShadeDark)};
-const float PRESS_SHADE_RIM     = ${F(TUNING.pressShadeRim)};
-// — Sillage V derrière —
-const float WAKE_STRENGTH       = ${F(TUNING.wakeStrength)};
-const float WAKE_LENGTH         = ${F(TUNING.wakeLength)};
-const float WAKE_WIDTH          = ${F(TUNING.wakeWidth)};
-const float WAKE_UNDULATION     = ${F(TUNING.wakeUndulation)};
-// — Clic : caillou —
+const float WAKE_STRENGTH         = ${F(TUNING.wakeStrength)};
+const float WAKE_LENGTH           = ${F(TUNING.wakeLength)};
+const float WAKE_WIDTH            = ${F(TUNING.wakeWidth)};
+const float WAKE_UNDULATION       = ${F(TUNING.wakeUndulation)};
 const float CLICK_RIPPLE_STRENGTH = ${F(TUNING.clickRippleStrength)};
-const float CLICK_RIPPLE_SPEED  = ${F(TUNING.clickRippleSpeed)};
-const float CLICK_RIPPLE_DECAY  = ${F(TUNING.clickRippleDecay)};
-// tan(angle du V). 0.3535 = 19.47° (Kelvin théorique), 0.45 ≈ 24°
-// (plus visible / cinematic). Modifiable via TUNING.wakeAngleTan.
+const float CLICK_RIPPLE_SPEED    = ${F(TUNING.clickRippleSpeed)};
+const float CLICK_RIPPLE_DECAY    = ${F(TUNING.clickRippleDecay)};
+// tan(angle V) — 0.3535 = 19.47° (Kelvin théorique), 0.45 ≈ 24°.
 const float KELVIN_TAN = ${F(TUNING.wakeAngleTan)};
 float hash(vec2 p){p=fract(p*vec2(123.34,456.21));p+=dot(p,p+45.32);return fract(p.x*p.y);}
 float noise(vec2 p){vec2 i=floor(p),f=fract(p);vec2 u=f*f*(3.0-2.0*f);
@@ -278,72 +259,53 @@ void main(){
  vec2 uvA=uv*vec2(aspect,1.0);
  vec2 mA=u_mouse*vec2(aspect,1.0);
  vec2 dM=uvA-mA;
- float lM2=dot(dM,dM);
- float dist=sqrt(lM2+0.00001);
- // Direction radiale curseur → pixel. Sert à la fois au warp
- // (compression vers / dehors de) et à l'ombrage de la dépression.
- vec2 outDir=dM/dist;
- // Atténuation gaussienne (rayon référence ~0.235 UV) — réutilisée
- // par le torche/halo qui restent collés au curseur.
- float kM=max(0.0,1.0-lM2/0.055);
- float kM2=kM*kM;
-
- // ── Puits de pression : compression centrale + bourrelet expulsé ──
- // depression : profil cloche 1→0 sur [0, PRESS_RADIUS]. Pattern du
- // fluide aspiré vers le curseur (le doigt ENFONCE).
- float depression=1.0-smoothstep(0.0,PRESS_RADIUS,dist);
- // rim : couronne de fluide expulsée entre PRESS_RADIUS et
- // PRESS_RIM_RADIUS. Profil cloche centrée à mi-chemin (bell symétrique).
- float rimPos=clamp((dist-PRESS_RADIUS)/(PRESS_RIM_RADIUS-PRESS_RADIUS),0.0,1.0);
- // 4*x*(1-x) = parabole avec max 1 à x=0.5, 0 aux bouts. Smoothée
- // par smoothstep aux deux extrémités → C1-continu.
- float rim=4.0*rimPos*(1.0-rimPos);
- rim*=smoothstep(0.0,0.35,rimPos)*smoothstep(1.0,0.65,rimPos);
-
- // Warp = aspiration centrale (− outDir) + expulsion en rim (+ outDir).
- // C'est le pattern de fbm qui se déforme physiquement, pas un halo.
- vec2 wellPush=outDir*(-depression*PRESS_DEPTH + rim*PRESS_RIM_HEIGHT);
-
- // Décomposition (D, Nperp) = repère local orienté vélocité souris.
+ // ═══════════════════════════════════════════════════════════════════
+ //   CORE INTERACTION : LAME — le curseur fend le liquide.
+ //   Une seule structure (pas de cercle, pas de halo, pas de dépression).
+ //   Outputs : `wakePush`  (warp du pattern fbm derrière la lame)
+ //             `wakeTrans` (1 sur la ligne du V, 0 au loin — pour la
+ //                          lumière de tracé) — réutilisée plus bas.
+ //             `wakeLong`  (fondu longitudinal — réutilisé plus bas).
+ //             `wakeFront` (anti-front gate — idem).
+ //   ÉCONOMIE GPU :
+ //     - 1 seul sqrt évité (pas de `dist` radial).
+ //     - 1 normalize au lieu de 2 (pas d'outDir radial).
+ //     - Pas de smoothstep redondants (depression/rim supprimés).
+ //     - Pas de kM/kM2 intermédiaire (warm/halo eux-mêmes virés).
+ //     - `wakeMag` calculé UNE fois, réutilisé pour le warp ET la light.
+ // ═══════════════════════════════════════════════════════════════════
+ // Repère orienté vélocité : D = direction souris, Nperp = transverse.
  vec2 D=u_mdir;
  vec2 Nperp=vec2(-D.y,D.x);
  float para=dot(dM,D);
  float lateral=dot(dM,Nperp);
  float backward=max(0.0,-para);
 
- // ── V-wake Kelvin : 2 branches ondulantes derrière le curseur — SEUL
- // effet directionnel. Pas de bow push (créait une bosse devant), pas de
- // trail historique (créait une barre "T" derrière). Le V respire seul.
- //
- // Ondulation longitudinale : sinusoïde discrète le long du sillage →
- // branches vivantes, pas droites, mais sans "wave" trop visible.
+ // Distance signée à la branche idéale (= 0 sur la ligne théorique du V).
+ // Ondulation longitudinale (sin cheap) → branches vivantes pas droites.
  float undulation=sin(backward*22.0-u_time*4.0)*WAKE_UNDULATION;
- // Distance signée à la branche idéale (= 0 sur la ligne théorique).
  float branchDist=abs(lateral+undulation*sign(lateral))-KELVIN_TAN*backward;
- // Falloff transversal — gaussien cheap : 1/(1+x²).
+
+ // Falloff transversal — gaussien cheap 1/(1+x²) (pas d'exp).
  float wakeTrans=(WAKE_WIDTH*WAKE_WIDTH)/(WAKE_WIDTH*WAKE_WIDTH+branchDist*branchDist);
- // Décroissance longitudinale — smoothstep QUINTIQUE (encore plus doux
- // que cubique) : démarre fort à la pointe, s'estompe progressivement
- // sans aucune coupure dure. Plus de 'trait profond qui découpe'.
- // NOTE : variable 'wl' et PAS 'r' (collision avec vec2 r plus bas dans
- // la même portée → shader fail silently → fallback Canvas-2D).
- // ATTENTION : pas de backticks dans ce commentaire — ils fermeraient
- // la template literal JS qui contient ce shader (cf. bug 286).
+ // Décroissance longitudinale — smoothstep QUINTIQUE wl³(6wl²-15wl+10).
+ // C2-continu, dérivée nulle aux deux bouts → fondu velouté, pas de
+ // 'trait coupant'. NOTE : variable 'wl' et PAS 'r' (collision avec
+ // vec2 r plus bas → shader fail silently). ATTENTION : pas de backticks
+ // dans ce commentaire (cf. bug 286, template literal JS).
  float wl=max(0.0,1.0-backward/WAKE_LENGTH);
- // smoothstep quintic : wl³(6wl²-15wl+10) — C2-continu, dérivée nulle
- // aux deux bouts → fondu velouté sans cassure perceptible.
  float wakeLong=wl*wl*wl*(wl*(wl*6.0-15.0)+10.0);
- // Anti-front : transition douce (0.012 vs 0.006) pour amorcer le V
- // graduellement plutôt que d'apparaître pile au curseur.
+ // Anti-front : aucun effet devant le curseur, transition douce.
  float wakeFront=smoothstep(0.0,0.012,backward);
+ // Magnitude unique — sert au warp ET à la light de trace.
  float wakeMag=wakeTrans*wakeLong*wakeFront*u_mvel*WAKE_STRENGTH;
 
- // Push : perpendiculaire à D (vers l'extérieur des branches) + léger
- // biais arrière → fend le liquide latéralement, en douceur.
+ // Push perpendiculaire à D, vers l'extérieur des branches, biais
+ // arrière. `wakeDir` normalisée une fois (length+divide, pas inversesqrt).
  vec2 rawWakeDir=Nperp*sign(lateral)-D*0.30;
- float rwLen=length(rawWakeDir);
- vec2 wakeDir=rawWakeDir/max(rwLen,0.001);
- vec2 wakePush=wakeDir*wakeMag*0.038;
+ vec2 wakeDir=rawWakeDir/max(length(rawWakeDir),0.001);
+ // Magnitude finale : 0.048 (vs 0.038 avant — +26% intensité demandée).
+ vec2 wakePush=wakeDir*wakeMag*0.048;
 
  // ─── Click ripples : caillou tombe — dépression + 3 anneaux amortis ───
  vec2 rippleDisp=vec2(0.0);
@@ -382,12 +344,10 @@ void main(){
    }
  }
 
- // Warp LOCAL — pas de pan global, le fond reste en place.
- // Composition : PUITS curseur (aspiration + bourrelet) + V derrière +
- // ripples des clics. wellPush remplace l'ancien fingerPush — au lieu
- // d'écarter radialement, on COMPRESSE vers le centre et on EXPULSE
- // en couronne : le pattern fbm est physiquement déformé.
- p+=wellPush+wakePush+rippleDisp*1.5;
+ // Warp LOCAL — seulement la lame (V) + ripples des clics. Rien autour
+ // du curseur lui-même : la lame est invisible AU POINT du curseur, son
+ // existence ne se révèle que par la traîne derrière.
+ p+=wakePush+rippleDisp*1.5;
 
  vec2 q=vec2(fbm(p+vec2(0.,t)),fbm(p+vec2(5.2,1.3)-vec2(0.,t*(1.0+u_vbias))));
  vec2 r=vec2(fbm(p+u_warp*q+vec2(1.7,9.2)+t*0.5),fbm(p+u_warp*q+vec2(8.3,2.8)-t*0.5));
@@ -398,34 +358,19 @@ void main(){
  col=mix(col,u_p3,smoothstep(0.55,1.0,q.y)*0.5);
  col+=u_glow*pow(max(f,0.0),3.0)*0.07;
 
- // Torche : très subtile maintenant — le doigt enfonce, il n'éclaire
- // pas (la dépression centrale est dans l'ombre). On garde juste un
- // soupçon de chaleur au fond du puits pour la couleur ambiante.
+ // Pas de torche, pas de halo, pas de cercle autour du curseur : ce sont
+ // EUX qui créaient le 'rond' indésirable. La lame est invisible au
+ // point du curseur ; on ne voit QUE le V derrière.
+
+ // ─── Trace lumineuse le long des branches du V — uniquement ───
+ // wakeMag déjà calculé (réutilisé, pas recalcul) → coût quasi nul.
+ // Couleur chaude pour le tracé du sillon (réfraction de la lumière
+ // ambiante sur les crêtes du sillage).
  vec3 warm=mix(u_glow,vec3(1.0,0.78,0.55),0.5);
- float torchK=max(0.0,1.0-lM2/0.020);
- col+=warm*(torchK*torchK*torchK)*0.040;
- float haloK=max(0.0,1.0-lM2/0.090);
- col+=u_glow*(haloK*haloK)*0.015;
+ col+=warm*wakeMag*0.060;
 
- // Trace lumineuse SUBTILE le long des branches du V.
- float wakeLight=wakeTrans*wakeLong*wakeFront*u_mvel*0.40;
- col+=warm*wakeLight*0.022;
-
- // Ondulations radiales lumineuses des ripples (en plus du displacement).
+ // Ondulations lumineuses des ripples (en plus du displacement).
  col+=u_glow*wave*0.12;
-
- // ─── PÉNÉTRATION PHYSIQUE : ombrage de la dépression ───
- // C'est ce qui transforme la déformation du pattern fbm en relief
- // perceptible. La dépression assombrit (le fond du puits est dans
- // l'ombre du liquide qui le surplombe), le bourrelet capte la lumière
- // comme une caustique d'eau (réfraction concentrée sur la crête).
- // Appliqué APRÈS toutes les sources de lumière surface (torche, halo,
- // V, ripples) → le creux assombrit TOUT, comme un vrai trou.
- float wellShade=-depression*PRESS_SHADE_DARK + rim*PRESS_SHADE_RIM;
- col*=1.0+wellShade;
- // Petit boost chaud sur la crête (caustique froide → légère pointe
- // chaude au moment où la lumière se concentre).
- col+=warm*rim*PRESS_SHADE_RIM*0.35;
 
  // Vignette + grain.
  float d=distance(uv,vec2(0.5));
