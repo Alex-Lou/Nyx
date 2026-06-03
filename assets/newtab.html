@@ -116,17 +116,29 @@ main * { pointer-events: auto; }
     // ── Constantes d'interaction — réglage du sillage Kelvin + ripples.
     // Pousse ces valeurs pour ajuster la sensation sans toucher au shader.
     const TUNING = {
-        // Sillage adouci : moins de push, plus large (= flou), moins long,
-        // moins lumineux. Plus de 'trait coupant' derrière le curseur, on
-        // glisse comme une feuille morte sur un lac calme.
-        wakeStrength:        1.3,   // intensité du push transverse sur les branches du V
-        wakeLength:          0.50,  // longueur du sillage avant fade complet (0..1, unités UV)
-        wakeWidth:           0.085, // largeur de chaque branche du V (gaussien) — plus diffus
-        wakeAngleTan:        0.38,  // tan(angle V) — 0.35≈19° Kelvin pur, 0.45≈24° plus marqué
-        wakeUndulation:      0.008, // amplitude de l'ondulation longitudinale des branches
-        clickRippleStrength: 0.028, // amplitude du displacement par anneau
-        clickRippleSpeed:    0.32,  // vitesse d'expansion des anneaux (unités UV / s)
-        clickRippleDecay:    5.0,   // durée de vie d'un ripple (secondes)
+        // ── Doigt qui PRESSE le liquide : dépression + bourrelet ──
+        // Le curseur n'est plus un halo de surface, c'est un point qui
+        // creuse vraiment le fluide. Compression au centre (le pattern
+        // est aspiré vers le curseur), bourrelet de fluide expulsé en
+        // couronne autour, ombre + éclat le long du rebord.
+        pressDepth:          0.090, // profondeur de l'aspiration au centre (0..0.2)
+        pressRadius:         0.062, // rayon du noyau de la dépression (UV)
+        pressRimRadius:      0.135, // rayon externe du bourrelet (UV)
+        pressRimHeight:      0.052, // hauteur du bourrelet expulsé
+        pressShadeDark:      0.34,  // assombrissement au creux (0..1)
+        pressShadeRim:       0.18,  // éclat sur la crête du bourrelet (caustique)
+
+        // ── Sillage en V (Kelvin) — traîne directionnelle derrière ──
+        wakeStrength:        1.1,   // atténué : la dépression centrale fait le gros du travail
+        wakeLength:          0.50,
+        wakeWidth:           0.085,
+        wakeAngleTan:        0.38,
+        wakeUndulation:      0.008,
+
+        // ── Click : caillou tombe dans l'eau ──
+        clickRippleStrength: 0.028,
+        clickRippleSpeed:    0.32,
+        clickRippleDecay:    5.0,
     };
     // Helper : format un float en littéral GLSL valide (toFixed garantit le `.`).
     const F = n => n.toFixed(4);
@@ -233,10 +245,19 @@ uniform vec3 u_trail0,u_trail1,u_trail2,u_trail3;
 uniform vec3 u_ripples[16];
 uniform vec3 u_p0,u_p1,u_p2,u_p3,u_glow;uniform float u_warp,u_vbias,u_speed;
 // Constantes interaction (injectées depuis TUNING côté JS).
+// — Dépression curseur (doigt qui pénètre le fluide) —
+const float PRESS_DEPTH         = ${F(TUNING.pressDepth)};
+const float PRESS_RADIUS        = ${F(TUNING.pressRadius)};
+const float PRESS_RIM_RADIUS    = ${F(TUNING.pressRimRadius)};
+const float PRESS_RIM_HEIGHT    = ${F(TUNING.pressRimHeight)};
+const float PRESS_SHADE_DARK    = ${F(TUNING.pressShadeDark)};
+const float PRESS_SHADE_RIM     = ${F(TUNING.pressShadeRim)};
+// — Sillage V derrière —
 const float WAKE_STRENGTH       = ${F(TUNING.wakeStrength)};
 const float WAKE_LENGTH         = ${F(TUNING.wakeLength)};
 const float WAKE_WIDTH          = ${F(TUNING.wakeWidth)};
 const float WAKE_UNDULATION     = ${F(TUNING.wakeUndulation)};
+// — Clic : caillou —
 const float CLICK_RIPPLE_STRENGTH = ${F(TUNING.clickRippleStrength)};
 const float CLICK_RIPPLE_SPEED  = ${F(TUNING.clickRippleSpeed)};
 const float CLICK_RIPPLE_DECAY  = ${F(TUNING.clickRippleDecay)};
@@ -253,17 +274,35 @@ void main(){
  vec2 p=uv*vec2(aspect,1.0)*2.4;
  float t=u_time*u_speed;
 
- // ─── INTERACTION LOCALE — sillage Kelvin en V ───
+ // ─── INTERACTION LOCALE — doigt qui PRESSE le liquide ───
  vec2 uvA=uv*vec2(aspect,1.0);
  vec2 mA=u_mouse*vec2(aspect,1.0);
  vec2 dM=uvA-mA;
  float lM2=dot(dM,dM);
+ float dist=sqrt(lM2+0.00001);
+ // Direction radiale curseur → pixel. Sert à la fois au warp
+ // (compression vers / dehors de) et à l'ombrage de la dépression.
+ vec2 outDir=dM/dist;
+ // Atténuation gaussienne (rayon référence ~0.235 UV) — réutilisée
+ // par le torche/halo qui restent collés au curseur.
  float kM=max(0.0,1.0-lM2/0.055);
  float kM2=kM*kM;
 
- // Doigt posé dans l'eau : push radial TRÈS doux, juste pour "habiter"
- // le curseur sans créer de halo/cercle visible.
- vec2 fingerPush=dM*kM2*0.12;
+ // ── Puits de pression : compression centrale + bourrelet expulsé ──
+ // depression : profil cloche 1→0 sur [0, PRESS_RADIUS]. Pattern du
+ // fluide aspiré vers le curseur (le doigt ENFONCE).
+ float depression=1.0-smoothstep(0.0,PRESS_RADIUS,dist);
+ // rim : couronne de fluide expulsée entre PRESS_RADIUS et
+ // PRESS_RIM_RADIUS. Profil cloche centrée à mi-chemin (bell symétrique).
+ float rimPos=clamp((dist-PRESS_RADIUS)/(PRESS_RIM_RADIUS-PRESS_RADIUS),0.0,1.0);
+ // 4*x*(1-x) = parabole avec max 1 à x=0.5, 0 aux bouts. Smoothée
+ // par smoothstep aux deux extrémités → C1-continu.
+ float rim=4.0*rimPos*(1.0-rimPos);
+ rim*=smoothstep(0.0,0.35,rimPos)*smoothstep(1.0,0.65,rimPos);
+
+ // Warp = aspiration centrale (− outDir) + expulsion en rim (+ outDir).
+ // C'est le pattern de fbm qui se déforme physiquement, pas un halo.
+ vec2 wellPush=outDir*(-depression*PRESS_DEPTH + rim*PRESS_RIM_HEIGHT);
 
  // Décomposition (D, Nperp) = repère local orienté vélocité souris.
  vec2 D=u_mdir;
@@ -344,8 +383,11 @@ void main(){
  }
 
  // Warp LOCAL — pas de pan global, le fond reste en place.
- // Composition : doigt très doux + V derrière + ripples des clics.
- p+=fingerPush+wakePush+rippleDisp*1.5;
+ // Composition : PUITS curseur (aspiration + bourrelet) + V derrière +
+ // ripples des clics. wellPush remplace l'ancien fingerPush — au lieu
+ // d'écarter radialement, on COMPRESSE vers le centre et on EXPULSE
+ // en couronne : le pattern fbm est physiquement déformé.
+ p+=wellPush+wakePush+rippleDisp*1.5;
 
  vec2 q=vec2(fbm(p+vec2(0.,t)),fbm(p+vec2(5.2,1.3)-vec2(0.,t*(1.0+u_vbias))));
  vec2 r=vec2(fbm(p+u_warp*q+vec2(1.7,9.2)+t*0.5),fbm(p+u_warp*q+vec2(8.3,2.8)-t*0.5));
@@ -356,22 +398,34 @@ void main(){
  col=mix(col,u_p3,smoothstep(0.55,1.0,q.y)*0.5);
  col+=u_glow*pow(max(f,0.0),3.0)*0.07;
 
- // Torche : glow chaud serré sous le curseur (biais orange-rose).
+ // Torche : très subtile maintenant — le doigt enfonce, il n'éclaire
+ // pas (la dépression centrale est dans l'ombre). On garde juste un
+ // soupçon de chaleur au fond du puits pour la couleur ambiante.
  vec3 warm=mix(u_glow,vec3(1.0,0.78,0.55),0.5);
  float torchK=max(0.0,1.0-lM2/0.020);
- col+=warm*(torchK*torchK*torchK)*0.085;
- // Halo doux plus large, dans la couleur d'ambiance.
+ col+=warm*(torchK*torchK*torchK)*0.040;
  float haloK=max(0.0,1.0-lM2/0.090);
- col+=u_glow*(haloK*haloK)*0.030;
+ col+=u_glow*(haloK*haloK)*0.015;
 
- // Trace lumineuse SUBTILE le long des branches du V — donne du relief
- // sans surligner. Plus de "trail light" : ça créait la barre du T.
- // Réduit à 0.022 (vs 0.045) pour adoucir encore le V.
+ // Trace lumineuse SUBTILE le long des branches du V.
  float wakeLight=wakeTrans*wakeLong*wakeFront*u_mvel*0.40;
  col+=warm*wakeLight*0.022;
 
  // Ondulations radiales lumineuses des ripples (en plus du displacement).
  col+=u_glow*wave*0.12;
+
+ // ─── PÉNÉTRATION PHYSIQUE : ombrage de la dépression ───
+ // C'est ce qui transforme la déformation du pattern fbm en relief
+ // perceptible. La dépression assombrit (le fond du puits est dans
+ // l'ombre du liquide qui le surplombe), le bourrelet capte la lumière
+ // comme une caustique d'eau (réfraction concentrée sur la crête).
+ // Appliqué APRÈS toutes les sources de lumière surface (torche, halo,
+ // V, ripples) → le creux assombrit TOUT, comme un vrai trou.
+ float wellShade=-depression*PRESS_SHADE_DARK + rim*PRESS_SHADE_RIM;
+ col*=1.0+wellShade;
+ // Petit boost chaud sur la crête (caustique froide → légère pointe
+ // chaude au moment où la lumière se concentre).
+ col+=warm*rim*PRESS_SHADE_RIM*0.35;
 
  // Vignette + grain.
  float d=distance(uv,vec2(0.5));
