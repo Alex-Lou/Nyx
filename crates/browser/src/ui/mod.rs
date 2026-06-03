@@ -4,6 +4,7 @@
 pub mod anim;
 pub mod bookmarks_popover;
 pub mod chrome;
+pub mod dialog;
 pub mod downloads;
 pub mod icon;
 pub mod navbar;
