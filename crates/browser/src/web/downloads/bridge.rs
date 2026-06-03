@@ -16,7 +16,6 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
-use gtk::prelude::*;
 use webkit2gtk::{
     Download, DownloadExt, URIRequestExt, URIResponseExt, WebContext, WebContextExt,
 };
