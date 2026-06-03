@@ -193,6 +193,63 @@ fn many_status_transitions_no_panic() {
     }
 }
 
+// ─── cap MAX_ENTRIES ───────────────────────────────────────────────────────
+
+#[test]
+fn cap_holds_at_max_entries() {
+    let mut s = mk();
+    for i in 0..(super::store::MAX_ENTRIES + 200) {
+        let id = s.add(format!("f{i}"), "/x".into(), Kind::Safe, "x".into(), i as i64);
+        // Marque immédiatement comme terminal pour permettre l'éviction.
+        s.mark_completed(id, None, i as i64);
+    }
+    assert!(s.len() <= super::store::MAX_ENTRIES,
+        "cap violé : len={} > {}", s.len(), super::store::MAX_ENTRIES);
+}
+
+#[test]
+fn cap_evicts_oldest_terminal_first() {
+    let mut s = mk();
+    // Quelques in-progress en tête de timeline (deviennent les plus vieux
+    // après les nombreux ajouts qui suivent).
+    let preserved_ids: Vec<_> = (0..3).map(|i|
+        s.add(format!("keep{i}"), "/x".into(), Kind::Archive, "x".into(), i)
+    ).collect();
+
+    // Sature au-delà du cap avec des terminaux.
+    let extra = super::store::MAX_ENTRIES + 50;
+    for i in 0..extra {
+        let id = s.add(format!("f{i}"), "/x".into(), Kind::Safe, "x".into(), 1000 + i as i64);
+        s.mark_completed(id, None, 1000 + i as i64);
+    }
+
+    // Les in-progress préservés DOIVENT toujours être là — terminaux évincés d'abord.
+    for kid in &preserved_ids {
+        assert!(s.entries().iter().any(|e| e.id == *kid),
+            "in-progress {kid} évincé alors qu'il restait des terminaux");
+    }
+    assert!(s.len() <= super::store::MAX_ENTRIES);
+}
+
+#[test]
+fn cap_evicts_in_progress_under_extreme_saturation() {
+    let mut s = mk();
+    // MAX_ENTRIES + 1 in-progress : pas un seul terminal disponible.
+    for i in 0..super::store::MAX_ENTRIES {
+        s.add(format!("f{i}"), "/x".into(), Kind::Safe, "x".into(), i as i64);
+    }
+    assert_eq!(s.len(), super::store::MAX_ENTRIES);
+    let oldest_before: Vec<_> = s.entries().iter().rev().take(3)
+        .map(|e| e.id).collect();
+
+    // Un de plus : doit évincer le plus ancien in-progress.
+    let new_id = s.add("new".into(), "/x".into(), Kind::Safe, "x".into(), 99_999);
+    assert_eq!(s.len(), super::store::MAX_ENTRIES);
+    assert!(s.entries().iter().any(|e| e.id == new_id));
+    // Le plus vieux d'avant n'est plus là.
+    assert!(!s.entries().iter().any(|e| e.id == oldest_before[0]));
+}
+
 // ─── stress ────────────────────────────────────────────────────────────────
 
 /// 10 000 opérations mêlées. Pas de panic, invariants tenus.
