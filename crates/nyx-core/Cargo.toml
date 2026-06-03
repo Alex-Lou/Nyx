@@ -4,7 +4,13 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-idna = "0.5"
+idna      = "0.5"
+# RustCrypto SHA-256 — pure Rust, audité. Utilisé pour le post-flight
+# hash dans le bridge download (quarantaine metadata).
+sha2      = "0.10"
+# OS CSPRNG — pour le suffix random du temp path (cf. staging.rs).
+# Seul appel impur de nyx-core, isolé dans `fresh_random_bytes`.
+getrandom = "0.2"
 
 [lints]
 workspace = true

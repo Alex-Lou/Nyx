@@ -15,11 +15,16 @@
 //! Voir docs/security.md §2 « Downloads — state model ».
 
 mod entry;
+mod hasher;
 mod id;
+pub mod quarantine;
+mod staging;
 mod store;
 
 pub use entry::{DownloadEntry, DownloadStatus};
+pub use hasher::{sha256_hex, Sha256Hasher};
 pub use id::DownloadId;
+pub use staging::{build_temp_path, fresh_random_bytes, RANDOM_BYTES};
 pub use store::DownloadStore;
 
 #[cfg(test)]
