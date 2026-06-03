@@ -116,18 +116,22 @@ main * { pointer-events: auto; }
     // ── Constantes d'interaction — réglage du sillage Kelvin + ripples.
     // Pousse ces valeurs pour ajuster la sensation sans toucher au shader.
     const TUNING = {
-        // ── LAME : le curseur fend le liquide ──
-        // Falloff transverse VRAI gaussien (exp(-bw²·SHARPNESS)) — fini
-        // les longues queues de 1/(1+x²) qui peignaient un rectangle plein
-        // derrière le curseur (= barre horizontale du T perçu). Maintenant
-        // ce sont DEUX LIGNES FINES qui s'évanouissent en bout de fade
-        // longitudinal lent, sans aucun bord visible.
-        wakeStrength:        0.9,   // amplitude push — réduite car le warp léger suffit
-        wakeLength:          0.65,  // fade plus long → extrémité invisible
-        wakeWidth:           0.090, // épaisseur des lignes (sigma du gaussien)
-        wakeSharpness:       3.2,   // raideur du gaussien — + élevé = ligne + fine
+        // ── LAME : le doigt dans l'eau calme ──
+        // PAS DE LIGHT TRAIL : la trace est une vraie PERTURBATION du
+        // pattern fluide (warp + depression shading), pas un overlay
+        // lumineux. Comme un doigt qui pousse l'eau : le pattern se
+        // déforme, s'assombrit légèrement (refection brisée), et
+        // revient à l'équilibre après le passage.
+        wakeStrength:        1.15,  // amplitude globale du wake
+        wakeLength:          0.65,  // fade longitudinal lent → fin invisible
+        wakeWidth:           0.090, // sigma transverse du gaussien
+        wakeSharpness:       3.2,   // raideur du gaussien — lignes fines
         wakeAngleTan:        0.36,  // tan(angle V) — 0.35 ≈ 19° Kelvin
         wakeUndulation:      0.010, // amplitude de l'ondulation organique
+        wakeWarp:            0.130, // AMPLITUDE DU WARP — c'est ÇA qui crée
+                                    // la perturbation visible du pattern
+        wakeDarkness:        0.25,  // assombrissement dépressionnaire (0..1)
+        wakeBackwardBias:    0.45,  // composante drag derrière le curseur
 
         // ── Click : caillou tombe dans l'eau ──
         clickRippleStrength: 0.028,
@@ -244,6 +248,9 @@ const float WAKE_LENGTH           = ${F(TUNING.wakeLength)};
 const float WAKE_WIDTH            = ${F(TUNING.wakeWidth)};
 const float WAKE_SHARPNESS        = ${F(TUNING.wakeSharpness)};
 const float WAKE_UNDULATION       = ${F(TUNING.wakeUndulation)};
+const float WAKE_WARP             = ${F(TUNING.wakeWarp)};
+const float WAKE_DARKNESS         = ${F(TUNING.wakeDarkness)};
+const float WAKE_BACKWARD_BIAS    = ${F(TUNING.wakeBackwardBias)};
 const float CLICK_RIPPLE_STRENGTH = ${F(TUNING.clickRippleStrength)};
 const float CLICK_RIPPLE_SPEED    = ${F(TUNING.clickRippleSpeed)};
 const float CLICK_RIPPLE_DECAY    = ${F(TUNING.clickRippleDecay)};
@@ -328,16 +335,17 @@ void main(){
  // Magnitude unique — sert au warp ET à la light de trace.
  float wakeMag=wakeTrans*wakeLong*wakeFront*velPresence*WAKE_STRENGTH;
 
- // Push perpendiculaire à D, vers l'extérieur des branches, biais
- // arrière. wakeDir normalisée une fois.
- vec2 rawWakeDir=Nperp*sign(lateral)-D*0.28;
+ // Push perpendiculaire à D + drag arrière (WAKE_BACKWARD_BIAS).
+ // Le bias arrière fait suivre le pattern derrière le curseur, comme
+ // l'eau qui colle au doigt par viscosité avant de relâcher.
+ vec2 rawWakeDir=Nperp*sign(lateral)-D*WAKE_BACKWARD_BIAS;
  vec2 wakeDir=rawWakeDir/max(length(rawWakeDir),0.001);
- // Warp 0.060 (vs 0.028 — +114%) : le pattern fbm se DÉPLACE
- // visiblement sous le passage du curseur. Comme le profil transverse
- // est désormais un vrai gaussien (lignes FINES), un warp plus marqué
- // ne ressuscite PAS le rectangle plein → on a la fluidité physique
- // sans l'artefact géométrique.
- vec2 wakePush=wakeDir*wakeMag*0.060;
+ // WARP est le COEUR de la perturbation physique : le pattern fbm est
+ // littéralement déplacé sous le passage. Comme le profil transverse
+ // est un gaussien sharp (lignes fines), un warp FORT (0.13 vs 0.028
+ // au début) ne crée pas de rectangle. La distorsion est concentrée
+ // sur les deux branches du V, là où elle doit être.
+ vec2 wakePush=wakeDir*wakeMag*WAKE_WARP;
 
  // ─── Click ripples : caillou tombe — dépression + 3 anneaux amortis ───
  vec2 rippleDisp=vec2(0.0);
@@ -394,13 +402,14 @@ void main(){
  // EUX qui créaient le 'rond' indésirable. La lame est invisible au
  // point du curseur ; on ne voit QUE le V derrière.
 
- // ─── Trace lumineuse le long des branches du V ───
- // wakeMag réutilisé (1 mul vs 5 ops). La présence visible se partage
- // maintenant entre la light (col += warm * wakeMag) et le warp
- // physique (p += wakePush) — équilibre 50/50 pour un sillon visuel
- // qui DÉFORME aussi le pattern dessous.
- vec3 warm=mix(u_glow,vec3(1.0,0.78,0.55),0.5);
- col+=warm*wakeMag*0.065;
+ // ─── Dépression dans le sillage — assombrissement physique ───
+ // PLUS DE TRAIT LUMINEUX. Le sillon est un CREUX dans la surface :
+ // l'eau s'enfonce sous le passage, perd ses reflets, devient plus
+ // sombre. C'est exactement ce qu'on voit dans l'eau calme quand le
+ // doigt glisse — pas de glow chaud, juste un sillage légèrement
+ // assombri qui distort le pattern dessous (via le warp p += wakePush
+ // appliqué plus haut).
+ col*=1.0-wakeMag*WAKE_DARKNESS;
 
  // Ondulations lumineuses des ripples (en plus du displacement).
  col+=u_glow*wave*0.12;
