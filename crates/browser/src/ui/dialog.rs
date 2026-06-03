@@ -103,14 +103,9 @@ pub fn show<F: FnOnce(bool) + 'static>(params: ConfirmParams, callback: F) {
     }
     accept.grab_default();
 
-    // Espace souffle au-dessus des boutons.
-    if let Some(action_area) = dlg.action_area() {
-        action_area.style_context().add_class("nyx-confirm-actions");
-        action_area.set_margin_top(8);
-        action_area.set_margin_bottom(14);
-        action_area.set_margin_start(20);
-        action_area.set_margin_end(20);
-    }
+    // L'action_area de Dialog est dépréciée en gtk-rs 0.18 (pas d'accesseur
+    // sûr). On la stylise via les sélecteurs CSS GTK natifs `.dialog
+    // buttonbox` / `.dialog-action-box` dans `.nyx-confirm` (voir theme.css).
 
     let slot: RefCell<Option<F>> = RefCell::new(Some(callback));
     dlg.connect_response(move |d, resp| {
