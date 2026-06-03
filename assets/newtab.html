@@ -276,8 +276,10 @@ void main(){
  // Décroissance longitudinale — smoothstep cubique : démarre fort à la
  // pointe puis s'estompe en douceur (pas de coupure abrupte à la fin
  // qui crée une "barre horizontale" visuelle = source du T perçu).
- float r=max(0.0,1.0-backward/WAKE_LENGTH);
- float wakeLong=r*r*(3.0-2.0*r);
+ // NOTE : variable nommée `wl` et PAS `r` (collision avec `vec2 r` plus
+ // bas dans la même portée → shader fail silently → fallback Canvas-2D).
+ float wl=max(0.0,1.0-backward/WAKE_LENGTH);
+ float wakeLong=wl*wl*(3.0-2.0*wl);
  // Anti-front : aucun effet devant le curseur, transition rapide.
  float wakeFront=smoothstep(0.0,0.006,backward);
  float wakeMag=wakeTrans*wakeLong*wakeFront*u_mvel*WAKE_STRENGTH;
