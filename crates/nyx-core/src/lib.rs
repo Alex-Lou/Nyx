@@ -3,6 +3,7 @@
 //! Aucune dépendance GTK/WebKit : état, sécurité, résolution d'URL.
 //! Le compilateur enforce cette frontière (pas de `gtk` dans Cargo.toml).
 
+pub mod cookie_policy;
 pub mod domain_risk;
 pub mod download_policy;
 pub mod mode;

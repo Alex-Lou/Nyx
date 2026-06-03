@@ -85,6 +85,18 @@ const AD_RULES: &[&str] = &[
     "scorecardresearch.com", "quantserve.com",
 ];
 
+/// Test pur (sans instance, sans toggle atomique) : ce host est-il un tracker
+/// connu (composante domaine du blocklist) ? Sert aux modules qui veulent
+/// décorréler la décision adblock de la détection de domaine (ex. cookies
+/// 3rd-party).
+///
+/// On ne consulte QUE les règles « pures domaine » de `AD_RULES` ; les règles
+/// avec path (`facebook.com/tr`) ne s'appliquent pas à un host nu.
+pub fn is_tracker_host(host: &str) -> bool {
+    if host.is_empty() { return false; }
+    AD_RULES.iter().any(|rule| !rule.contains('/') && host_matches(host, rule))
+}
+
 /// Domaines d'authentification / SDK tiers — « Se connecter avec Google… ».
 const ACCOUNT_DOMAINS: &[&str] = &[
     "accounts.google.com", "apis.google.com", "oauth2.googleapis.com",
@@ -144,6 +156,19 @@ mod tests {
         }
         // Une fraction notable est bloquée, le reste passe → les deux jeux marchent.
         assert!(blocked > 0 && blocked < 50_000);
+    }
+
+    #[test]
+    fn is_tracker_host_basic() {
+        assert!(is_tracker_host("doubleclick.net"));
+        assert!(is_tracker_host("ads.doubleclick.net"));
+        assert!(is_tracker_host("hotjar.com"));
+        assert!(!is_tracker_host("doubleclick.net.evil.com")); // injection
+        assert!(!is_tracker_host("notdoubleclick.net"));        // partial
+        assert!(!is_tracker_host("example.com"));
+        assert!(!is_tracker_host(""));
+        // Les règles à path (facebook.com/tr) ne matchent pas un host nu.
+        assert!(!is_tracker_host("facebook.com"));
     }
 
     /// URLs malformées / unicode : extract_host & slicing ne doivent jamais paniquer.
