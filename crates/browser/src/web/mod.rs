@@ -40,7 +40,11 @@ fn apply_privacy_settings(webview: &WebView) {
     s.set_enable_media_stream(false);
     s.set_javascript_can_open_windows_automatically(false);
     s.set_javascript_can_access_clipboard(false);
-    s.set_enable_developer_extras(false);
+    // Inspector activé : F12 / Ctrl+Shift+I ouvrent l'inspecteur WebKit
+    // (équivalent DevTools). Aussi exposé via le menu contextuel
+    // « Inspecter » de WebKit. Pas de surface d'attaque ajoutée — c'est
+    // l'inspecteur sandboxé du moteur, pas un eval JS distant.
+    s.set_enable_developer_extras(true);
     s.set_enable_smooth_scrolling(true);
 }
 

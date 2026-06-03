@@ -3,7 +3,7 @@ use gtk::gdk::ModifierType;
 use gtk::glib::translate::IntoGlib;
 use gtk::prelude::*;
 use gtk::{AccelFlags, AccelGroup, ApplicationWindow, Entry};
-use webkit2gtk::WebViewExt;
+use webkit2gtk::{WebInspectorExt, WebViewExt};
 
 use crate::state::bookmarks::Bookmarks;
 use crate::ui::tabs::TabBar;
@@ -11,11 +11,13 @@ use crate::ui::navbar;
 
 /// Ctrl+T nouvel onglet · Ctrl+W fermer · Ctrl+L adresse · Ctrl+R recharger
 /// Ctrl+Tab suivant · Ctrl+, paramètres · Ctrl+D favori
+/// F12 / Ctrl+Shift+I inspecteur (WebKit DevTools)
 pub fn wire(window: &ApplicationWindow, tabs: &TabBar, url_bar: &Entry, bm: &Bookmarks) {
     let accel = AccelGroup::new();
     window.add_accel_group(&accel);
-    let ctrl  = ModifierType::CONTROL_MASK;
-    let flags = AccelFlags::VISIBLE;
+    let ctrl       = ModifierType::CONTROL_MASK;
+    let ctrl_shift = ModifierType::CONTROL_MASK | ModifierType::SHIFT_MASK;
+    let flags      = AccelFlags::VISIBLE;
 
     bind(&accel, key::l.into_glib(), ctrl, flags, {
         let ub = url_bar.clone();
@@ -39,6 +41,28 @@ pub fn wire(window: &ApplicationWindow, tabs: &TabBar, url_bar: &Entry, bm: &Boo
     bind(&accel, key::d.into_glib(), ctrl, flags, {
         let t = tabs.clone(); let b = bm.clone(); let ub = url_bar.clone();
         move |_| { navbar::bookmark_current(&t, &b, &ub); true }
+    });
+
+    // Inspecteur WebKit (DevTools natif). F12 = standard navigateur,
+    // Ctrl+Shift+I = compat Chromium/Firefox. Le menu contextuel
+    // « Inspecter » est exposé automatiquement par WebKit dès que
+    // enable_developer_extras=true.
+    bind(&accel, key::F12.into_glib(), ModifierType::empty(), flags, {
+        let t = tabs.clone(); move |_| { toggle_inspector(&t); true }
+    });
+    bind(&accel, key::I.into_glib(), ctrl_shift, flags, {
+        let t = tabs.clone(); move |_| { toggle_inspector(&t); true }
+    });
+}
+
+fn toggle_inspector(tabs: &TabBar) {
+    tabs.with_current(|wv| {
+        let Some(insp) = wv.inspector() else { return; };
+        if insp.is_attached() {
+            insp.close();
+        } else {
+            insp.show();
+        }
     });
 }
 
