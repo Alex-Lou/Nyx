@@ -13,8 +13,8 @@ use std::rc::Rc;
 
 use gtk::prelude::*;
 use gtk::{
-    Box as GtkBox, FileChooserAction, FileChooserNative, Label, Orientation,
-    ResponseType, Window,
+    Box as GtkBox, FileChooserAction, FileChooserDialog, Label, Orientation,
+    ResponseType, Window, WindowPosition,
 };
 
 use crate::state::downloads::DownloadsHandle;
@@ -90,18 +90,30 @@ pub fn build(
 }
 
 fn open_destination_chooser(parent: Option<Window>, settings: Settings, toaster: ToastHandle) {
-    let chooser = FileChooserNative::new(
+    // FileChooserDialog (pas FileChooserNative) : in-process, donc notre
+    // CSS .nyx-filechooser s'applique. FileChooserNative passe par le
+    // portail XDG → autre process → notre theme ne le touche pas (d'où
+    // le 'blanc horrible' rapporté).
+    let dlg = FileChooserDialog::new(
         Some("Dossier de téléchargement"),
         parent.as_ref(),
         FileChooserAction::SelectFolder,
-        Some("Sélectionner"),
-        Some("Annuler"),
     );
+    dlg.add_button("Annuler", ResponseType::Cancel);
+    let select = dlg.add_button("Sélectionner", ResponseType::Accept);
+    select.style_context().add_class("suggested-action");
+    dlg.set_modal(true);
+    dlg.set_position(WindowPosition::CenterOnParent);
+    dlg.set_default_size(720, 460);
+    dlg.style_context().add_class("nyx-filechooser");
+
     if let Some(current) = current_dir(&settings) {
-        let _ = chooser.set_current_folder(current);
+        let _ = dlg.set_current_folder(current);
     }
-    if chooser.run() == ResponseType::Accept {
-        if let Some(path) = chooser.filename() {
+
+    let response = dlg.run();
+    if response == ResponseType::Accept {
+        if let Some(path) = dlg.filename() {
             let s = path.to_string_lossy().into_owned();
             settings.borrow_mut().downloads_dir = Some(s.clone());
             toaster.push(ToastLevel::Info, &format!(
@@ -110,6 +122,7 @@ fn open_destination_chooser(parent: Option<Window>, settings: Settings, toaster:
             ));
         }
     }
+    dlg.close();
 }
 
 fn current_dir(settings: &Settings) -> Option<std::path::PathBuf> {

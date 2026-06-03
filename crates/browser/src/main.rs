@@ -36,9 +36,13 @@ fn main() {
     // WSL : le renderer GPU/DMABUF de WebKit crashe (pas de vrai GPU —
     // « MESA ZINK failed », « egl: failed to create dri2 screen »). On force
     // le rendu logiciel avant tout init GTK/WebKit.
+    //
+    // WEBKIT_DISABLE_COMPOSITING_MODE retiré : il tuait WebGL côté newtab
+    // (l'animation fluide tombait en fallback canvas-2D moche). Le software
+    // GL (LIBGL_ALWAYS_SOFTWARE) + dmabuf off suffit à éviter les crashes
+    // sans étouffer WebGL.
     if platform::is_wsl() {
         std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
-        std::env::set_var("WEBKIT_DISABLE_COMPOSITING_MODE", "1");
         std::env::set_var("LIBGL_ALWAYS_SOFTWARE", "1");
     }
 
