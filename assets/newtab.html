@@ -116,11 +116,11 @@ main * { pointer-events: auto; }
     // ── Constantes d'interaction — réglage du sillage Kelvin + ripples.
     // Pousse ces valeurs pour ajuster la sensation sans toucher au shader.
     const TUNING = {
-        wakeStrength:        3.8,   // intensité du push transverse sur les branches du V
-        wakeLength:          0.45,  // longueur du sillage avant fade complet (0..1, unités UV)
-        wakeWidth:           0.055, // largeur de chaque branche du V (gaussien)
-        wakeAngleTan:        0.45,  // tan(angle V) — 0.35≈19° Kelvin pur, 0.45≈24° plus marqué
-        wakeUndulation:      0.007, // amplitude de l'ondulation longitudinale des branches
+        wakeStrength:        2.2,   // intensité du push transverse sur les branches du V
+        wakeLength:          0.42,  // longueur du sillage avant fade complet (0..1, unités UV)
+        wakeWidth:           0.052, // largeur de chaque branche du V (gaussien)
+        wakeAngleTan:        0.40,  // tan(angle V) — 0.35≈19° Kelvin pur, 0.45≈24° plus marqué
+        wakeUndulation:      0.005, // amplitude de l'ondulation longitudinale des branches
         clickRippleStrength: 0.028, // amplitude du displacement par anneau
         clickRippleSpeed:    0.32,  // vitesse d'expansion des anneaux (unités UV / s)
         clickRippleDecay:    5.0,   // durée de vie d'un ripple (secondes)
@@ -251,9 +251,9 @@ void main(){
  float kM=max(0.0,1.0-lM2/0.055);
  float kM2=kM*kM;
 
- // Doigt posé dans l'eau : push radial doux **toujours** présent.
- // Atténué (0.30) pour laisser dominer le V quand on bouge.
- vec2 fingerPush=dM*kM2*0.30;
+ // Doigt posé dans l'eau : push radial TRÈS doux, juste pour "habiter"
+ // le curseur sans créer de halo/cercle visible.
+ vec2 fingerPush=dM*kM2*0.12;
 
  // Décomposition (D, Nperp) = repère local orienté vélocité souris.
  vec2 D=u_mdir;
@@ -262,54 +262,32 @@ void main(){
  float lateral=dot(dM,Nperp);
  float backward=max(0.0,-para);
 
- // ── Bow split : à la pointe du curseur, l'eau s'écarte transversalement.
- // C'est la "proue" qui rend le mouvement palpable même à très basse vitesse.
- float bowFront=max(0.0,para);                 // 0 derrière, >0 devant
- float bowFalloff=max(0.0,1.0-bowFront/0.07);  // s'éteint à 0.07 UV devant
- vec2 bowPush=dM*kM2*bowFalloff*u_mvel*1.8;
-
- // ── V-wake Kelvin : 2 branches ondulantes derrière le curseur.
- // Ondulation longitudinale : sinusoïde le long du sillage → branches
- // pas droites, vivantes, "feuille qui glisse".
+ // ── V-wake Kelvin : 2 branches ondulantes derrière le curseur — SEUL
+ // effet directionnel. Pas de bow push (créait une bosse devant), pas de
+ // trail historique (créait une barre "T" derrière). Le V respire seul.
+ //
+ // Ondulation longitudinale : sinusoïde discrète le long du sillage →
+ // branches vivantes, pas droites, mais sans "wave" trop visible.
  float undulation=sin(backward*22.0-u_time*4.0)*WAKE_UNDULATION;
  // Distance signée à la branche idéale (= 0 sur la ligne théorique).
- // On bouge la ligne avec l'ondulation : branche gauche oscille en
- // miroir de la droite (même phase ⇒ effet symétrique).
  float branchDist=abs(lateral+undulation*sign(lateral))-KELVIN_TAN*backward;
  // Falloff transversal — gaussien cheap : 1/(1+x²).
  float wakeTrans=(WAKE_WIDTH*WAKE_WIDTH)/(WAKE_WIDTH*WAKE_WIDTH+branchDist*branchDist);
- // Décroissance longitudinale LINÉAIRE : sillage plus visible loin
- // derrière, comme un vrai bateau qui laisse sa trace.
- float wakeLong=max(0.0,1.0-backward/WAKE_LENGTH);
+ // Décroissance longitudinale — smoothstep cubique : démarre fort à la
+ // pointe puis s'estompe en douceur (pas de coupure abrupte à la fin
+ // qui crée une "barre horizontale" visuelle = source du T perçu).
+ float r=max(0.0,1.0-backward/WAKE_LENGTH);
+ float wakeLong=r*r*(3.0-2.0*r);
  // Anti-front : aucun effet devant le curseur, transition rapide.
  float wakeFront=smoothstep(0.0,0.006,backward);
  float wakeMag=wakeTrans*wakeLong*wakeFront*u_mvel*WAKE_STRENGTH;
 
- // Push : perpendiculaire à D (vers l'extérieur) + léger biais arrière
- // → fend le liquide latéralement le long des branches.
+ // Push : perpendiculaire à D (vers l'extérieur des branches) + léger
+ // biais arrière → fend le liquide latéralement.
  vec2 rawWakeDir=Nperp*sign(lateral)-D*0.35;
  float rwLen=length(rawWakeDir);
  vec2 wakeDir=rawWakeDir/max(rwLen,0.001);
- vec2 wakePush=wakeDir*wakeMag*0.085;
-
- // Trail historique en TRÈS atténué — queue de fumée dans le V, sans
- // cercle déformant autour du curseur.
- vec2 d0=uvA-u_trail0.xy*vec2(aspect,1.0); float l02=dot(d0,d0);
- float a0=max(0.0,1.0-u_trail0.z);
- float k0=max(0.0,1.0-l02/0.028)*a0;
- vec2 d1=uvA-u_trail1.xy*vec2(aspect,1.0); float l12=dot(d1,d1);
- float a1=max(0.0,1.0-u_trail1.z);
- float k1=max(0.0,1.0-l12/0.024)*a1;
- vec2 d2=uvA-u_trail2.xy*vec2(aspect,1.0); float l22=dot(d2,d2);
- float a2=max(0.0,1.0-u_trail2.z);
- float k2=max(0.0,1.0-l22/0.020)*a2;
- vec2 d3=uvA-u_trail3.xy*vec2(aspect,1.0); float l32=dot(d3,d3);
- float a3=max(0.0,1.0-u_trail3.z);
- float k3=max(0.0,1.0-l32/0.016)*a3;
- vec2 pushT=d0*(k0*k0)*0.40
-           +d1*(k1*k1)*0.30
-           +d2*(k2*k2)*0.22
-           +d3*(k3*k3)*0.15;
+ vec2 wakePush=wakeDir*wakeMag*0.055;
 
  // ─── Click ripples : caillou tombe — dépression + 3 anneaux amortis ───
  vec2 rippleDisp=vec2(0.0);
@@ -349,7 +327,8 @@ void main(){
  }
 
  // Warp LOCAL — pas de pan global, le fond reste en place.
- p+=fingerPush+bowPush+wakePush+pushT+rippleDisp*1.5;
+ // Composition : doigt très doux + V derrière + ripples des clics.
+ p+=fingerPush+wakePush+rippleDisp*1.5;
 
  vec2 q=vec2(fbm(p+vec2(0.,t)),fbm(p+vec2(5.2,1.3)-vec2(0.,t*(1.0+u_vbias))));
  vec2 r=vec2(fbm(p+u_warp*q+vec2(1.7,9.2)+t*0.5),fbm(p+u_warp*q+vec2(8.3,2.8)-t*0.5));
@@ -368,19 +347,13 @@ void main(){
  float haloK=max(0.0,1.0-lM2/0.090);
  col+=u_glow*(haloK*haloK)*0.030;
 
- // Trace lumineuse le long des branches du V — plus visible, donne du
- // relief aux branches en plus du displacement.
- float wakeLight=wakeTrans*wakeLong*wakeFront*u_mvel*0.85;
- col+=warm*wakeLight*0.095;
- // Glow d'accent froid sur les crêtes du V (séparation chaud/froid).
- col+=u_glow*wakeLight*0.045;
-
- // Tail de fumée derrière (atténué).
- float trailLight=k0*k0+k1*k1*0.82+k2*k2*0.66+k3*k3*0.50;
- col+=warm*trailLight*0.035;
+ // Trace lumineuse SUBTILE le long des branches du V — donne du relief
+ // sans surligner. Plus de "trail light" : ça créait la barre du T.
+ float wakeLight=wakeTrans*wakeLong*wakeFront*u_mvel*0.55;
+ col+=warm*wakeLight*0.045;
 
  // Ondulations radiales lumineuses des ripples (en plus du displacement).
- col+=u_glow*wave*0.14;
+ col+=u_glow*wave*0.12;
 
  // Vignette + grain.
  float d=distance(uv,vec2(0.5));
