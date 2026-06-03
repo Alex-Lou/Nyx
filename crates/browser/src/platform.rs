@@ -129,3 +129,82 @@ pub fn default_downloads_dir() -> Option<std::path::PathBuf> {
     let home = std::env::var_os(home_var)?;
     Some(std::path::PathBuf::from(home).join("Downloads"))
 }
+
+/// Sous WSL, ouvre l'explorateur **Windows** (FolderBrowserDialog WinForms)
+/// via PowerShell, et retourne le path sélectionné converti en chemin WSL
+/// (`C:\Users\foo` → `/mnt/c/Users/foo`).
+///
+/// Renvoie `None` :
+///   - hors WSL (laisse le caller utiliser le picker GTK),
+///   - si l'utilisateur annule,
+///   - si powershell.exe échoue (pas dispo, timeout, etc.).
+///
+/// PSARG `-NoProfile -NonInteractive -STA` : démarre vite, pas de profil
+/// utilisateur, single-threaded apartment (requis pour WinForms).
+/// **Bloquant** : la modale Windows s'ouvre, on attend le retour user.
+pub fn wsl_pick_windows_folder(title: &str) -> Option<std::path::PathBuf> {
+    if !is_wsl() { return None; }
+
+    // PS échappe simplement les guillemets en doublant. On garde le title
+    // simple côté Rust (pas de char non-ASCII problématique en pratique).
+    let safe_title = title.replace('"', "\"\"").replace('\'', "''");
+    let script = format!(
+        "Add-Type -AssemblyName System.Windows.Forms; \
+         $d = New-Object System.Windows.Forms.FolderBrowserDialog; \
+         $d.Description = '{safe_title}'; \
+         $d.ShowNewFolderButton = $true; \
+         if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {{ \
+             Write-Output $d.SelectedPath \
+         }}"
+    );
+
+    let output = Command::new("powershell.exe")
+        .args(["-NoProfile", "-NonInteractive", "-STA", "-Command", &script])
+        .output().ok()?;
+    if !output.status.success() { return None; }
+
+    let win_path = String::from_utf8(output.stdout).ok()?;
+    let win_path = win_path.trim();
+    if win_path.is_empty() { return None; }
+
+    Some(wsl_convert_win_path(win_path))
+}
+
+/// `C:\Users\foo\Bar` → `/mnt/c/Users/foo/Bar`. Tolère `/` ou `\\`.
+fn wsl_convert_win_path(win: &str) -> std::path::PathBuf {
+    let normalized = win.replace('\\', "/");
+    let mut chars = normalized.chars();
+    if let (Some(drive), Some(colon)) = (chars.next(), chars.next()) {
+        if colon == ':' && drive.is_ascii_alphabetic() {
+            let rest: String = chars.collect();
+            let rest = rest.trim_start_matches('/');
+            return std::path::PathBuf::from(format!(
+                "/mnt/{}/{}",
+                drive.to_ascii_lowercase(),
+                rest,
+            ));
+        }
+    }
+    std::path::PathBuf::from(normalized)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::wsl_convert_win_path;
+
+    #[test]
+    fn converts_drive_letter() {
+        assert_eq!(wsl_convert_win_path("C:\\Users\\foo"),
+                   std::path::PathBuf::from("/mnt/c/Users/foo"));
+    }
+    #[test]
+    fn converts_forward_slash_drive() {
+        assert_eq!(wsl_convert_win_path("D:/Data/x"),
+                   std::path::PathBuf::from("/mnt/d/Data/x"));
+    }
+    #[test]
+    fn passes_through_non_windows() {
+        assert_eq!(wsl_convert_win_path("/home/lou/foo"),
+                   std::path::PathBuf::from("/home/lou/foo"));
+    }
+}

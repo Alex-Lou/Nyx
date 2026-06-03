@@ -283,8 +283,10 @@ void main(){
  // Décroissance longitudinale — smoothstep cubique : démarre fort à la
  // pointe puis s'estompe en douceur (pas de coupure abrupte à la fin
  // qui crée une "barre horizontale" visuelle = source du T perçu).
- // NOTE : variable nommée `wl` et PAS `r` (collision avec `vec2 r` plus
- // bas dans la même portée → shader fail silently → fallback Canvas-2D).
+ // NOTE : variable 'wl' et PAS 'r' (collision avec vec2 r plus bas dans
+ // la même portée → shader fail silently → fallback Canvas-2D).
+ // ATTENTION : pas de backticks dans ce commentaire — ils fermeraient
+ // la template literal JS qui contient ce shader (cf. bug 286).
  float wl=max(0.0,1.0-backward/WAKE_LENGTH);
  float wakeLong=wl*wl*(3.0-2.0*wl);
  // Anti-front : aucun effet devant le curseur, transition rapide.
