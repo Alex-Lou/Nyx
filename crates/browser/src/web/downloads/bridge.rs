@@ -29,13 +29,15 @@ use nyx_core::sec_log::{self, Level};
 
 use crate::state::downloads::DownloadsHandle;
 use crate::state::settings::Settings;
+use crate::ui::toast::{ToastHandle, ToastLevel};
 
 use super::{cleanup, confirm, io as dio};
 
 const PROGRESS_THROTTLE_MS: u128 = 200;
 
 pub fn wire(
-    ctx: &WebContext, store: DownloadsHandle, settings: Settings, temp_root: PathBuf,
+    ctx: &WebContext, store: DownloadsHandle, settings: Settings,
+    temp_root: PathBuf, toaster: ToastHandle,
 ) {
     // Boot scan : nettoie les fichiers > 24h du run précédent.
     let _ = crate::state::downloads_temp::ensure(&temp_root);
@@ -45,8 +47,10 @@ pub fn wire(
         let store = store.clone();
         let settings = settings.clone();
         let temp_root = temp_root.clone();
+        let toaster = toaster.clone();
         move |_ctx, download| {
-            on_started(download, store.clone(), settings.clone(), temp_root.clone());
+            on_started(download, store.clone(), settings.clone(),
+                       temp_root.clone(), toaster.clone());
         }
     });
 }
@@ -54,7 +58,8 @@ pub fn wire(
 // ─── Démarrage ─────────────────────────────────────────────────────────────
 
 fn on_started(
-    download: &Download, store: DownloadsHandle, settings: Settings, temp_root: PathBuf,
+    download: &Download, store: DownloadsHandle, settings: Settings,
+    temp_root: PathBuf, toaster: ToastHandle,
 ) {
     let req = read_request(download);
     let mode = current_mode(&settings);
@@ -71,6 +76,10 @@ fn on_started(
         sec_log::emit(Level::Block, &format!(
             "download blocked pre-flight: {} reasons={}",
             sec_log::redact_url(&req.uri), pre.reasons.len(),
+        ));
+        toaster.push(ToastLevel::Warning, &format!(
+            "Téléchargement bloqué : {}",
+            short_filename(&pre.normalized_filename),
         ));
         download.cancel();
         return;
@@ -95,8 +104,9 @@ fn on_started(
     wire_decide_destination(download, temp_rc.clone());
     wire_progress(download, store.clone(), id);
     wire_finished(download, store.clone(), settings.clone(),
-                  id, pre_rc, temp_rc.clone(), req_rc, started_at);
-    wire_failed(download, store, id, temp_rc);
+                  id, pre_rc, temp_rc.clone(), req_rc,
+                  started_at, toaster.clone());
+    wire_failed(download, store, id, temp_rc, toaster);
 }
 
 // ─── Signaux par téléchargement ────────────────────────────────────────────
@@ -123,33 +133,37 @@ fn wire_progress(download: &Download, store: DownloadsHandle, id: DownloadId) {
 
 fn wire_failed(
     download: &Download, store: DownloadsHandle, id: DownloadId, temp: Rc<PathBuf>,
+    toaster: ToastHandle,
 ) {
     download.connect_failed(move |_dl, _err| {
         // Defense-in-depth invariant §17 : delete temp immédiat.
         let _ = std::fs::remove_file(temp.as_path());
         store.borrow_mut().mark_failed(id, "Échec du téléchargement".into(), now_unix());
+        toaster.push(ToastLevel::Error, "Échec du téléchargement");
     });
 }
 
+#[allow(clippy::too_many_arguments)]
 fn wire_finished(
     download: &Download, store: DownloadsHandle, settings: Settings, id: DownloadId,
     pre: Rc<download_policy::Report>, temp: Rc<PathBuf>, req: Rc<RequestData>,
-    started_at: i64,
+    started_at: i64, toaster: ToastHandle,
 ) {
     download.connect_finished(move |_dl| {
         on_finished(
             store.clone(), settings.clone(), id,
-            pre.clone(), temp.clone(), req.clone(), started_at,
+            pre.clone(), temp.clone(), req.clone(), started_at, toaster.clone(),
         );
     });
 }
 
 // ─── Post-flight ───────────────────────────────────────────────────────────
 
+#[allow(clippy::too_many_arguments)]
 fn on_finished(
     store: DownloadsHandle, settings: Settings, id: DownloadId,
     pre: Rc<download_policy::Report>, temp: Rc<PathBuf>, req: Rc<RequestData>,
-    started_at: i64,
+    started_at: i64, toaster: ToastHandle,
 ) {
     let head = match dio::read_first_8k(&temp) {
         Ok(b) => b,
@@ -158,6 +172,8 @@ fn on_finished(
                 "download finished but temp unreadable: {}", pre.normalized_filename));
             let _ = std::fs::remove_file(temp.as_path());
             store.borrow_mut().mark_failed(id, "Fichier temporaire illisible".into(), now_unix());
+            toaster.push(ToastLevel::Error, &format!(
+                "Fichier illisible : {}", short_filename(&pre.normalized_filename)));
             return;
         }
     };
@@ -181,10 +197,12 @@ fn on_finished(
         Verdict::Block => {
             let _ = std::fs::remove_file(temp.as_path());
             store.borrow_mut().mark_failed(id, "Bloqué par DownloadGuard".into(), now_unix());
+            toaster.push(ToastLevel::Warning, &format!(
+                "Bloqué après analyse : {}", short_filename(&pre.normalized_filename)));
         }
         Verdict::Allow => commit(
             store, settings, id, &pre, &temp, &req,
-            started_at, sha256, size, sniffed, live_kind,
+            started_at, sha256, size, sniffed, live_kind, toaster,
         ),
         Verdict::Ask | Verdict::AskDanger => {
             // Capture everything by Rc/Clone for the user callback (lifetime
@@ -194,17 +212,20 @@ fn on_finished(
             let pre_cb = pre.clone();
             let temp_cb = temp.clone();
             let req_cb = req.clone();
+            let toaster_cb = toaster.clone();
             confirm::show(
                 final_verdict, pre.normalized_filename.clone(), live_kind,
                 move |approved| {
                     if approved {
                         commit(
                             store_cb, settings_cb, id, &pre_cb, &temp_cb, &req_cb,
-                            started_at, sha256, size, sniffed, live_kind,
+                            started_at, sha256, size, sniffed, live_kind, toaster_cb,
                         );
                     } else {
                         let _ = std::fs::remove_file(temp_cb.as_path());
                         store_cb.borrow_mut().mark_cancelled(id, now_unix());
+                        toaster_cb.push(ToastLevel::Info, &format!(
+                            "Annulé : {}", short_filename(&pre_cb.normalized_filename)));
                     }
                 },
             );
@@ -230,7 +251,7 @@ fn commit(
     store: DownloadsHandle, settings: Settings, id: DownloadId,
     pre: &download_policy::Report, temp: &Path, req: &RequestData,
     started_at: i64, sha256: String, size: u64,
-    sniffed: magic_bytes::Detected, live_kind: Kind,
+    sniffed: magic_bytes::Detected, live_kind: Kind, toaster: ToastHandle,
 ) {
     let final_dir = settings.borrow().downloads_dir.clone()
         .map(PathBuf::from)
@@ -238,6 +259,7 @@ fn commit(
     let Some(final_dir) = final_dir else {
         let _ = std::fs::remove_file(temp);
         store.borrow_mut().mark_failed(id, "Dossier de téléchargement introuvable".into(), now_unix());
+        toaster.push(ToastLevel::Error, "Dossier de téléchargement introuvable");
         return;
     };
 
@@ -273,13 +295,28 @@ fn commit(
             store.borrow_mut().mark_completed(
                 id, Some(final_path.to_string_lossy().into_owned()), finished_at,
             );
+            toaster.push(ToastLevel::Success, &format!(
+                "Téléchargement terminé : {}",
+                short_filename(&pre.normalized_filename),
+            ));
         }
         Err(e) => {
             sec_log::emit(Level::Warn, &format!(
                 "download move failed: {} ({e})", pre.normalized_filename));
             let _ = std::fs::remove_file(temp);
             store.borrow_mut().mark_failed(id, "Déplacement final impossible".into(), now_unix());
+            toaster.push(ToastLevel::Error, "Déplacement final impossible");
         }
+    }
+}
+
+/// Tronque pour le toast — pas de path leak, juste le basename court.
+fn short_filename(name: &str) -> String {
+    const MAX: usize = 40;
+    if name.chars().count() <= MAX { name.to_string() }
+    else {
+        let cut: String = name.chars().take(MAX - 1).collect();
+        format!("{cut}…")
     }
 }
 

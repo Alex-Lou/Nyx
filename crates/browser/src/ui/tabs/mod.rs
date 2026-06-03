@@ -16,6 +16,7 @@ use crate::state::bookmarks::Bookmarks;
 use crate::state::downloads::DownloadsHandle;
 use crate::state::settings::Settings;
 use crate::ui::settings_window;
+use crate::ui::toast::ToastHandle;
 use crate::web::{self, darkmode, nyxguard::NyxGuard};
 
 mod favicon;
@@ -34,6 +35,7 @@ pub struct TabBar {
     permissions:    nyx_core::permissions::PermissionStore,
     downloads:      DownloadsHandle,
     downloads_temp: Rc<PathBuf>,
+    toaster:        ToastHandle,
     on_new_webview: WebViewHook,
     settings_modal: Rc<RefCell<Option<Window>>>,
     parent:         Rc<RefCell<Option<WeakRef<Window>>>>,
@@ -44,11 +46,12 @@ impl TabBar {
         blocker: Arc<NyxGuard>, settings: Settings, bm: Bookmarks,
         permissions: nyx_core::permissions::PermissionStore,
         downloads: DownloadsHandle, downloads_temp: PathBuf,
+        toaster: ToastHandle,
     ) -> Self {
         let notebook = Notebook::builder().scrollable(true).show_border(false).build();
         Self {
             notebook, blocker, settings, bookmarks: bm, permissions,
-            downloads, downloads_temp: Rc::new(downloads_temp),
+            downloads, downloads_temp: Rc::new(downloads_temp), toaster,
             on_new_webview: Rc::new(RefCell::new(Box::new(|_| {}))),
             settings_modal: Rc::new(RefCell::new(None)),
             parent:         Rc::new(RefCell::new(None)),
@@ -175,6 +178,7 @@ impl TabBar {
                     self.downloads.clone(),
                     self.settings.clone(),
                     (*self.downloads_temp).clone(),
+                    self.toaster.clone(),
                 );
 
                 WebView::builder()
