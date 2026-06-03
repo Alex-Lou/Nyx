@@ -113,6 +113,19 @@ main * { pointer-events: auto; }
     const canvas = document.getElementById('fx');
     const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
+    // ── Constantes d'interaction — réglage du sillage Kelvin + ripples.
+    // Pousse ces valeurs pour ajuster la sensation sans toucher au shader.
+    const TUNING = {
+        wakeStrength:        1.5,   // intensité du push transverse sur les branches du V
+        wakeLength:          0.20,  // longueur du sillage avant fade complet (0..1, unités UV)
+        wakeWidth:           0.04,  // largeur de chaque branche du V (gaussien)
+        clickRippleStrength: 0.014, // amplitude du displacement par anneau
+        clickRippleSpeed:    0.30,  // vitesse d'expansion des anneaux (unités UV / s)
+        clickRippleDecay:    4.0,   // durée de vie d'un ripple (secondes)
+    };
+    // Helper : format un float en littéral GLSL valide (toFixed garantit le `.`).
+    const F = n => n.toFixed(4);
+
     // ── 3 ambiances : flux + accent token. La palette est DÉRIVÉE des tokens CSS Nyx
     //    (--nyx-bg, --nyx-nebula, --nyx-aurora, --nyx-star) → cohérence avec le reste de l'UI.
     const AMB = {
@@ -207,44 +220,66 @@ uniform vec2 u_res;uniform float u_time;uniform vec2 u_mouse;uniform float u_mve
 uniform vec3 u_trail0,u_trail1,u_trail2,u_trail3;
 uniform vec3 u_ripples[16];
 uniform vec3 u_p0,u_p1,u_p2,u_p3,u_glow;uniform float u_warp,u_vbias,u_speed;
+// Constantes interaction (injectées depuis TUNING côté JS).
+const float WAKE_STRENGTH       = ${F(TUNING.wakeStrength)};
+const float WAKE_LENGTH         = ${F(TUNING.wakeLength)};
+const float WAKE_WIDTH          = ${F(TUNING.wakeWidth)};
+const float CLICK_RIPPLE_STRENGTH = ${F(TUNING.clickRippleStrength)};
+const float CLICK_RIPPLE_SPEED  = ${F(TUNING.clickRippleSpeed)};
+const float CLICK_RIPPLE_DECAY  = ${F(TUNING.clickRippleDecay)};
+// Angle Kelvin théorique d'un sillage en eau peu profonde : 19.47°.
+// tan(19.47°) ≈ 0.3535 — donne au V la forme reconnue par l'œil.
+const float KELVIN_TAN = 0.3535;
 float hash(vec2 p){p=fract(p*vec2(123.34,456.21));p+=dot(p,p+45.32);return fract(p.x*p.y);}
 float noise(vec2 p){vec2 i=floor(p),f=fract(p);vec2 u=f*f*(3.0-2.0*f);
  return mix(mix(hash(i),hash(i+vec2(1.,0.)),u.x),mix(hash(i+vec2(0.,1.)),hash(i+vec2(1.,1.)),u.x),u.y);}
 float fbm(vec2 p){float v=0.,a=.5;for(int i=0;i<4;i++){v+=a*noise(p);p=p*2.0+vec2(1.7,9.2);a*=.5;}return v;}
-// Anneau lumineux d'un ripple — 0 quand age >= 4.0 (mort) sans branch.
-float rwave(vec2 uvA,float aspect,vec3 R){
- float cd=distance(uvA,R.xy*vec2(aspect,1.0));
- float ring=abs(cd-R.z*0.25)*8.0;
- return smoothstep(1.0,0.0,ring)*smoothstep(4.0,0.0,R.z);
-}
 void main(){
  vec2 uv=gl_FragCoord.xy/u_res;
  float aspect=u_res.x/u_res.y;
  vec2 p=uv*vec2(aspect,1.0)*2.4;
  float t=u_time*u_speed;
 
- // ─── INTERACTION LOCALE — objet dans du liquide ───
+ // ─── INTERACTION LOCALE — sillage Kelvin en V ───
  vec2 uvA=uv*vec2(aspect,1.0);
  vec2 mA=u_mouse*vec2(aspect,1.0);
-
- // Vecteur pixel→curseur, distance², kernel quadratique (pas de sqrt).
  vec2 dM=uvA-mA;
  float lM2=dot(dM,dM);
  float kM=max(0.0,1.0-lM2/0.055);
  float kM2=kM*kM;
 
- // Push radial — le fluide s'écarte du curseur en toutes directions.
- // Base toujours présente (doigt posé dans l'eau) + boost par la vitesse.
- vec2 pushM=dM*kM2*(1.8+u_mvel*3.0);
+ // Doigt posé dans l'eau : push radial doux **toujours** présent.
+ // Plus de boost vélocité ici (c'était le gros cercle déformant) — le V
+ // s'en charge de manière directionnelle.
+ vec2 fingerPush=dM*kM2*0.55;
 
- // Bow wave — proue de bateau : les pixels DEVANT le mouvement sont
- // poussés encore plus fort. front>0 = devant, <0 = derrière (sillage).
- vec2 mDirA=u_mdir*vec2(aspect,1.0);
- float front=dot(dM,mDirA);
- float bowK=max(0.0,front)*kM2;
- pushM+=dM*bowK*u_mvel*4.5;
+ // V-wake Kelvin : 2 branches à ±19.47° derrière le curseur.
+ // Apparaît avec u_mvel > 0 ; se dissipe quand la souris ralentit.
+ vec2 D=u_mdir;
+ vec2 Nperp=vec2(-D.y,D.x);
+ float para=dot(dM,D);
+ float lateral=dot(dM,Nperp);
+ float backward=max(0.0,-para);
 
- // Sillage : 4 échantillons historiques (push radial dégressif avec l'âge).
+ // Distance signée à la branche du V (= 0 sur la ligne idéale).
+ float branchDist=abs(lateral)-KELVIN_TAN*backward;
+ // Falloff transversal — gaussien cheap : 1/(1+x²).
+ float wakeTrans=(WAKE_WIDTH*WAKE_WIDTH)/(WAKE_WIDTH*WAKE_WIDTH+branchDist*branchDist);
+ // Décroissance longitudinale : le V se dissipe loin derrière.
+ float wakeLong=max(0.0,1.0-backward/WAKE_LENGTH);
+ wakeLong*=wakeLong;
+ // Anti-front : aucun effet devant le curseur (para>0 = devant).
+ float wakeFront=smoothstep(0.0,0.02,backward);
+ float wakeMag=wakeTrans*wakeLong*wakeFront*u_mvel*WAKE_STRENGTH;
+
+ // Push : perpendiculaire à D (vers l'extérieur) + léger biais arrière.
+ vec2 rawWakeDir=Nperp*sign(lateral)-D*0.4;
+ float rwLen=length(rawWakeDir);
+ vec2 wakeDir=rawWakeDir/max(rwLen,0.001);
+ vec2 wakePush=wakeDir*wakeMag*0.05;
+
+ // Trail historique en TRÈS atténué — queue de fumée dans le V, sans
+ // cercle déformant autour du curseur.
  vec2 d0=uvA-u_trail0.xy*vec2(aspect,1.0); float l02=dot(d0,d0);
  float a0=max(0.0,1.0-u_trail0.z);
  float k0=max(0.0,1.0-l02/0.028)*a0;
@@ -257,14 +292,49 @@ void main(){
  vec2 d3=uvA-u_trail3.xy*vec2(aspect,1.0); float l32=dot(d3,d3);
  float a3=max(0.0,1.0-u_trail3.z);
  float k3=max(0.0,1.0-l32/0.016)*a3;
+ vec2 pushT=d0*(k0*k0)*0.40
+           +d1*(k1*k1)*0.30
+           +d2*(k2*k2)*0.22
+           +d3*(k3*k3)*0.15;
 
- vec2 pushT=d0*(k0*k0)*0.85
-           +d1*(k1*k1)*0.70
-           +d2*(k2*k2)*0.55
-           +d3*(k3*k3)*0.40;
+ // ─── Click ripples : caillou tombe — dépression + 3 anneaux amortis ───
+ vec2 rippleDisp=vec2(0.0);
+ float wave=0.0;
+ for(int i=0;i<16;i++){
+   vec3 R=u_ripples[i];
+   if(R.z>=CLICK_RIPPLE_DECAY) continue;
+   vec2 rP=R.xy*vec2(aspect,1.0);
+   vec2 rD=uvA-rP;
+   float rDist2=dot(rD,rD);
+   float rDist=sqrt(rDist2+0.00001);
+   vec2 rN=rD/rDist;
+
+   float age=R.z;
+   float lifeT=age/CLICK_RIPPLE_DECAY;
+   float decay=1.0-lifeT;
+   decay*=decay; // amortissement quadratique
+
+   // 1. Dépression initiale au point d'impact (~0.3s).
+   float dropPhase=max(0.0,1.0-age*3.3);
+   float drop=dropPhase*dropPhase/(1.0+rDist2*200.0);
+   rippleDisp-=rN*drop*0.008;
+
+   // 2. Trois anneaux concentriques espacés dans le temps.
+   for(int k=0;k<3;k++){
+     float kk=float(k);
+     float radius=(age-kk*0.22)*CLICK_RIPPLE_SPEED;
+     if(radius<0.0) continue;
+     float dr=rDist-radius;
+     float ringW=0.022+kk*0.008;
+     float intensity=(ringW*ringW)/(ringW*ringW+dr*dr);
+     intensity*=decay/(1.0+kk*0.7);
+     wave+=intensity*0.4;
+     rippleDisp+=rN*intensity*CLICK_RIPPLE_STRENGTH;
+   }
+ }
 
  // Warp LOCAL — pas de pan global, le fond reste en place.
- p+=pushM+pushT;
+ p+=fingerPush+wakePush+pushT+rippleDisp*1.5;
 
  vec2 q=vec2(fbm(p+vec2(0.,t)),fbm(p+vec2(5.2,1.3)-vec2(0.,t*(1.0+u_vbias))));
  vec2 r=vec2(fbm(p+u_warp*q+vec2(1.7,9.2)+t*0.5),fbm(p+u_warp*q+vec2(8.3,2.8)-t*0.5));
@@ -283,14 +353,16 @@ void main(){
  float haloK=max(0.0,1.0-lM2/0.090);
  col+=u_glow*(haloK*haloK)*0.030;
 
- // Sillage lumineux : trace du curseur éclairée brièvement.
- float trailLight=k0*k0+k1*k1*0.82+k2*k2*0.66+k3*k3*0.50;
- col+=warm*trailLight*0.055;
+ // Trace lumineuse le long des branches du V.
+ float wakeLight=wakeTrans*wakeLong*u_mvel*0.6;
+ col+=warm*wakeLight*0.05;
 
- // Ripples : 16 anneaux qui COEXISTENT, early-out sur les morts (uniform branch = gratuit).
- float wave=0.0;
- for(int i=0;i<16;i++){if(u_ripples[i].z<4.0) wave+=rwave(uvA,aspect,u_ripples[i]);}
- col+=u_glow*wave*0.13;
+ // Tail de fumée derrière (atténué).
+ float trailLight=k0*k0+k1*k1*0.82+k2*k2*0.66+k3*k3*0.50;
+ col+=warm*trailLight*0.035;
+
+ // Ondulations radiales lumineuses des ripples (en plus du displacement).
+ col+=u_glow*wave*0.10;
 
  // Vignette + grain.
  float d=distance(uv,vec2(0.5));
