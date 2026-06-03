@@ -116,11 +116,14 @@ main * { pointer-events: auto; }
     // ── Constantes d'interaction — réglage du sillage Kelvin + ripples.
     // Pousse ces valeurs pour ajuster la sensation sans toucher au shader.
     const TUNING = {
-        wakeStrength:        2.2,   // intensité du push transverse sur les branches du V
-        wakeLength:          0.42,  // longueur du sillage avant fade complet (0..1, unités UV)
-        wakeWidth:           0.052, // largeur de chaque branche du V (gaussien)
-        wakeAngleTan:        0.40,  // tan(angle V) — 0.35≈19° Kelvin pur, 0.45≈24° plus marqué
-        wakeUndulation:      0.005, // amplitude de l'ondulation longitudinale des branches
+        // Sillage adouci : moins de push, plus large (= flou), moins long,
+        // moins lumineux. Plus de 'trait coupant' derrière le curseur, on
+        // glisse comme une feuille morte sur un lac calme.
+        wakeStrength:        1.3,   // intensité du push transverse sur les branches du V
+        wakeLength:          0.50,  // longueur du sillage avant fade complet (0..1, unités UV)
+        wakeWidth:           0.085, // largeur de chaque branche du V (gaussien) — plus diffus
+        wakeAngleTan:        0.38,  // tan(angle V) — 0.35≈19° Kelvin pur, 0.45≈24° plus marqué
+        wakeUndulation:      0.008, // amplitude de l'ondulation longitudinale des branches
         clickRippleStrength: 0.028, // amplitude du displacement par anneau
         clickRippleSpeed:    0.32,  // vitesse d'expansion des anneaux (unités UV / s)
         clickRippleDecay:    5.0,   // durée de vie d'un ripple (secondes)
@@ -280,25 +283,28 @@ void main(){
  float branchDist=abs(lateral+undulation*sign(lateral))-KELVIN_TAN*backward;
  // Falloff transversal — gaussien cheap : 1/(1+x²).
  float wakeTrans=(WAKE_WIDTH*WAKE_WIDTH)/(WAKE_WIDTH*WAKE_WIDTH+branchDist*branchDist);
- // Décroissance longitudinale — smoothstep cubique : démarre fort à la
- // pointe puis s'estompe en douceur (pas de coupure abrupte à la fin
- // qui crée une "barre horizontale" visuelle = source du T perçu).
+ // Décroissance longitudinale — smoothstep QUINTIQUE (encore plus doux
+ // que cubique) : démarre fort à la pointe, s'estompe progressivement
+ // sans aucune coupure dure. Plus de 'trait profond qui découpe'.
  // NOTE : variable 'wl' et PAS 'r' (collision avec vec2 r plus bas dans
  // la même portée → shader fail silently → fallback Canvas-2D).
  // ATTENTION : pas de backticks dans ce commentaire — ils fermeraient
  // la template literal JS qui contient ce shader (cf. bug 286).
  float wl=max(0.0,1.0-backward/WAKE_LENGTH);
- float wakeLong=wl*wl*(3.0-2.0*wl);
- // Anti-front : aucun effet devant le curseur, transition rapide.
- float wakeFront=smoothstep(0.0,0.006,backward);
+ // smoothstep quintic : wl³(6wl²-15wl+10) — C2-continu, dérivée nulle
+ // aux deux bouts → fondu velouté sans cassure perceptible.
+ float wakeLong=wl*wl*wl*(wl*(wl*6.0-15.0)+10.0);
+ // Anti-front : transition douce (0.012 vs 0.006) pour amorcer le V
+ // graduellement plutôt que d'apparaître pile au curseur.
+ float wakeFront=smoothstep(0.0,0.012,backward);
  float wakeMag=wakeTrans*wakeLong*wakeFront*u_mvel*WAKE_STRENGTH;
 
  // Push : perpendiculaire à D (vers l'extérieur des branches) + léger
- // biais arrière → fend le liquide latéralement.
- vec2 rawWakeDir=Nperp*sign(lateral)-D*0.35;
+ // biais arrière → fend le liquide latéralement, en douceur.
+ vec2 rawWakeDir=Nperp*sign(lateral)-D*0.30;
  float rwLen=length(rawWakeDir);
  vec2 wakeDir=rawWakeDir/max(rwLen,0.001);
- vec2 wakePush=wakeDir*wakeMag*0.055;
+ vec2 wakePush=wakeDir*wakeMag*0.038;
 
  // ─── Click ripples : caillou tombe — dépression + 3 anneaux amortis ───
  vec2 rippleDisp=vec2(0.0);
@@ -360,8 +366,9 @@ void main(){
 
  // Trace lumineuse SUBTILE le long des branches du V — donne du relief
  // sans surligner. Plus de "trail light" : ça créait la barre du T.
- float wakeLight=wakeTrans*wakeLong*wakeFront*u_mvel*0.55;
- col+=warm*wakeLight*0.045;
+ // Réduit à 0.022 (vs 0.045) pour adoucir encore le V.
+ float wakeLight=wakeTrans*wakeLong*wakeFront*u_mvel*0.40;
+ col+=warm*wakeLight*0.022;
 
  // Ondulations radiales lumineuses des ripples (en plus du displacement).
  col+=u_glow*wave*0.12;
