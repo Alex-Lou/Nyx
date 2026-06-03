@@ -262,17 +262,19 @@ void main(){
  // ═══════════════════════════════════════════════════════════════════
  //   CORE INTERACTION : LAME — le curseur fend le liquide.
  //   Une seule structure (pas de cercle, pas de halo, pas de dépression).
- //   Outputs : `wakePush`  (warp du pattern fbm derrière la lame)
- //             `wakeTrans` (1 sur la ligne du V, 0 au loin — pour la
- //                          lumière de tracé) — réutilisée plus bas.
- //             `wakeLong`  (fondu longitudinal — réutilisé plus bas).
- //             `wakeFront` (anti-front gate — idem).
+ //   Outputs : wakePush  (warp du pattern fbm derrière la lame)
+ //             wakeTrans (1 sur la ligne du V, 0 au loin — pour la
+ //                        lumière de tracé) — réutilisée plus bas.
+ //             wakeLong  (fondu longitudinal — réutilisé plus bas).
+ //             wakeFront (anti-front gate — idem).
  //   ÉCONOMIE GPU :
- //     - 1 seul sqrt évité (pas de `dist` radial).
+ //     - 1 seul sqrt évité (pas de dist radial).
  //     - 1 normalize au lieu de 2 (pas d'outDir radial).
  //     - Pas de smoothstep redondants (depression/rim supprimés).
  //     - Pas de kM/kM2 intermédiaire (warm/halo eux-mêmes virés).
- //     - `wakeMag` calculé UNE fois, réutilisé pour le warp ET la light.
+ //     - wakeMag calculé UNE fois, réutilisé pour le warp ET la light.
+ //   ATTENTION : pas de backticks dans ce commentaire — ils fermeraient
+ //   la template literal JS qui contient ce shader (cf. bug récurrent).
  // ═══════════════════════════════════════════════════════════════════
  // Repère orienté vélocité : D = direction souris, Nperp = transverse.
  vec2 D=u_mdir;
@@ -301,7 +303,7 @@ void main(){
  float wakeMag=wakeTrans*wakeLong*wakeFront*u_mvel*WAKE_STRENGTH;
 
  // Push perpendiculaire à D, vers l'extérieur des branches, biais
- // arrière. `wakeDir` normalisée une fois (length+divide, pas inversesqrt).
+ // arrière. wakeDir normalisée une fois (length+divide, pas inversesqrt).
  vec2 rawWakeDir=Nperp*sign(lateral)-D*0.30;
  vec2 wakeDir=rawWakeDir/max(length(rawWakeDir),0.001);
  // Magnitude finale : 0.048 (vs 0.038 avant — +26% intensité demandée).
