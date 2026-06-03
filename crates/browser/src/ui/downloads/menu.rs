@@ -6,13 +6,13 @@
 //!   - « Re-vérifier avant ouverture » → toggle de
 //!     `settings.recheck_on_run` (case cochée par défaut).
 //!
-//! Étendable : ajouter une entrée = nouvelle ligne. Pas d'effet de bord
-//! ailleurs (Single Responsibility).
+//! Le `MenuButton` affiche `view-more-symbolic` (icône GTK standard) ;
+//! évite l'emoji `⋮` qui rendait à zéro pixel sous certains GTK3.
 
 use gtk::prelude::*;
 use gtk::{
-    CheckMenuItem, FileChooserAction, FileChooserNative, Menu, MenuButton, MenuItem,
-    ResponseType, Window,
+    CheckMenuItem, FileChooserAction, FileChooserNative, IconSize, Image, Menu,
+    MenuButton, MenuItem, ResponseType, Window,
 };
 
 use crate::state::settings::Settings;
@@ -20,12 +20,16 @@ use crate::state::settings::Settings;
 /// Construit le `MenuButton` ⋮ prêt à packer.
 pub fn build(parent: Option<Window>, settings: Settings) -> MenuButton {
     let btn = MenuButton::new();
+    btn.set_image(Some(&Image::from_icon_name(
+        Some("view-more-symbolic"), IconSize::Button,
+    )));
     btn.set_relief(gtk::ReliefStyle::None);
-    btn.set_tooltip_text(Some("Plus d'options"));
+    btn.set_tooltip_text(Some("Plus"));
     btn.style_context().add_class("nyx-nav-btn");
-    btn.set_label("⋮");
+    btn.style_context().add_class("nyx-dl-action");
 
     let menu = Menu::new();
+    menu.style_context().add_class("nyx-dl-menu");
     btn.set_popup(Some(&menu));
 
     add_choose_dir(&menu, parent, settings.clone());
@@ -67,7 +71,7 @@ fn add_recheck_toggle(menu: &Menu, settings: Settings) {
     ));
     menu.append(&item);
 
-    let s = settings.clone();
+    let s = settings;
     item.connect_toggled(move |it| {
         s.borrow_mut().recheck_on_run = it.is_active();
     });

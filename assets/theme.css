@@ -109,8 +109,13 @@ window, .background {
     border-radius: 12px;
 }
 
+.nyx-dl-pop > arrow,
+.nyx-dl-pop > contents {
+    background-color: @nyx_surface;
+}
+
 .nyx-dl-header {
-    padding: 0 0 4px 0;
+    padding: 0 0 6px 0;
     border-bottom: 1px solid alpha(@nyx_border, 0.6);
     margin-bottom: 4px;
 }
@@ -133,13 +138,12 @@ window, .background {
     background-color: transparent;
     border-radius: 8px;
     transition: background-color 150ms ease;
+    padding: 0;
 }
 
 .nyx-dl-list row:hover { background-color: @nyx_raised; }
 
-.nyx-dl-row {
-    padding: 6px 8px;
-}
+.nyx-dl-row { padding: 6px 8px; }
 
 .nyx-dl-name {
     color: @nyx_text;
@@ -166,9 +170,74 @@ window, .background {
 }
 
 .nyx-dl-btn label {
-    /* Légère respiration pour la flèche, sans casser l'alignement vertical. */
+    /* Respiration pour la flèche ⤓ dans la navbar. */
     font-size: 15px;
 }
+
+/* Boutons d'action (header + rows) — taille visible, hover net.
+   Sans ça les icônes symboliques sont invisibles si pas de hover. */
+.nyx-dl-action {
+    min-width: 30px;
+    min-height: 28px;
+    padding: 4px 8px;
+    color: @nyx_dim;
+}
+
+.nyx-dl-action:hover {
+    background-color: @nyx_raised;
+    color: @nyx_aurora;
+}
+
+.nyx-dl-action:active {
+    background-color: @nyx_border;
+    color: @nyx_star;
+}
+
+.nyx-dl-action image {
+    color: inherit;          /* l'icône symbolique suit le label */
+    -gtk-icon-style: symbolic;
+    -gtk-icon-shadow: none;
+}
+
+.nyx-dl-action-label {
+    color: inherit;
+    font-size: 11px;
+    margin-left: 2px;
+    letter-spacing: 0.02em;
+}
+
+/* Menu déroulant ⋮ (Choisir destination, Re-vérifier) — fond thème,
+   pas le blanc système par défaut. */
+.nyx-dl-menu,
+.nyx-dl-menu menuitem {
+    background-color: @nyx_surface;
+    color: @nyx_text;
+    padding: 4px 8px;
+}
+.nyx-dl-menu menuitem:hover {
+    background-color: @nyx_raised;
+    color: @nyx_aurora;
+}
+
+/* ── Tooltips globaux (étaient gris/blanc système crades) ───────── */
+
+tooltip,
+tooltip.background,
+.tooltip {
+    background-color: @nyx_void;
+    border: 1px solid @nyx_border;
+    border-radius: 8px;
+    padding: 4px 10px;
+}
+
+tooltip label,
+.tooltip label {
+    color: @nyx_text;
+    font-size: 11px;
+    text-shadow: none;
+}
+
+tooltip decoration { background: transparent; box-shadow: none; }
 
 /* ── Titlebar (HeaderBar CSD) ───────────────────── */
 

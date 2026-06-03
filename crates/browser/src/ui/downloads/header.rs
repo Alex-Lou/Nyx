@@ -1,23 +1,20 @@
 //! Header du popover : titre + actions globales.
 //!
 //! Layout (gauche → droite) :
-//!   `[ Téléchargements ]              [🗑] [📁] [⋮]`
+//!   `[ Téléchargements ]    [ 🗑 Effacer ] [ 📁 Dossier ] [ ⋮ ]`
 //!
-//! - 🗑 « Tout effacer »  → `clear_all()` côté store (n'efface PAS le disque).
-//! - 📁 « Ouvrir le dossier » → file manager OS sur le dossier de destination.
-//! - ⋮  → menu (`menu::build`).
-//!
-//! Le `refresh` est passé en callback : quand on clear, le header redemande
-//! au popover de re-render la liste.
+//! Boutons icon+text courts → visibles, hover net, tooltip court qui ne
+//! déborde jamais hors écran. Tout passe par `widgets::icon_text` /
+//! `widgets::icon_only` pour ne pas dupliquer le style.
 
 use gtk::prelude::*;
-use gtk::{Box as GtkBox, Button, Label, Orientation, Window};
+use gtk::{Box as GtkBox, Label, Orientation, Window};
 
 use crate::state::downloads::DownloadsHandle;
 use crate::state::settings::Settings;
 
 use super::popover::Refresh;
-use super::{actions, menu};
+use super::{actions, menu, widgets};
 
 /// Construit le header complet. `on_changed` est appelé quand le store
 /// est muté localement (clear all) pour que le popover ré-affiche.
@@ -34,8 +31,8 @@ pub fn build(
     title.set_xalign(0.0);
     title.style_context().add_class("nyx-dl-title");
 
-    let clear_btn  = flat("🗑", "Tout effacer");
-    let folder_btn = flat("📁", "Ouvrir le dossier des téléchargements");
+    let clear_btn  = widgets::icon_text("user-trash-symbolic",  "Effacer", "Tout effacer");
+    let folder_btn = widgets::icon_text("folder-open-symbolic", "Dossier", "Ouvrir le dossier");
     let menu_btn   = menu::build(parent, settings.clone());
 
     bar.pack_start(&title, true, true, 0);
@@ -51,17 +48,9 @@ pub fn build(
         });
     }
     {
-        let s = settings.clone();
+        let s = settings;
         folder_btn.connect_clicked(move |_| actions::open_downloads_folder(&s));
     }
 
     bar
-}
-
-fn flat(label: &str, tooltip: &str) -> Button {
-    let btn = Button::with_label(label);
-    btn.set_relief(gtk::ReliefStyle::None);
-    btn.set_tooltip_text(Some(tooltip));
-    btn.style_context().add_class("nyx-nav-btn");
-    btn
 }

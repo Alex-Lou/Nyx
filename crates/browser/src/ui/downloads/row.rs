@@ -3,32 +3,31 @@
 //! Layout :
 //!   ```
 //!   ┌─────────────────────────────────────────────────────┐
-//!   │ filename.ext                          ↗  📂  ×       │
+//!   │ filename.ext                          ▶  📂  ×       │
 //!   │ source.tld  ·  status / progress                     │
 //!   └─────────────────────────────────────────────────────┘
 //!   ```
 //!
-//! Actions :
-//!   - ↗ : `actions::run` (ouvrir / exécuter selon type ; re-check si activé)
-//!   - 📂 : `actions::reveal` (file manager avec sélection si possible)
-//!   - × : supprime de la liste (jamais du disque)
+//! Actions (icônes GTK symboliques pour rendu fiable + thème-aware) :
+//!   - ▶ `media-playback-start-symbolic` → `actions::run`
+//!   - 📂 `document-open-symbolic`        → `actions::reveal`
+//!   - × `window-close-symbolic`          → retire de la liste
 //!
-//! Les actions d'I/O sont désactivées tant que le download est `InProgress`
-//! ou `Cancelled` / `Failed` (le fichier n'est pas un livrable utilisable).
+//! Les boutons ne s'affichent QUE pour les downloads `Completed` ; un
+//! `InProgress` / `Cancelled` / `Failed` n'a que le bouton « retirer ».
 
 use gtk::prelude::*;
-use gtk::{Box as GtkBox, Button, Label, Orientation, ProgressBar, Window};
+use gtk::{Box as GtkBox, Label, Orientation, ProgressBar, Window};
 
 use nyx_core::downloads::{DownloadEntry, DownloadStatus};
 
 use crate::state::downloads::DownloadsHandle;
 use crate::state::settings::Settings;
 
-use super::actions;
 use super::popover::Refresh;
+use super::{actions, widgets};
 
-/// Construit la ligne complète. `on_changed` est appelé après suppression
-/// pour redéclencher le re-render du popover.
+/// Construit la ligne complète.
 pub fn build(
     entry: &DownloadEntry,
     handle: DownloadsHandle,
@@ -39,8 +38,15 @@ pub fn build(
     let row = GtkBox::new(Orientation::Horizontal, 8);
     row.style_context().add_class("nyx-dl-row");
 
-    // ─── Colonne info (gauche) ─────
+    row.pack_start(&build_info(entry), true, true, 0);
+    row.pack_end(&build_actions(entry, handle, settings, parent, on_changed),
+                 false, false, 0);
+    row
+}
+
+fn build_info(entry: &DownloadEntry) -> GtkBox {
     let info = GtkBox::new(Orientation::Vertical, 2);
+
     let name = Label::new(Some(&truncate(&entry.filename, 42)));
     name.set_xalign(0.0);
     name.style_context().add_class("nyx-dl-name");
@@ -53,7 +59,6 @@ pub fn build(
     info.pack_start(&name, false, false, 0);
     info.pack_start(&sub, false, false, 0);
 
-    // ─── Progress bar (pour InProgress) ─────
     if let DownloadStatus::InProgress { .. } = &entry.status {
         let bar = ProgressBar::new();
         bar.style_context().add_class("nyx-dl-bar");
@@ -63,31 +68,36 @@ pub fn build(
         }
         info.pack_start(&bar, false, false, 2);
     }
+    info
+}
 
-    row.pack_start(&info, true, true, 0);
-
-    // ─── Colonne actions (droite) ─────
+fn build_actions(
+    entry: &DownloadEntry,
+    handle: DownloadsHandle,
+    settings: Settings,
+    parent: Option<Window>,
+    on_changed: Refresh,
+) -> GtkBox {
     let actions_box = GtkBox::new(Orientation::Horizontal, 2);
+    let completed = matches!(entry.status, DownloadStatus::Completed);
 
-    let runable = matches!(entry.status, DownloadStatus::Completed);
-    if runable {
-        let run_btn = action_btn("↗", "Ouvrir");
-        let rev_btn = action_btn("📂", "Afficher dans le dossier");
+    if completed {
+        let run_btn = widgets::icon_only("media-playback-start-symbolic", "Ouvrir");
+        let rev_btn = widgets::icon_only("document-open-symbolic",        "Afficher");
 
         {
-            let (e, s, p) = (entry.clone(), settings.clone(), parent.clone());
+            let (e, s, p) = (entry.clone(), settings, parent);
             run_btn.connect_clicked(move |_| actions::run(&e, &s, p.as_ref()));
         }
         {
             let e = entry.clone();
             rev_btn.connect_clicked(move |_| actions::reveal(&e));
         }
-
         actions_box.pack_start(&run_btn, false, false, 0);
         actions_box.pack_start(&rev_btn, false, false, 0);
     }
 
-    let del_btn = action_btn("×", "Retirer de la liste");
+    let del_btn = widgets::icon_only("window-close-symbolic", "Retirer");
     {
         let (h, id, cb) = (handle, entry.id, on_changed);
         del_btn.connect_clicked(move |_| {
@@ -96,18 +106,18 @@ pub fn build(
         });
     }
     actions_box.pack_start(&del_btn, false, false, 0);
-
-    row.pack_end(&actions_box, false, false, 0);
-
-    row
+    actions_box
 }
 
 fn subline(entry: &DownloadEntry) -> String {
     let origin = display_origin(&entry.source_origin);
     let status = display_status(&entry.status);
-    if origin.is_empty() { status }
-    else if status.is_empty() { origin }
-    else { format!("{origin}  ·  {status}") }
+    match (origin.is_empty(), status.is_empty()) {
+        (true, true)   => String::new(),
+        (true, false)  => status,
+        (false, true)  => origin,
+        (false, false) => format!("{origin}  ·  {status}"),
+    }
 }
 
 fn display_origin(o: &str) -> String {
@@ -143,12 +153,4 @@ fn truncate(s: &str, max: usize) -> String {
         let cut: String = s.chars().take(max - 1).collect();
         format!("{cut}…")
     }
-}
-
-fn action_btn(label: &str, tooltip: &str) -> Button {
-    let btn = Button::with_label(label);
-    btn.set_relief(gtk::ReliefStyle::None);
-    btn.set_tooltip_text(Some(tooltip));
-    btn.style_context().add_class("nyx-nav-btn");
-    btn
 }
