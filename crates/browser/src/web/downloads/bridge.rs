@@ -294,11 +294,21 @@ struct RequestData {
 }
 
 fn read_request(download: &Download) -> RequestData {
-    let uri = download.request().and_then(|r| r.uri()).map(|u| u.to_string()).unwrap_or_default();
-    let suggested = download.suggested_filename()
-        .map(|s| s.to_string()).unwrap_or_default();
+    let uri = download.request()
+        .and_then(|r| r.uri())
+        .map(|u| u.to_string())
+        .unwrap_or_default();
     let response = download.response();
-    let mime = response.as_ref().and_then(|r| r.mime_type()).map(|m| m.to_string()).unwrap_or_default();
+    // Le suggested_filename vit sur URIResponse (Content-Disposition parsé
+    // par WebKit), pas sur Download directement dans cette version du binding.
+    let suggested = response.as_ref()
+        .and_then(|r| r.suggested_filename())
+        .map(|s| s.to_string())
+        .unwrap_or_default();
+    let mime = response.as_ref()
+        .and_then(|r| r.mime_type())
+        .map(|m| m.to_string())
+        .unwrap_or_default();
     let content_length = response.map(|r| r.content_length()).filter(|&n| n > 0);
     RequestData { uri, suggested, mime, content_length }
 }
