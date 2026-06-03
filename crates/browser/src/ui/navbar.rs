@@ -6,14 +6,18 @@ use nyx_core::site_data_policy::{self, Scope};
 
 use crate::pages::{self, newtab};
 use crate::state::bookmarks::{self, Bookmarks};
+use crate::state::downloads::DownloadsHandle;
 use crate::state::settings::Settings;
 use crate::ui::tabs::TabBar;
-use crate::ui::bookmarks_popover;
+use crate::ui::{bookmarks_popover, downloads as downloads_ui};
 use crate::web::{self, site_data};
 
 /// Construit la barre de navigation, câble ses boutons + la barre d'adresse,
 /// et renvoie le widget prêt à packer dans la fenêtre.
-pub fn build(url_bar: &Entry, tabs: &TabBar, settings: &Settings, bm: &Bookmarks) -> GtkBox {
+pub fn build(
+    url_bar: &Entry, tabs: &TabBar, settings: &Settings,
+    bm: &Bookmarks, downloads: &DownloadsHandle,
+) -> GtkBox {
     let back     = nav_button("◀", "Précédent");
     let forward  = nav_button("▶", "Suivant");
     let reload   = nav_button("↺", "Recharger (Ctrl+R)");
@@ -22,6 +26,7 @@ pub fn build(url_bar: &Entry, tabs: &TabBar, settings: &Settings, bm: &Bookmarks
     let forget   = nav_button("🛇", "Oublier ce site");
     let new_tab  = nav_button("+", "Nouvel onglet (Ctrl+T)");
     let settings_b = nav_button("⚙", "Paramètres (Ctrl+,)");
+    let dl_btn   = downloads_ui::install(downloads, settings);
 
     // ⭐ dans la barre d'adresse → ajout direct du favori courant.
     url_bar.set_icon_from_icon_name(EntryIconPosition::Secondary, Some("starred-symbolic"));
@@ -44,6 +49,7 @@ pub fn build(url_bar: &Entry, tabs: &TabBar, settings: &Settings, bm: &Bookmarks
     bar.pack_start(url_bar,  true,  true,  0);
     bar.pack_end(&settings_b, false, false, 0);
     bar.pack_end(&star,       false, false, 0);
+    bar.pack_end(&dl_btn,     false, false, 0);
     bar.pack_end(&forget,     false, false, 0);
     bar.pack_end(&new_tab,    false, false, 4);
 

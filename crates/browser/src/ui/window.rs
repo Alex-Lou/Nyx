@@ -9,6 +9,7 @@ use webkit2gtk::WebViewExt;
 use nyx_core::domain_risk::{self, Risk};
 
 use crate::state::bookmarks::Bookmarks;
+use crate::state::downloads::DownloadsHandle;
 use crate::state::settings::{LastTab, Settings};
 use crate::ui::tabs::TabBar;
 use crate::ui::{chrome, navbar, shortcuts};
@@ -23,6 +24,7 @@ impl BrowserWindow {
     pub fn new(
         app: &Application, blocker: Arc<NyxGuard>, settings: Settings,
         bm: Bookmarks, permissions: nyx_core::permissions::PermissionStore,
+        downloads: DownloadsHandle,
     ) -> Self {
         let window = ApplicationWindow::builder()
             .application(app).title("Nyx")
@@ -43,7 +45,7 @@ impl BrowserWindow {
 
         let tabs   = TabBar::new(blocker, settings.clone(), bm.clone(), permissions);
         tabs.set_parent(&window);
-        let navbar = navbar::build(&url_bar, &tabs, &settings, &bm);
+        let navbar = navbar::build(&url_bar, &tabs, &settings, &bm, &downloads);
 
         let vbox = GtkBox::new(Orientation::Vertical, 0);
         vbox.pack_start(&progress,      false, false, 0);

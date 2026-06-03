@@ -15,6 +15,13 @@ pub struct AppSettings {
     pub on_last_tab:         LastTab,
     pub home_url:            String,
     pub language:            Language,
+    /// Dossier de destination des téléchargements. `None` = `~/Downloads`
+    /// par défaut (résolu par le browser à la frontière).
+    pub downloads_dir:       Option<String>,
+    /// Re-checker un téléchargement via `download_policy` au moment du
+    /// « Ouvrir / Exécuter » dans la shelf. Défaut : `true` (défense
+    /// en profondeur). Désactivable depuis les paramètres généraux.
+    pub recheck_on_run:      bool,
 }
 
 impl Default for AppSettings {
@@ -28,6 +35,8 @@ impl Default for AppSettings {
             on_last_tab:       LastTab::Home,
             home_url:          "nyx://newtab".into(),
             language:          Language::French,
+            downloads_dir:     None,
+            recheck_on_run:    true,
         }
     }
 }
@@ -117,12 +126,21 @@ pub fn apply_from_url(url: &str, settings: &Settings, blocker: &NyxGuard) -> boo
     if let Some(h) = params.get("home")   { s.home_url = urldecode(h); }
     if let Some(l) = params.get("lang")   { s.language = Language::from_id(l); }
     if let Some(c) = params.get("lasttab"){ s.on_last_tab = LastTab::from_id(c); }
+    if let Some(d) = params.get("dldir")  {
+        let decoded = urldecode(d);
+        s.downloads_dir = if decoded.is_empty() { None } else { Some(decoded) };
+    }
 
     // Checkboxes : présentes seulement si cochées → absent = false.
     s.adblock_enabled   = flag("adblock");
     s.dark_websites     = flag("dark");
     s.private_mode      = flag("private");
     s.block_third_party = flag("blockauth");
+    // Defaut historique = true. Absent = on garde la valeur courante pour
+    // ne pas forcer un downgrade silencieux.
+    if params.contains_key("recheckrun") {
+        s.recheck_on_run = flag("recheckrun");
+    }
 
     blocker.set_enabled(s.adblock_enabled);
     blocker.set_block_accounts(s.block_third_party);
