@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="fr">
+<meta charset="utf-8">
+<title>Test DL — exe déguisé</title>
+<style>
+    body { background: #0a0a18; color: #dde4ff; font-family: sans-serif; padding: 32px; line-height: 1.5; }
+    a { color: #4af2c8; }
+</style>
+
+<h1>Exécutable direct</h1>
+
+<p>Lien direct vers un payload <code>.exe</code> avec MIME exécutable.
+   Cas nominal : doit déclencher <code>AskDanger</code>.</p>
+
+<p>
+    <a download="setup.exe"
+       href="data:application/x-msdownload;base64,TVo=">
+        Télécharger setup.exe
+    </a>
+</p>
+
+<p>Attendu :</p>
+<ul>
+    <li>Pre-flight : <code>Kind::Executable</code> + Verdict <code>AskDanger</code>.</li>
+    <li>Dialog confirmation avec bouton « Conserver » en classe
+        <code>destructive-action</code> (rouge).</li>
+    <li>Annuler → temp file purgé immédiatement.</li>
+    <li>Confirmer → déplacé vers <code>~/Downloads/setup.exe</code> +
+        sidecar <code>setup.exe.nyxmeta</code> avec sha256/verdict/reasons.</li>
+    <li>Pas d'auto-open. Pas de chmod +x.</li>
+</ul>

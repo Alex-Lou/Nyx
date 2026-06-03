@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="fr">
+<meta charset="utf-8">
+<title>Test DL — double extension</title>
+<style>
+    body { background: #0a0a18; color: #dde4ff; font-family: sans-serif; padding: 32px; line-height: 1.5; }
+    a { color: #4af2c8; }
+    pre { background: #141430; padding: 8px 12px; border-radius: 6px; }
+</style>
+
+<h1>Double extension</h1>
+
+<p>Clique sur le lien : Nyx doit afficher <code>AskDanger</code> (rouge),
+   pas auto-download.</p>
+
+<p>
+    <a download="invoice.pdf.exe"
+       href="data:application/octet-stream;base64,UEsDBA==">
+        Télécharger invoice.pdf.exe
+    </a>
+</p>
+
+<p>Attendu :</p>
+<ul>
+    <li>Le nom <code>invoice.pdf.exe</code> est passé au <code>download_policy::analyze</code>.</li>
+    <li><code>detect_double_extension</code> détecte (pdf hidden, exe real).</li>
+    <li><code>Verdict::AskDanger</code> → dialog confirmation avec bouton rouge.</li>
+    <li>Annuler → temp file supprimé immédiatement.</li>
+    <li>Confirmer → fichier déplacé vers <code>~/Downloads/</code> avec sidecar <code>.nyxmeta</code>.</li>
+</ul>
+
+<p><strong>Note</strong> : la data: URL ne contient que <code>PK\x03\x04</code> (signature ZIP)
+   pour simuler un payload binaire ; le sniff post-flight détectera "Zip"
+   qui ne matche pas <code>exe</code> → renforce le verdict.</p>

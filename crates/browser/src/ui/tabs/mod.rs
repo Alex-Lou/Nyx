@@ -1,4 +1,5 @@
 use std::cell::RefCell;
+use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -12,6 +13,7 @@ use webkit2gtk::{
 
 use crate::pages::{self, newtab};
 use crate::state::bookmarks::Bookmarks;
+use crate::state::downloads::DownloadsHandle;
 use crate::state::settings::Settings;
 use crate::ui::settings_window;
 use crate::web::{self, darkmode, nyxguard::NyxGuard};
@@ -30,6 +32,8 @@ pub struct TabBar {
     settings:       Settings,
     bookmarks:      Bookmarks,
     permissions:    nyx_core::permissions::PermissionStore,
+    downloads:      DownloadsHandle,
+    downloads_temp: Rc<PathBuf>,
     on_new_webview: WebViewHook,
     settings_modal: Rc<RefCell<Option<Window>>>,
     parent:         Rc<RefCell<Option<WeakRef<Window>>>>,
@@ -39,10 +43,12 @@ impl TabBar {
     pub fn new(
         blocker: Arc<NyxGuard>, settings: Settings, bm: Bookmarks,
         permissions: nyx_core::permissions::PermissionStore,
+        downloads: DownloadsHandle, downloads_temp: PathBuf,
     ) -> Self {
         let notebook = Notebook::builder().scrollable(true).show_border(false).build();
         Self {
             notebook, blocker, settings, bookmarks: bm, permissions,
+            downloads, downloads_temp: Rc::new(downloads_temp),
             on_new_webview: Rc::new(RefCell::new(Box::new(|_| {}))),
             settings_modal: Rc::new(RefCell::new(None)),
             parent:         Rc::new(RefCell::new(None)),
@@ -161,6 +167,15 @@ impl TabBar {
                 if self.settings.borrow().dark_websites {
                     ucm.add_style_sheet(&darkmode::stylesheet());
                 }
+
+                // Bridge des téléchargements WebKit : pre-flight policy,
+                // temp dir Nyx, sniff post-flight, sha256, sidecar quarantaine.
+                web::downloads::install(
+                    &ctx,
+                    self.downloads.clone(),
+                    self.settings.clone(),
+                    (*self.downloads_temp).clone(),
+                );
 
                 WebView::builder()
                     .web_context(&ctx)

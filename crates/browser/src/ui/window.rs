@@ -43,7 +43,10 @@ impl BrowserWindow {
             .hexpand(true).build();
         url_bar.style_context().add_class("nyx-urlbar");
 
-        let tabs   = TabBar::new(blocker, settings.clone(), bm.clone(), permissions);
+        let tabs = TabBar::new(
+            blocker, settings.clone(), bm.clone(), permissions,
+            downloads.clone(), crate::state::downloads_temp::temp_root(),
+        );
         tabs.set_parent(&window);
         let navbar = navbar::build(&url_bar, &tabs, &settings, &bm, &downloads);
 

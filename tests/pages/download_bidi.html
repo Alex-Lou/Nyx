@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="fr">
+<meta charset="utf-8">
+<title>Test DL — bidi override (U+202E)</title>
+<style>
+    body { background: #0a0a18; color: #dde4ff; font-family: sans-serif; padding: 32px; line-height: 1.5; }
+    a { color: #4af2c8; }
+    code { background: #141430; padding: 1px 6px; border-radius: 4px; }
+</style>
+
+<h1>Bidi RTL Override</h1>
+
+<p>Le nom embarque <code>U+202E</code> (RIGHT-TO-LEFT OVERRIDE) :
+   l'affichage visuel se lit <code>report.pdfexe.doc</code> alors que
+   le nom réel se termine par <code>.exe</code>.</p>
+
+<p>
+    <a download="report.pdf&#x202E;cod.exe"
+       href="data:application/octet-stream;base64,TVo=">
+        Télécharger report.pdf<span style="color:#ff7eb3">⇆</span>cod.exe
+    </a>
+</p>
+
+<p>Attendu :</p>
+<ul>
+    <li><code>sanitize_filename</code> détecte <code>BidiInFilename</code> (U+202E retiré).</li>
+    <li>Nom normalisé : <code>report.pdfcod.exe</code>.</li>
+    <li>Verdict : <code>AskDanger</code> ou <code>Block</code> selon kind sniffé.</li>
+    <li>Le payload <code>MZ</code> sera détecté <code>PeExe</code> au post-flight → escalade à Block.</li>
+</ul>

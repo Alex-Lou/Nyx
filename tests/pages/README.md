@@ -16,6 +16,11 @@ Pour chaque page, le **comportement attendu** est documenté en tête.
 | `clipboard_attack.html`    | `navigator.clipboard.readText()`          | refusé (WebKit setting) |
 | `fake_login_iframe.html`   | iframe vers un faux paypal                | iframe chargée mais URL bar correcte ; iframe NyxGuard si dans liste |
 | `download_exec.html`       | Force le DL d'un `.sh`                    | (à venir DownloadGuard) — pour l'instant DL standard |
+| `download_exe_disguised.html`    | `.exe` avec MIME exécutable        | `AskDanger` rouge ; confirm → sidecar `.nyxmeta`      |
+| `download_double_ext.html`       | `invoice.pdf.exe`                  | `AskDanger`, reasons inclut `DoubleExtension`         |
+| `download_bidi.html`             | Nom avec `U+202E`                  | sanitize strip bidi, kind escalé via post-sniff       |
+| `download_mime_mismatch.html`    | `.png` annoncé + payload `MZ`      | Pre Allow → post **Block** via `matches_extension`    |
+| `download_dangerous_origin.html` | URL homographe cyrillique          | `Block` pre-flight, jamais d'écriture temp            |
 | `idn_phishing.html`        | Lien vers `pаypal.com` (cyrillique)       | nav OK mais URL bar `nyx-risk-dangerous` |
 | `storage_test.html`        | Cookie + localStorage + IDB               | persisté ; Forget this site doit tout effacer |
 | `permission_camera.html`   | `getUserMedia({video:true})`              | (à venir PermissionManager) — actuellement WebKit prompt |
