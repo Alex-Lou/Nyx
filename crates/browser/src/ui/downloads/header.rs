@@ -90,10 +90,26 @@ pub fn build(
 }
 
 fn open_destination_chooser(parent: Option<Window>, settings: Settings, toaster: ToastHandle) {
+    // Sous WSL : on tente l'explorateur Windows (FolderBrowserDialog
+    // WinForms via powershell.exe) → rassurant pour l'utilisateur Windows
+    // qui ne veut pas d'UI Linux à l'intérieur de Windows.
+    // Hors WSL OU si powershell ne répond pas : fallback FileChooserDialog
+    // GTK in-process (themable via .nyx-filechooser).
+    if let Some(picked) = crate::platform::wsl_pick_windows_folder(
+        "Dossier de téléchargement Nyx"
+    ) {
+        let s = picked.to_string_lossy().into_owned();
+        settings.borrow_mut().downloads_dir = Some(s.clone());
+        toaster.push(ToastLevel::Info, &format!(
+            "Dossier de téléchargement : {}",
+            short_path(&s),
+        ));
+        return;
+    }
+
     // FileChooserDialog (pas FileChooserNative) : in-process, donc notre
     // CSS .nyx-filechooser s'applique. FileChooserNative passe par le
-    // portail XDG → autre process → notre theme ne le touche pas (d'où
-    // le 'blanc horrible' rapporté).
+    // portail XDG → autre process → notre theme ne le touche pas.
     let dlg = FileChooserDialog::new(
         Some("Dossier de téléchargement"),
         parent.as_ref(),
