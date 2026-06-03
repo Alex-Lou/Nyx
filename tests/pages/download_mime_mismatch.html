@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="fr">
+<meta charset="utf-8">
+<title>Test DL — MIME mismatch</title>
+<style>
+    body { background: #0a0a18; color: #dde4ff; font-family: sans-serif; padding: 32px; line-height: 1.5; }
+    a { color: #4af2c8; }
+</style>
+
+<h1>MIME mismatch — extension safe + content executable</h1>
+
+<p>Le nom propose <code>.png</code> et le data: URL annonce
+   <code>image/png</code>, mais le payload réel commence par <code>MZ</code>
+   (header PE Windows).</p>
+
+<p>
+    <a download="picture.png"
+       href="data:image/png;base64,TVo=">
+        Télécharger picture.png
+    </a>
+</p>
+
+<p>Attendu :</p>
+<ul>
+    <li>Pre-flight : extension <code>png</code> + MIME <code>image/png</code> → Allow (apparence safe).</li>
+    <li>Post-flight : <code>magic_bytes::sniff</code> retourne <code>PeExe</code>.</li>
+    <li><code>matches_extension(PeExe, "png") == false</code> → <strong>MIME mismatch sévère</strong>.</li>
+    <li>Verdict ajusté : <code>Block</code> (defense-in-depth invariant §7 / §10).</li>
+    <li>Temp file supprimé. Mark_failed dans le store.</li>
+</ul>

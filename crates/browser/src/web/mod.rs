@@ -3,6 +3,7 @@
 //! (sécurité, URL, NyxGuard) vit dans `nyx-core`.
 
 pub mod darkmode;
+pub mod downloads;
 pub mod inspector;
 pub mod permissions;
 pub mod site_data;

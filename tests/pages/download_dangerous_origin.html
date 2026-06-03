@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="fr">
+<meta charset="utf-8">
+<title>Test DL — origine homographe</title>
+<style>
+    body { background: #0a0a18; color: #dde4ff; font-family: sans-serif; padding: 32px; line-height: 1.5; }
+    a { color: #4af2c8; }
+</style>
+
+<h1>Origine homographe — refus sec</h1>
+
+<p>Le lien pointe vers <code>раypal.com</code> (le <code>а</code> est
+   cyrillique U+0430). <code>domain_risk::analyze_url</code> classe
+   l'origine <code>Dangerous</code>.</p>
+
+<p>
+    <a download="statement.pdf"
+       href="https://&#x0440;&#x0430;ypal.com/secure/statement.pdf">
+        Télécharger statement.pdf
+    </a>
+</p>
+
+<p>Attendu :</p>
+<ul>
+    <li>Pre-flight : <code>Reason::DangerousOrigin</code> → Verdict <code>Block</code>.</li>
+    <li><code>download.cancel()</code> immédiat — aucune écriture temp.</li>
+    <li>Aucune entrée ajoutée au <code>DownloadStore</code> (rien à afficher
+        dans la shelf : la décision est antérieure à l'ajout).</li>
+    <li>Log <code>[BLOCK] download blocked pre-flight: …</code> sur stderr
+        si <code>NYX_SECURITY_DEBUG=1</code>.</li>
+</ul>
+
+<p><strong>Limite</strong> : si le lien ne résout pas DNS, le clic échoue
+   silencieusement avant que WebKit ne déclenche <code>download-started</code>.
+   C'est OK — l'attaque est bloquée en amont, pas un test négatif.</p>
