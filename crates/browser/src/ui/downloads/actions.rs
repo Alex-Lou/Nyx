@@ -7,8 +7,7 @@
 
 use std::path::{Path, PathBuf};
 
-use gtk::prelude::*;
-use gtk::{ButtonsType, DialogFlags, MessageDialog, MessageType, ResponseType, Window};
+use gtk::Window;
 
 use nyx_core::download_policy::Kind;
 use nyx_core::downloads::DownloadEntry;
@@ -17,6 +16,7 @@ use nyx_core::sec_log::{self, Level};
 
 use crate::platform;
 use crate::state::settings::Settings;
+use crate::ui::dialog::{self, ConfirmLevel, ConfirmParams};
 
 /// Ouvre le dossier de téléchargements (la « racine », pas un fichier).
 pub fn open_downloads_folder(settings: &Settings) {
@@ -70,35 +70,35 @@ pub fn run(entry: &DownloadEntry, settings: &Settings, parent: Option<&Window>) 
 
 fn confirm_then_open(entry: &DownloadEntry, path: &Path, kind: Kind, parent: Option<&Window>) {
     let kind_label = match kind {
-        Kind::Executable => "exécutable",
-        Kind::MacroDoc   => "document avec macros",
-        _ => "binaire",
+        Kind::Executable => "Ce fichier est un exécutable. L'ouvrir peut modifier votre système.",
+        Kind::MacroDoc   => "Ce document contient des macros qui peuvent exécuter du code arbitraire.",
+        _ => "Type binaire suspect — vérifie l'origine avant d'ouvrir.",
     };
-    let msg = format!(
-        "Ouvrir « {} » ?\n\nType détecté : {kind_label}.\nCe fichier peut modifier votre système.",
-        entry.filename,
-    );
-    let dlg = MessageDialog::new(
-        parent,
-        DialogFlags::MODAL,
-        MessageType::Warning,
-        ButtonsType::None,
-        &msg,
-    );
-    dlg.add_button("Annuler", ResponseType::Cancel);
-    let open_btn = dlg.add_button("Ouvrir quand même", ResponseType::Yes);
-    open_btn.style_context().add_class("destructive-action");
+    let title = format!("Ouvrir « {} » ?", entry.filename);
+    let path_owned = path.to_path_buf();
+    let filename = entry.filename.clone();
+    let kind_dbg = format!("{kind:?}");
 
-    let resp = dlg.run();
-    dlg.close();
-    if resp == ResponseType::Yes {
-        sec_log::emit(Level::Warn, &format!(
-            "user confirmed open: {} (kind={kind:?})", entry.filename));
-        let _ = platform::open_path(path);
-    } else {
-        sec_log::emit(Level::Deny, &format!(
-            "user cancelled open: {} (kind={kind:?})", entry.filename));
-    }
+    dialog::show(
+        ConfirmParams {
+            parent,
+            level:  ConfirmLevel::Danger,
+            title,
+            body:   kind_label.to_string(),
+            accept: "Ouvrir quand même".into(),
+            cancel: "Annuler".into(),
+        },
+        move |approved| {
+            if approved {
+                sec_log::emit(Level::Warn, &format!(
+                    "user confirmed open: {filename} (kind={kind_dbg})"));
+                let _ = platform::open_path(&path_owned);
+            } else {
+                sec_log::emit(Level::Deny, &format!(
+                    "user cancelled open: {filename} (kind={kind_dbg})"));
+            }
+        },
+    );
 }
 
 fn sniff_kind(path: &Path) -> Option<Kind> {

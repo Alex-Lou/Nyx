@@ -1,64 +1,48 @@
-//! Dialog de confirmation Ask / AskDanger.
+//! Confirmation dialog Ask / AskDanger pour le post-flight du bridge.
 //!
-//! L'utilisateur a deux niveaux : `Ask` (Question icon, bouton normal),
-//! `AskDanger` (Warning icon, bouton `destructive-action` rouge).
-//!
-//! Non-bloquant : le résultat est livré via `callback(bool)`.
-//! `true` = conserver le fichier (déclenche move+meta), `false` = jeter.
-
-use std::cell::RefCell;
-
-use gtk::prelude::*;
-use gtk::{
-    ButtonsType, DialogFlags, MessageDialog, MessageType, ResponseType, Window,
-};
+//! Délègue à `crate::ui::dialog::show` (Nyx-thémé, centré, custom CSS).
+//! 'Conserver' / 'Jeter' au lieu des verbes ambigus de MessageDialog.
 
 use nyx_core::download_policy::{Kind, Verdict};
 
+use crate::ui::dialog::{self, ConfirmLevel, ConfirmParams};
+
 pub fn show<F: FnOnce(bool) + 'static>(
-    verdict: Verdict,
-    filename: String,
-    kind: Kind,
-    callback: F,
+    verdict: Verdict, filename: String, kind: Kind, callback: F,
 ) {
-    let (mtype, header) = match verdict {
-        Verdict::AskDanger => (MessageType::Warning,  format!("⚠ « {filename} »")),
-        _                  => (MessageType::Question, format!("Conserver « {filename} » ?")),
+    let level = match verdict {
+        Verdict::AskDanger => ConfirmLevel::Danger,
+        _                  => ConfirmLevel::Normal,
     };
-    let body = match kind {
-        Kind::Executable => "Ce fichier est un exécutable. Ouvrir un binaire \
-                            téléchargé peut compromettre votre système.",
-        Kind::MacroDoc   => "Ce document contient des macros, qui peuvent \
-                            exécuter du code arbitraire à l'ouverture.",
-        Kind::Archive    => "Cette archive peut contenir n'importe quel type \
-                            de fichier. Vérifiez son contenu avant extraction.",
-        Kind::ActiveDoc  => "Ce document peut embarquer du contenu actif \
-                            (script, redirection).",
-        _ => "Type de fichier inconnu — origine et nom incohérents.",
+    let title = match verdict {
+        Verdict::AskDanger => format!("Téléchargement à risque : {filename}"),
+        _                  => format!("Conserver « {filename} » ?"),
     };
+    let body = body_for_kind(kind);
 
-    let dlg = MessageDialog::new(
-        None::<&Window>,
-        DialogFlags::MODAL,
-        mtype,
-        ButtonsType::None,
-        &format!("{header}\n\n{body}"),
+    dialog::show(
+        ConfirmParams {
+            parent:  None,
+            level,
+            title,
+            body:    body.into(),
+            accept:  "Conserver".into(),
+            cancel:  "Jeter".into(),
+        },
+        callback,
     );
-    dlg.add_button("Jeter", ResponseType::Cancel);
-    let accept = dlg.add_button("Conserver", ResponseType::Yes);
-    if verdict == Verdict::AskDanger {
-        accept.style_context().add_class("destructive-action");
-    }
+}
 
-    // `connect_response` peut firer plusieurs fois (clic Esc puis bouton) ;
-    // RefCell<Option<F>>::take garantit un appel unique au callback.
-    let slot: RefCell<Option<F>> = RefCell::new(Some(callback));
-    dlg.connect_response(move |d, resp| {
-        let approved = resp == ResponseType::Yes;
-        if let Some(cb) = slot.borrow_mut().take() {
-            cb(approved);
-        }
-        d.close();
-    });
-    dlg.show_all();
+fn body_for_kind(kind: Kind) -> &'static str {
+    match kind {
+        Kind::Executable => "Ce fichier est un exécutable. Ouvrir un binaire \
+                             téléchargé peut compromettre votre système.",
+        Kind::MacroDoc   => "Ce document contient des macros qui peuvent \
+                             exécuter du code arbitraire à l'ouverture.",
+        Kind::Archive    => "Cette archive peut contenir n'importe quel type \
+                             de fichier. Vérifiez son contenu avant extraction.",
+        Kind::ActiveDoc  => "Ce document peut embarquer du contenu actif \
+                             (script, redirection).",
+        _ => "Type de fichier inconnu — origine et nom incohérents.",
+    }
 }

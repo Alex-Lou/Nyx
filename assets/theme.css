@@ -325,6 +325,112 @@ tooltip decoration { background: transparent; box-shadow: none; }
 }
 .nyx-toast-error .nyx-toast-icon { color: #ff7eb3; }
 
+/* ── Dialog confirm Nyx (download confirm, futures actions) ─────── */
+
+.nyx-confirm {
+    background-color: @nyx_void;
+    color: @nyx_text;
+    border-radius: 16px;
+}
+
+.nyx-confirm decoration {
+    background-color: @nyx_void;
+    border-radius: 16px;
+    box-shadow: 0 24px 64px alpha(@nyx_void, 0.75),
+                0 0 0 1px alpha(@nyx_border, 0.55);
+}
+
+.nyx-confirm headerbar {
+    background: linear-gradient(180deg, @nyx_surface, @nyx_void);
+    border-bottom: 1px solid alpha(@nyx_border, 0.5);
+    color: @nyx_dim;
+    min-height: 28px;
+    padding: 2px 8px;
+    font-size: 11px;
+    letter-spacing: 0.16em;
+}
+
+.nyx-confirm-icon {
+    -gtk-icon-style: symbolic;
+    color: @nyx_moon;
+    margin-top: 6px;
+    margin-bottom: 2px;
+}
+
+.nyx-confirm-danger .nyx-confirm-icon {
+    color: #ffc56a;
+}
+
+.nyx-confirm-title {
+    color: @nyx_star;
+    font-size: 17px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    margin-bottom: 2px;
+}
+
+.nyx-confirm-body {
+    color: alpha(@nyx_text, 0.85);
+    font-size: 13px;
+}
+
+.nyx-confirm-actions {
+    background: alpha(@nyx_surface, 0.32);
+    border-top: 1px solid alpha(@nyx_border, 0.4);
+    padding: 14px 22px;
+}
+
+.nyx-confirm-cancel,
+.nyx-confirm-accept {
+    padding: 7px 22px;
+    border-radius: 9px;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    transition: background-color 150ms ease, color 150ms ease,
+                box-shadow 150ms ease;
+}
+
+.nyx-confirm-cancel {
+    background: none;
+    background-image: none;
+    color: @nyx_dim;
+    border: 1px solid @nyx_border;
+    box-shadow: none;
+}
+.nyx-confirm-cancel:hover {
+    background-color: @nyx_raised;
+    background-image: none;
+    color: @nyx_text;
+    border-color: @nyx_moon;
+}
+
+.nyx-confirm-accept {
+    background-color: @nyx_aurora;
+    background-image: none;
+    color: @nyx_void;
+    border: 1px solid alpha(@nyx_aurora, 0.4);
+    box-shadow: 0 4px 18px alpha(@nyx_aurora, 0.32);
+    text-shadow: none;
+}
+.nyx-confirm-accept:hover {
+    background-color: alpha(@nyx_aurora, 0.88);
+    background-image: none;
+    box-shadow: 0 6px 24px alpha(@nyx_aurora, 0.45);
+}
+
+.nyx-confirm-accept.destructive-action {
+    background-color: #ff7eb3;
+    background-image: none;
+    color: #1a0612;
+    border-color: alpha(#ff7eb3, 0.4);
+    box-shadow: 0 4px 18px alpha(#ff7eb3, 0.32);
+}
+.nyx-confirm-accept.destructive-action:hover {
+    background-color: alpha(#ff7eb3, 0.88);
+    background-image: none;
+    box-shadow: 0 6px 24px alpha(#ff7eb3, 0.45);
+}
+
 /* ── Titlebar (HeaderBar CSD) ───────────────────── */
 
 headerbar.nyx-headerbar {
