@@ -43,6 +43,19 @@ impl BrowserWindow {
             .hexpand(true).build();
         url_bar.style_context().add_class("nyx-urlbar");
 
+        // UX standard navigateur : clic sur l'URL bar à froid sélectionne
+        // tout pour permettre un remplacement direct. focus-in ne fire
+        // qu'au gain de focus (re-clic en édition ne déclenche rien).
+        // idle_add défère la sélection après le placement du curseur par
+        // le click, sinon le clic écraserait la sélection.
+        url_bar.connect_focus_in_event(|entry, _| {
+            let e = entry.clone();
+            gtk::glib::idle_add_local_once(move || {
+                e.select_region(0, -1);
+            });
+            gtk::glib::Propagation::Proceed
+        });
+
         let toaster = toast::new();
 
         let tabs = TabBar::new(

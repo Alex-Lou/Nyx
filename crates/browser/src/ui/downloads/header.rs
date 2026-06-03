@@ -1,20 +1,25 @@
 //! Header du popover : titre + actions globales.
 //!
 //! Layout (gauche → droite) :
-//!   `[ Téléchargements ]    [ 🗑 Effacer ] [ 📁 Dossier ] [ ⋮ ]`
+//!   `[ Téléchargements ]  [ 🗑 Effacer ] [ 📁 Dossier ] [ 📂 Destination ] [ ⋮ ]`
 //!
-//! Boutons icon+text courts → visibles, hover net, tooltip court qui ne
-//! déborde jamais hors écran. Tout passe par `widgets::icon_text` /
-//! `widgets::icon_only` pour ne pas dupliquer le style.
-
-use gtk::prelude::*;
-use gtk::{Box as GtkBox, Label, Orientation, Window};
+//! Choisir destination est UN BOUTON DIRECT — pas dans le ⋮ — parce que
+//! l'imbrication MenuButton-popover dans un Popover modal cassait le
+//! FileChooser (le shelf dismissait au clic sur l'item, annulant le clic).
+//! En direct dans le header, on est au même niveau que bookmarks_popover
+//! qui marche déjà.
 
 use std::rc::Rc;
 
+use gtk::prelude::*;
+use gtk::{
+    Box as GtkBox, FileChooserAction, FileChooserNative, Label, Orientation,
+    ResponseType, Window,
+};
+
 use crate::state::downloads::DownloadsHandle;
 use crate::state::settings::Settings;
-use crate::ui::toast::ToastHandle;
+use crate::ui::toast::{ToastHandle, ToastLevel};
 
 use super::popover::Refresh;
 use super::{actions, menu, widgets};
@@ -38,12 +43,14 @@ pub fn build(
     title.set_xalign(0.0);
     title.style_context().add_class("nyx-dl-title");
 
-    let clear_btn  = widgets::icon_text("user-trash-symbolic",  "Effacer", "Tout effacer");
-    let folder_btn = widgets::icon_text("folder-open-symbolic", "Dossier", "Ouvrir le dossier");
-    let menu_btn   = menu::build(parent, settings.clone(), close_shelf, toaster);
+    let clear_btn  = widgets::icon_text("user-trash-symbolic",   "Effacer",    "Tout effacer");
+    let folder_btn = widgets::icon_text("folder-open-symbolic",  "Dossier",    "Ouvrir le dossier");
+    let dest_btn   = widgets::icon_text("folder-new-symbolic",   "Destination","Choisir le dossier de destination");
+    let menu_btn   = menu::build(parent.clone(), settings.clone(), close_shelf.clone(), toaster.clone());
 
     bar.pack_start(&title, true, true, 0);
     bar.pack_end(&menu_btn,   false, false, 0);
+    bar.pack_end(&dest_btn,   false, false, 0);
     bar.pack_end(&folder_btn, false, false, 0);
     bar.pack_end(&clear_btn,  false, false, 0);
 
@@ -55,9 +62,68 @@ pub fn build(
         });
     }
     {
-        let s = settings;
+        let s = settings.clone();
         folder_btn.connect_clicked(move |_| actions::open_downloads_folder(&s));
+    }
+    {
+        // FileChooser DIRECT depuis le header (un seul niveau de popover,
+        // même pattern que bookmarks_popover qui marche). On ferme le shelf
+        // AVANT d'ouvrir le chooser pour que le popover modal ne capte pas
+        // les clics du dialog (cas WSL/WSLg observé).
+        let s = settings;
+        let t = toaster;
+        let parent = parent;
+        dest_btn.connect_clicked(move |_| {
+            close_shelf();
+            // Défère au prochain idle : laisse popdown du shelf finir
+            // avant l'ouverture modale du chooser.
+            let s_cl = s.clone();
+            let t_cl = t.clone();
+            let parent_cl = parent.clone();
+            gtk::glib::idle_add_local_once(move || {
+                open_destination_chooser(parent_cl, s_cl, t_cl);
+            });
+        });
     }
 
     bar
+}
+
+fn open_destination_chooser(parent: Option<Window>, settings: Settings, toaster: ToastHandle) {
+    let chooser = FileChooserNative::new(
+        Some("Dossier de téléchargement"),
+        parent.as_ref(),
+        FileChooserAction::SelectFolder,
+        Some("Sélectionner"),
+        Some("Annuler"),
+    );
+    if let Some(current) = current_dir(&settings) {
+        let _ = chooser.set_current_folder(current);
+    }
+    if chooser.run() == ResponseType::Accept {
+        if let Some(path) = chooser.filename() {
+            let s = path.to_string_lossy().into_owned();
+            settings.borrow_mut().downloads_dir = Some(s.clone());
+            toaster.push(ToastLevel::Info, &format!(
+                "Dossier de téléchargement : {}",
+                short_path(&s),
+            ));
+        }
+    }
+}
+
+fn current_dir(settings: &Settings) -> Option<std::path::PathBuf> {
+    let user = settings.borrow().downloads_dir.clone();
+    user.filter(|s| !s.is_empty()).map(std::path::PathBuf::from)
+        .or_else(crate::platform::default_downloads_dir)
+}
+
+fn short_path(path: &str) -> String {
+    const MAX: usize = 48;
+    if path.chars().count() <= MAX { path.to_string() }
+    else {
+        let n = path.chars().count();
+        let tail: String = path.chars().skip(n - MAX + 1).collect();
+        format!("…{tail}")
+    }
 }

@@ -1,48 +1,42 @@
 //! Menu « ⋮ » du header — `Popover` au lieu de `Menu` pour le flip auto.
 //!
-//! Le `Menu` GTK3 s'ouvrait fixement à droite du bouton et débordait
-//! hors écran quand la navbar collait au bord droit. Le `Popover`
-//! re-positionne automatiquement (flip horizontal + vertical) selon
-//! l'espace disponible — le menu glisse vers la gauche tout seul.
+//! Contenu réduit aux **toggles** : le choisir-dossier vit maintenant
+//! comme bouton direct dans le header (le nested-popover cassait son
+//! FileChooser sur certains compositeurs).
 //!
-//! Contenu :
-//!   - bouton item « Choisir le dossier de destination… » → FileChooser.
-//!   - CheckButton « Re-vérifier avant ouverture » → toggle settings.
-//!
-//! Le choose-dir referme **le shelf parent** avant d'ouvrir le chooser :
-//! sinon le popover modal du shelf intercepte les events du FileChooser
-//! sous certains compositeurs (WSL/WSLg vu en pratique) → dialog
-//! invisible. `idle_add_local_once` défère assez pour laisser les
-//! popovers terminer leur popdown avant que `chooser.run()` ne bloque.
+//! Item actuel :
+//!   - CheckButton « Re-vérifier avant ouverture » → toggle
+//!     `settings.recheck_on_run`.
 
 use std::rc::Rc;
 
 use gtk::prelude::*;
 use gtk::{
-    Box as GtkBox, Button, CheckButton, FileChooserAction, FileChooserNative,
-    IconSize, Image, Label, MenuButton, Orientation, Popover, PositionType,
-    ResponseType, Window,
+    Box as GtkBox, CheckButton, IconSize, Image, MenuButton, Orientation,
+    Popover, PositionType, Window,
 };
 
 use crate::state::settings::Settings;
-use crate::ui::toast::{ToastHandle, ToastLevel};
+use crate::ui::toast::ToastHandle;
 
-const POP_WIDTH: i32 = 260;
+const POP_WIDTH: i32 = 240;
 
 /// Construit le `MenuButton` ⋮ avec un Popover ancré + auto-flip.
+/// `close_shelf` et `toaster` sont réservés pour de futures actions ;
+/// signature stable pour ne pas casser l'appelant si on ajoute des items.
 pub fn build(
     parent: Option<Window>,
     settings: Settings,
     close_shelf: Rc<dyn Fn()>,
     toaster: ToastHandle,
 ) -> MenuButton {
+    let _ = (parent, close_shelf, toaster); // réservés pour usage futur
+
     let btn = MenuButton::new();
     btn.set_image(Some(&Image::from_icon_name(
         Some("view-more-symbolic"), IconSize::Button,
     )));
     btn.set_relief(gtk::ReliefStyle::None);
-    // Pas de set_tooltip_text : GTK3 mis-project le tooltip dans le
-    // repère du popover parent → loin hors écran. L'icône est explicite.
     btn.style_context().add_class("nyx-nav-btn");
     btn.style_context().add_class("nyx-dl-action");
 
@@ -57,57 +51,12 @@ pub fn build(
     content.set_margin_start(6);
     content.set_margin_end(6);
 
-    add_choose_dir(&content, &pop, parent, settings.clone(), close_shelf, toaster);
     add_recheck_toggle(&content, settings);
 
     pop.add(&content);
     content.show_all();
     btn.set_popover(Some(&pop));
     btn
-}
-
-fn add_choose_dir(
-    content: &GtkBox, pop: &Popover, parent: Option<Window>, settings: Settings,
-    close_shelf: Rc<dyn Fn()>, toaster: ToastHandle,
-) {
-    let item = item_button("Choisir le dossier de destination…");
-    content.pack_start(&item, false, false, 0);
-
-    let p = pop.clone();
-    item.connect_clicked(move |_| {
-        // 1. Ferme le menu ⋮ (popover du MenuButton).
-        p.popdown();
-        // 2. Ferme le shelf parent — sinon son popover modal bloque le
-        //    FileChooser sur WSL/certains compositeurs.
-        close_shelf();
-        // 3. Défère le chooser au prochain idle : laisse les popovers
-        //    terminer leur popdown avant que `run()` ne bloque.
-        let parent_cl = parent.clone();
-        let settings_cl = settings.clone();
-        let toaster_cl = toaster.clone();
-        gtk::glib::idle_add_local_once(move || {
-            let chooser = FileChooserNative::new(
-                Some("Dossier de téléchargement"),
-                parent_cl.as_ref(),
-                FileChooserAction::SelectFolder,
-                Some("Sélectionner"),
-                Some("Annuler"),
-            );
-            if let Some(current) = current_dir(&settings_cl) {
-                let _ = chooser.set_current_folder(current);
-            }
-            if chooser.run() == ResponseType::Accept {
-                if let Some(path) = chooser.filename() {
-                    let s = path.to_string_lossy().into_owned();
-                    settings_cl.borrow_mut().downloads_dir = Some(s.clone());
-                    toaster_cl.push(ToastLevel::Info, &format!(
-                        "Dossier de téléchargement : {}",
-                        short_path(&s),
-                    ));
-                }
-            }
-        });
-    });
 }
 
 fn add_recheck_toggle(content: &GtkBox, settings: Settings) {
@@ -123,31 +72,4 @@ fn add_recheck_toggle(content: &GtkBox, settings: Settings) {
     check.connect_toggled(move |it| {
         settings.borrow_mut().recheck_on_run = it.is_active();
     });
-}
-
-fn item_button(text: &str) -> Button {
-    let btn = Button::with_label(text);
-    btn.set_relief(gtk::ReliefStyle::None);
-    btn.style_context().add_class("nyx-dl-menu-item");
-    if let Some(lbl) = btn.child().and_then(|c| c.downcast::<Label>().ok()) {
-        lbl.set_xalign(0.0);
-    }
-    btn
-}
-
-fn current_dir(settings: &Settings) -> Option<std::path::PathBuf> {
-    let user = settings.borrow().downloads_dir.clone();
-    user.filter(|s| !s.is_empty()).map(std::path::PathBuf::from)
-        .or_else(crate::platform::default_downloads_dir)
-}
-
-/// Tronque les chemins très longs pour rester lisible dans un toast.
-fn short_path(path: &str) -> String {
-    const MAX: usize = 48;
-    if path.chars().count() <= MAX { path.to_string() }
-    else {
-        let n = path.chars().count();
-        let tail: String = path.chars().skip(n - MAX + 1).collect();
-        format!("…{tail}")
-    }
 }
