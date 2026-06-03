@@ -211,7 +211,14 @@ main * { pointer-events: auto; }
             || canvas.getContext('experimental-webgl', { alpha: false });
 
     let GLU = null;
-    if (gl && initGL()) { runGL(); } else { runCanvas2D(); }
+    if (gl && initGL()) {
+        console.info('[Nyx] WebGL fluide actif');
+        runGL();
+    } else {
+        console.warn('[Nyx] WebGL indisponible → fallback Canvas-2D (animation appauvrie). '
+            + 'Cause = WebGL context creation OR shader compile/link. Voir errors plus haut.');
+        runCanvas2D();
+    }
 
     // ══════════════════════════ WebGL (fluide premium) ════════════════════
     function initGL() {
@@ -392,12 +399,29 @@ void main(){
     }
 
     function link(vsrc, fsrc) {
-        const c = (type, src) => { const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
-            return gl.getShaderParameter(s, gl.COMPILE_STATUS) ? s : null; };
+        // Log explicite des erreurs compile/link → utile F12 quand WebGL
+        // failover Canvas-2D (= 'animation pas visible' côté user).
+        const c = (type, src) => {
+            const s = gl.createShader(type);
+            gl.shaderSource(s, src);
+            gl.compileShader(s);
+            if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+                console.error('[Nyx][shader compile]',
+                    type === gl.VERTEX_SHADER ? 'vertex' : 'fragment',
+                    gl.getShaderInfoLog(s));
+                return null;
+            }
+            return s;
+        };
         const v = c(gl.VERTEX_SHADER, vsrc), f = c(gl.FRAGMENT_SHADER, fsrc);
         if (!v || !f) return null;
-        const p = gl.createProgram(); gl.attachShader(p, v); gl.attachShader(p, f); gl.linkProgram(p);
-        return gl.getProgramParameter(p, gl.LINK_STATUS) ? p : null;
+        const p = gl.createProgram();
+        gl.attachShader(p, v); gl.attachShader(p, f); gl.linkProgram(p);
+        if (!gl.getProgramParameter(p, gl.LINK_STATUS)) {
+            console.error('[Nyx][shader link]', gl.getProgramInfoLog(p));
+            return null;
+        }
+        return p;
     }
 
     function pushUniforms(now, dt) {
