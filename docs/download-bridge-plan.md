@@ -135,56 +135,87 @@ Création best-effort au boot via `std::fs::create_dir_all`. Si échec
 
 Naming :
 ```
-<16-hex-random>_<sanitized_filename>
+<32-hex-random>_<sanitized_filename>
 ```
-- 16 octets random via `getrandom` (collision quasi-impossible, pas
-  prévisible).
-- `sanitized_filename` est déjà le `normalized_filename` du `Report`
+- **32 hex = 128 bits** d'entropie (décision review user — confortable
+  contre toute collision même sur 10⁹ DL par utilisateur).
+- Random via `getrandom::getrandom()` (CSPRNG OS-fourni).
+- `sanitized_filename` est le `normalized_filename` du `Report`
   pre-flight (no NUL, no `/`, no bidi, no Windows reserved).
 - Pas de path traversal possible (le nom n'a pas de séparateur).
 
 Permissions : pas de `chmod`, pas de `set_permissions`. Le fichier
-hérite des perms du dossier (umask user).
+hérite des perms du dossier (umask user). Sur Linux/macOS, le dossier
+parent est créé avec mode 0700 si possible (`set_permissions` sur le
+dossier — pas sur le fichier).
 
 ---
 
-## 5. `.nyxmeta` sidecar — quarantine metadata
+## 5. `.nyxmeta` sidecar — quarantine metadata (key=value strict)
 
-Format : JSON, écrit à côté du fichier final (final_path + ".nyxmeta").
+**Format : key=value, une paire par ligne, pas de JSON.**
 
-Contenu :
-```json
-{
-  "schema": 1,
-  "sha256": "abcdef…64chars",
-  "size_bytes": 12345,
-  "sniffed": "Png",
-  "declared_ext": "png",
-  "declared_mime": "image/png",
-  "source_origin": "https://example.com",
-  "started_at_unix": 1700000000,
-  "finished_at_unix": 1700000050,
-  "verdict": "Allow",
-  "reasons": ["SafeType"]
-}
+Décision suite à review user : éviter le JSON manuel (échappement
+piégeux : `"`, `\`, newlines, bidi, controls). `serde_json` ajoute une
+dépendance non-justifiée pour 10 champs scalaires figés. Un format
+key=value strict avec règles de validation simples est plus défensif
+que les deux.
+
+### Format
+```
+schema=1
+sha256=<64 chars 0-9a-f>
+size_bytes=<u64>
+sniffed=<Detected variant name>
+declared_ext=<sanitized, lowercase>
+declared_mime=<sanitized, lowercase>
+source_host=<host only, no scheme/path/query>
+final_host=<host only, après redirects>
+started_at_unix=<i64>
+finished_at_unix=<i64>
+verdict=<Allow|Ask|AskDanger|Block>
+reasons=<comma-separated Reason variants>
 ```
 
-Pas de path absolu dans le meta (juste basename via le nom du fichier
-sibling). Pas de query string. Pas de cookie. Pas de token.
+### Règles de validation (à l'écriture ET à la lecture)
+- Une paire par ligne, séparateur `=` (premier `=` rencontré).
+- Clés : `[a-z_]+` uniquement. Toute autre clé → ligne rejetée à
+  l'écriture, ignorée silencieusement à la lecture.
+- Valeurs : UTF-8 valide, AUCUN `\n` `\r` `\0`, pas de control char
+  (`< 0x20`) sauf espace. Longueur ≤ 512 octets par valeur.
+- Lignes vides et lignes commençant par `#` → ignorées (futur commentaire).
+- Champs inconnus à la lecture → ignorés (forward compat).
+- Champs requis manquants à la lecture → `parse` retourne `None`.
+- Doublons : la dernière valeur gagne (forward compat sur format évolutif).
 
-Écrit AVANT le rename temp→final, dans le temp_root, puis déplacé en
-même temps que le fichier (un seul `rename` atomique côté FS pour les
-deux ? Non — deux renames : data d'abord, meta ensuite. Si crash entre
-les deux, meta sera absent au démarrage suivant → on n'utilise pas le
-fichier pour autant, on signale juste "non-quarantined" dans la shelf).
+### Champs jamais inclus (defense-in-depth)
+- ❌ URL complète avec path / query / fragment
+- ❌ Headers HTTP
+- ❌ Cookies
+- ❌ Token / auth
+- ❌ Full path absolu (juste le basename via le nom du sibling)
+- ❌ User-Agent
+- ❌ Referer
 
+### Ordre d'écriture (séquence atomique-friendly)
+1. Le payload est dans temp_path après `finished`.
+2. Écriture du `.nyxmeta` à côté de temp_path (`<temp>.nyxmeta`).
+3. `rename(temp_path → final_path)` (atomique POSIX si même FS).
+4. `rename(<temp>.nyxmeta → <final>.nyxmeta)` (idem).
+
+Si crash entre 3 et 4 : payload présent, meta absent → on affiche
+« non-quarantined » dans la shelf (le hash et la décision sont
+re-calculables sur lecture).
+
+### Implémentation
 `nyx-core/src/downloads/quarantine.rs` (pur) :
-- `QuarantineMeta { …champs… }`
-- `serialize(&self) -> String` (sérialise en JSON manuellement, sans
-  serde — la struct est petite et figée).
-- `parse(&str) -> Option<QuarantineMeta>` (parse minimal, robuste aux
-  champs inconnus / version future).
-- Tests : round-trip, hostile inputs.
+- `pub struct QuarantineMeta { …champs typés… }`
+- `pub fn serialize(&self) -> String` (~30 lignes, validation + write).
+- `pub fn parse(&str) -> Option<QuarantineMeta>` (~50 lignes,
+  defensive, ignore unknown).
+- Tests : round-trip, hostile inputs (NUL byte, newline, control,
+  équal multiples, key invalide, valeur longue, doublons, unknown
+  fields, version future).
 
 ---
 
@@ -193,11 +224,17 @@ fichier pour autant, on signale juste "non-quarantined" dans la shelf).
 ### Au démarrage (boot scan)
 
 `crates/browser/src/web/downloads/cleanup.rs` :
-- Au boot du `WebContext`, scan `temp_root` :
-  - fichiers plus vieux que 24h → delete (best-effort).
-  - fichiers sans entrée store correspondante (le store ne persiste pas
-    encore — donc TOUS au boot) → delete.
-- Pas de scan récursif. Pas de symlink follow.
+- Au boot du `WebContext`, scan `temp_root` avec ces règles strictes :
+  - **canonicalize le path** (suit les `..` et liens dans le PARENT,
+    pas l'entrée). Si `canonical(entry).starts_with(canonical(temp_root))`
+    est faux → skip (paranoïa anti-symlink).
+  - Vérifie `metadata().file_type().is_symlink()` → skip si oui.
+  - fichiers > 24h (`modified()` vs `now`) → delete.
+  - **À tout instant le scan ne quitte pas temp_root** (pas de
+    récursion ; un seul `read_dir`).
+  - Erreurs `remove_file` ignorées silencieusement (best-effort).
+- Failed download : delete temp IMMÉDIATEMENT dans le callback `failed`
+  (pas attendre le boot — limite la fenêtre d'orphelin).
 
 ### Au cancel UI (à venir, hors de cette Tâche)
 
@@ -214,19 +251,29 @@ nettoie au prochain démarrage (24h cap). Acceptable.
 
 ## 7. Sécurité — invariants garantis
 
-| Règle                                                  | Garantie                              |
-|--------------------------------------------------------|---------------------------------------|
-| Aucun `chmod +x`                                       | jamais d'appel `set_permissions`      |
-| Aucun auto-open                                        | aucun `platform::open_path` post-DL   |
-| `Verdict::Block` toujours respecté                     | cancel + delete + mark_failed         |
-| Re-sniff fait avant move final                         | post-flight obligatoire               |
-| MIME mismatch détecté                                  | déjà dans `download_policy::analyze`  |
-| Pas de chemin web non-sanitizé en CLI                  | filenames passent `download_policy`   |
-| Pas de full path dans `.nyxmeta`                       | basename uniquement                   |
-| Pas de tokens / cookies dans les logs                  | `sec_log::redact_url`                 |
-| Pas de symlink follow au scan boot                     | `read_dir + remove_file` direct       |
-| Pas de race write↔execute                              | jamais d'exec dans cette Tâche        |
-| `recheck_on_run` toujours respecté côté shelf          | la pipeline DL est indépendante       |
+Liste exhaustive issue de la review user, à respecter par construction
+ET vérifier par tests/inspection lors de chaque PR touchant le bridge :
+
+| #  | Invariant                                                      | Garantie / mécanisme                              |
+|----|----------------------------------------------------------------|---------------------------------------------------|
+| 1  | Temp dir créé en mode 0700 si possible                         | `set_permissions` sur le dossier au boot          |
+| 2  | Payload jamais ouvert automatiquement                          | aucun `platform::open_path` post-DL               |
+| 3  | Destination finale **uniquement** après policy verdict         | move temp→final fait dans la branche Allow/Yes    |
+| 4  | Aucun `chmod +x` sur le payload                                | jamais d'appel `set_permissions` sur les fichiers |
+| 5  | Nom final toujours sanitized                                   | `download_policy::Report::normalized_filename`    |
+| 6  | Filename serveur jamais trusté                                 | `Content-Disposition` passe par sanitize          |
+| 7  | MIME serveur jamais trusté seul                                | `magic_bytes::sniff` post-flight prioritaire      |
+| 8  | Magic bytes priorisent sur l'extension                         | `matches_extension` croise les deux               |
+| 9  | Redirection finale ré-analysée                                 | `download_policy::Request::final_url` post-DL     |
+| 10 | Dangerous origin bloque même type safe                         | déjà dans `download_policy::synthesize_verdict`   |
+| 11 | `.nyxmeta` jamais URL complète avec query                      | meta n'expose que `source_host` / `final_host`    |
+| 12 | Boot scan ne suit jamais les symlinks                          | canonicalize + `is_symlink()` check               |
+| 13 | `Verdict::Block` toujours respecté                             | cancel + delete + mark_failed sans détour         |
+| 14 | Pas de tokens / cookies dans les logs                          | `sec_log::redact_url` + host-only                 |
+| 15 | Pas de race write↔execute                                      | aucun exec dans cette Tâche                       |
+| 16 | `recheck_on_run` toujours respecté côté shelf                  | pipeline DL indépendante (post-flight ≠ post-run) |
+| 17 | Failed delete temp **immédiat** (pas seulement boot)           | callback `failed` dans `bridge.rs`                |
+| 18 | Random temp suffix CSPRNG 128 bits                             | `getrandom::getrandom([0u8; 16])`                 |
 
 ---
 
@@ -260,6 +307,20 @@ sanitized name dans la shelf).
 Le bridge dépend de signaux WebKit qu'on ne peut pas mocker proprement
 en pur Rust. Les tests d'intégration restent **manuels** sur les pages
 hostiles. Les modules `nyx-core` ont 100% des tests automatisés.
+
+### TODO future (noté pour ne pas perdre)
+
+```
+TODO[future]: xvfb + gtk smoke test
+  - Lance Nyx headless dans xvfb-run
+  - Charge tests/pages/download_*.html via une route locale
+  - Vérifie que la shelf affiche le verdict attendu via inspecteur
+  - Probablement après une refonte du runtime (webkit2gtk 6 +
+    headless mode amélioré)
+```
+
+Pas pour cette Tâche. Mais le placeholder est là pour qu'on n'oublie
+pas d'y revenir.
 
 ---
 
@@ -352,19 +413,21 @@ ne peut être verified que via `cargo run` sur le user setup.
 
 ---
 
-## 13. Question pour validation
+## 13. Décisions finales (après review user)
 
-Je peux procéder à la Tâche 5 dans cette forme si tu confirmes :
+| # | Décision                                                | Statut                                                                  |
+|---|---------------------------------------------------------|-------------------------------------------------------------------------|
+| 1 | `sha2` + `getrandom` dans `nyx-core/Cargo.toml`         | ✅ validé                                                               |
+| 2 | Format `.nyxmeta`                                       | 🔄 **key=value strict** (Option B review) — pas de JSON manuel ni serde |
+| 3 | 2 branches successives `-core` puis `-webkit`           | ✅ validé                                                               |
+| 4 | Tests WebKit = pages hostiles manuelles                 | ✅ validé pour MVP + TODO future xvfb (§8)                              |
+| 5 | `.nyxmeta` sidecar (pas DB)                             | ✅ validé                                                               |
+| 6 | Boot scan 24h                                           | ✅ validé + no symlink + canonical path + failed delete immédiat        |
 
-1. ✅ Ajout des crates `sha2` et `getrandom` à `nyx-core/Cargo.toml`.
-2. ✅ Format JSON inline (pas de `serde_json` dep — la struct est figée
-   et la sérialisation manuelle reste < 50 lignes).
-3. ✅ Découpage en 2 branches successives (`-core` puis `-webkit`).
-4. ✅ Tests d'intégration WebKit = pages hostiles + vérification manuelle.
-   Pas de mock WebView CI.
-5. ✅ `.nyxmeta` sidecar JSON (pas de DB — SQLCipher reste Sprint 2).
-6. ✅ Boot scan du temp dir avec cap 24h.
+**Décisions additionnelles issues de la review** :
+- Random suffix : **32 hex (128 bits)** au lieu de 16 hex.
+- `.nyxmeta` : `source_host` / `final_host` uniquement, jamais d'URL.
+- Invariants sécurité : §7 étendu de 11 à 18 règles explicites.
+- Temp dir parent : mode 0700 si possible (Unix-only).
 
-Si tu valides ces 6 points, je commence par `feat/download-bridge-core`.
-Si l'un te déplaît, dis-le maintenant — coût du change = zéro tant que
-rien n'est codé.
+Prochaine action : `feat/download-bridge-core` (nyx-core uniquement).
