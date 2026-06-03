@@ -116,22 +116,21 @@ main * { pointer-events: auto; }
     // ── Constantes d'interaction — réglage du sillage Kelvin + ripples.
     // Pousse ces valeurs pour ajuster la sensation sans toucher au shader.
     const TUNING = {
-        // ── LAME : le doigt dans l'eau calme ──
-        // PAS DE LIGHT TRAIL : la trace est une vraie PERTURBATION du
-        // pattern fluide (warp + depression shading), pas un overlay
-        // lumineux. Comme un doigt qui pousse l'eau : le pattern se
-        // déforme, s'assombrit légèrement (refection brisée), et
-        // revient à l'équilibre après le passage.
-        wakeStrength:        1.15,  // amplitude globale du wake
-        wakeLength:          0.65,  // fade longitudinal lent → fin invisible
-        wakeWidth:           0.090, // sigma transverse du gaussien
-        wakeSharpness:       3.2,   // raideur du gaussien — lignes fines
-        wakeAngleTan:        0.36,  // tan(angle V) — 0.35 ≈ 19° Kelvin
-        wakeUndulation:      0.010, // amplitude de l'ondulation organique
-        wakeWarp:            0.130, // AMPLITUDE DU WARP — c'est ÇA qui crée
-                                    // la perturbation visible du pattern
-        wakeDarkness:        0.25,  // assombrissement dépressionnaire (0..1)
-        wakeBackwardBias:    0.45,  // composante drag derrière le curseur
+        // ── ADVECTION : le pattern DU FLUIDE suit le curseur ──
+        // Pas de V dessiné, pas de light, pas de darkening. À l'intérieur
+        // du cône en V derrière le curseur, le pattern de la nébuleuse
+        // est DRAG ARRIÈRE (advection pure). À l'extérieur, intact.
+        // Le V apparaît AUTOMATIQUEMENT à la frontière entre les deux
+        // zones — c'est le pattern qui forme le V, pas un dessin.
+        // Exactement comme un doigt qui glisse sur l'eau : l'eau dans
+        // son sillage suit, l'eau autour est immobile.
+        wakeStrength:        1.5,   // amplitude globale
+        wakeLength:          0.70,  // longueur du fade longitudinal
+        wakeWidth:           0.055, // douceur frontière cône (+ petit = + net)
+        wakeAngleTan:        0.36,  // tan(angle V)
+        wakeUndulation:      0.012, // ondulation organique de la frontière
+        wakeWarp:            0.220, // AMPLITUDE DU DRAG ARRIÈRE — c'est ÇA
+                                    // qui crée la perturbation physique
 
         // ── Click : caillou tombe dans l'eau ──
         clickRippleStrength: 0.028,
@@ -246,11 +245,8 @@ uniform vec3 u_p0,u_p1,u_p2,u_p3,u_glow;uniform float u_warp,u_vbias,u_speed;
 const float WAKE_STRENGTH         = ${F(TUNING.wakeStrength)};
 const float WAKE_LENGTH           = ${F(TUNING.wakeLength)};
 const float WAKE_WIDTH            = ${F(TUNING.wakeWidth)};
-const float WAKE_SHARPNESS        = ${F(TUNING.wakeSharpness)};
 const float WAKE_UNDULATION       = ${F(TUNING.wakeUndulation)};
 const float WAKE_WARP             = ${F(TUNING.wakeWarp)};
-const float WAKE_DARKNESS         = ${F(TUNING.wakeDarkness)};
-const float WAKE_BACKWARD_BIAS    = ${F(TUNING.wakeBackwardBias)};
 const float CLICK_RIPPLE_STRENGTH = ${F(TUNING.clickRippleStrength)};
 const float CLICK_RIPPLE_SPEED    = ${F(TUNING.clickRippleSpeed)};
 const float CLICK_RIPPLE_DECAY    = ${F(TUNING.clickRippleDecay)};
@@ -294,58 +290,55 @@ void main(){
  float lateral=dot(dM,Nperp);
  float backward=max(0.0,-para);
 
- // Distance signée à la branche idéale (= 0 sur la ligne théorique du V).
- // Ondulation longitudinale (sin cheap) → branches vivantes pas droites.
- float undulation=sin(backward*22.0-u_time*4.0)*WAKE_UNDULATION;
- float branchDist=abs(lateral+undulation*sign(lateral))-KELVIN_TAN*backward;
+ // ─── ADVECTION DANS LE CÔNE — le pattern DU FLUIDE suit le curseur ──
+ // Plus de branches V dessinées. À la place : tout le pattern fbm
+ // INSIDE le cône en V derrière le curseur est DRAGUÉ vers l'arrière
+ // (direction -D). À l'extérieur du cône, le pattern reste intact.
+ // Le V apparaît naturellement à la frontière dragué/intact — c'est
+ // le PATTERN qui forme le V, pas un overlay.
 
- // Falloff transversal — VRAI gaussien exp(-bw²·SHARPNESS).
- // L'ancien 1/(1+x²) avait de longues queues qui peignaient un rectangle
- // plein derrière le curseur (= barre horizontale du T perçu). Le
- // gaussien tombe exponentiellement → DEUX LIGNES FINES, sans aire.
- float bw=branchDist/WAKE_WIDTH;
- float wakeTrans=exp(-bw*bw*WAKE_SHARPNESS);
+ // Ondulation longitudinale : sin cheap → frontière vivante, pas droite.
+ float undulation=sin(backward*22.0-u_time*4.0)*WAKE_UNDULATION;
+
+ // Distance signée à la frontière du cône V :
+ //   <0 : INSIDE le cône (zone draguée)
+ //   >0 : OUTSIDE le cône (zone intacte)
+ float coneBoundary=abs(lateral+undulation*sign(lateral))-KELVIN_TAN*backward;
+
+ // Smoothstep inverse : 1 deep inside, transition sur WAKE_WIDTH, 0 outside.
+ // C'est ÇA qui définit la frontière du V — la largeur de transition
+ // détermine la netteté du sillage. WAKE_WIDTH petit = V net (lame),
+ // WAKE_WIDTH grand = V flou (vague large).
+ float inCone=smoothstep(0.0,-WAKE_WIDTH,coneBoundary);
+
  // Décroissance longitudinale — smoothstep QUINTIQUE wl³(6wl²-15wl+10).
- // C2-continu, dérivée nulle aux deux bouts → fondu velouté, pas de
- // 'trait coupant'. NOTE : variable 'wl' et PAS 'r' (collision avec
- // vec2 r plus bas → shader fail silently). ATTENTION : pas de backticks
- // dans ce commentaire (cf. bug récurrent, template literal JS).
+ // C2-continu, dérivée nulle aux deux bouts → fondu velouté.
+ // NOTE : variable 'wl' et PAS 'r' (collision avec vec2 r plus bas →
+ // shader fail). ATTENTION : pas de backticks dans ce commentaire.
  float wl=max(0.0,1.0-backward/WAKE_LENGTH);
  float wakeLong=wl*wl*wl*(wl*(wl*6.0-15.0)+10.0);
  // Anti-front : aucun effet devant le curseur, transition douce.
  float wakeFront=smoothstep(0.0,0.025,backward);
 
  // ─── Courbe de réponse à la vélocité — viscosité physique ───
- // Au lieu de wakeMag ∝ u_mvel (réponse linéaire = fast cursor = wake
- // énorme), on utilise une cloche centrée sur une vitesse moyenne :
- //   velPresence(v) = v * VEL_PEAK_GAIN / (VEL_PEAK² + v²)
- //                  = 1.8v / (0.36 + v²)
- // Pic à v = √0.36 = 0.6, valeur = 1.5.
- // Plus lent = plus de drag → perturbation forte. Plus rapide = la lame
- // 'fend' sans drag → perturbation faible. Inspiré du nombre de Froude
- // en hydrodynamique : à basse vitesse les ondes de gravité dominent,
- // à haute vitesse seules les ondes capillaires de faible amplitude.
- //   v=0    → 0        (cursor immobile = pas de wake)
- //   v=0.3  → 1.20
- //   v=0.6  → 1.50  ← pic
- //   v=1.0  → 1.32
- //   v=2.0  → 0.82
+ // velPresence(v) = 1.8v / (0.36 + v²), pic à v=0.6 valeur 1.5.
+ // Plus lent = plus de drag (perturbation forte). Plus rapide = la
+ // lame fend sans drag (perturbation modérée).
+ //   v=0   → 0    | v=0.3 → 1.20 | v=0.6 → 1.50 ← pic
+ //   v=1.0 → 1.32 | v=2.0 → 0.82
  float velPresence=u_mvel*1.8/(0.36+u_mvel*u_mvel);
 
- // Magnitude unique — sert au warp ET à la light de trace.
- float wakeMag=wakeTrans*wakeLong*wakeFront*velPresence*WAKE_STRENGTH;
+ // Magnitude totale du drag à ce pixel.
+ float wakeMag=inCone*wakeLong*wakeFront*velPresence*WAKE_STRENGTH;
 
- // Push perpendiculaire à D + drag arrière (WAKE_BACKWARD_BIAS).
- // Le bias arrière fait suivre le pattern derrière le curseur, comme
- // l'eau qui colle au doigt par viscosité avant de relâcher.
- vec2 rawWakeDir=Nperp*sign(lateral)-D*WAKE_BACKWARD_BIAS;
- vec2 wakeDir=rawWakeDir/max(length(rawWakeDir),0.001);
- // WARP est le COEUR de la perturbation physique : le pattern fbm est
- // littéralement déplacé sous le passage. Comme le profil transverse
- // est un gaussien sharp (lignes fines), un warp FORT (0.13 vs 0.028
- // au début) ne crée pas de rectangle. La distorsion est concentrée
- // sur les deux branches du V, là où elle doit être.
- vec2 wakePush=wakeDir*wakeMag*WAKE_WARP;
+ // DRAG ARRIÈRE : -D = direction opposée au mouvement. Le pattern à
+ // ce pixel est sampled à (p + (-D * wakeMag * WARP)) → le motif fbm
+ // visible apparaît COMME S'IL VENAIT de derrière, en retard sur la
+ // position du curseur. C'est l'advection : le fluide à l'intérieur
+ // du cône suit le curseur par viscosité.
+ // ATTENTION : pas de backticks dans ce commentaire, ils fermeraient
+ // la template literal JS qui contient le shader (cf. bug récurrent).
+ vec2 wakePush=-D*wakeMag*WAKE_WARP;
 
  // ─── Click ripples : caillou tombe — dépression + 3 anneaux amortis ───
  vec2 rippleDisp=vec2(0.0);
@@ -402,14 +395,10 @@ void main(){
  // EUX qui créaient le 'rond' indésirable. La lame est invisible au
  // point du curseur ; on ne voit QUE le V derrière.
 
- // ─── Dépression dans le sillage — assombrissement physique ───
- // PLUS DE TRAIT LUMINEUX. Le sillon est un CREUX dans la surface :
- // l'eau s'enfonce sous le passage, perd ses reflets, devient plus
- // sombre. C'est exactement ce qu'on voit dans l'eau calme quand le
- // doigt glisse — pas de glow chaud, juste un sillage légèrement
- // assombri qui distort le pattern dessous (via le warp p += wakePush
- // appliqué plus haut).
- col*=1.0-wakeMag*WAKE_DARKNESS;
+ // PAS D'OVERLAY COULEUR pour le wake. Le V est ENTIÈREMENT formé par
+ // la déformation du pattern fbm via p += wakePush appliqué plus haut.
+ // Aucune light, aucun darkening — uniquement la physique de
+ // l'advection. La perturbation est REELLE, pas peinte par-dessus.
 
  // Ondulations lumineuses des ripples (en plus du displacement).
  col+=u_glow*wave*0.12;
