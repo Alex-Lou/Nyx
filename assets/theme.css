@@ -206,17 +206,58 @@ window, .background {
     letter-spacing: 0.02em;
 }
 
-/* Menu déroulant ⋮ (Choisir destination, Re-vérifier) — fond thème,
-   pas le blanc système par défaut. */
-.nyx-dl-menu,
-.nyx-dl-menu menuitem {
+/* Menu déroulant ⋮ : Popover (auto-flip horizontal/vertical sur bord
+   d'écran — fini les sorties de cadre vers la droite). */
+.nyx-dl-menu-pop {
     background-color: @nyx_surface;
-    color: @nyx_text;
-    padding: 4px 8px;
+    border: 1px solid @nyx_border;
+    border-radius: 10px;
 }
-.nyx-dl-menu menuitem:hover {
+
+.nyx-dl-menu-pop > contents,
+.nyx-dl-menu-pop > arrow {
+    background-color: @nyx_surface;
+}
+
+.nyx-dl-menu-item {
+    background: none;
+    background-image: none;
+    border: none;
+    box-shadow: none;
+    outline: none;
+    color: @nyx_text;
+    padding: 6px 10px;
+    border-radius: 6px;
+    transition: background-color 120ms ease, color 120ms ease;
+}
+.nyx-dl-menu-item:hover {
     background-color: @nyx_raised;
     color: @nyx_aurora;
+}
+
+/* CheckButton « Re-vérifier avant ouverture » — réutilise le style item
+   tout en gardant la case à cocher native. */
+.nyx-dl-menu-toggle {
+    color: @nyx_text;
+    padding: 4px 10px;
+    border-radius: 6px;
+    transition: background-color 120ms ease;
+}
+.nyx-dl-menu-toggle:hover { background-color: @nyx_raised; }
+
+.nyx-dl-menu-toggle check {
+    min-width: 14px;
+    min-height: 14px;
+    margin-right: 6px;
+    background-color: @nyx_raised;
+    border: 1px solid @nyx_border;
+    border-radius: 3px;
+}
+.nyx-dl-menu-toggle check:checked {
+    background-color: @nyx_aurora;
+    background-image: none;
+    border-color: @nyx_aurora;
+    color: @nyx_void;
 }
 
 /* ── Tooltips globaux (étaient gris/blanc système crades) ───────── */
