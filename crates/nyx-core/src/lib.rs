@@ -5,6 +5,7 @@
 
 pub mod domain_risk;
 pub mod download_policy;
+pub mod mode;
 pub mod nyxguard;
 pub mod permissions;
 pub mod sec_log;

@@ -13,6 +13,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
+use crate::mode::Mode;
 use crate::sec_log::{self, Level};
 
 /// Surface à laquelle un site demande accès.
@@ -52,18 +53,6 @@ pub enum Decision {
     Ask,
 }
 
-/// Mode global du navigateur — change drastiquement les défauts.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum Mode {
-    /// Demande, mémorise.
-    #[default]
-    Normal,
-    /// Demande toujours, jamais de mémoire.
-    Shadow,
-    /// Refuse tout sauf whitelist explicite.
-    Banking,
-}
-
 /// Store partagé (Rc<RefCell<…>> — le navigateur est single-threaded GTK).
 pub type PermissionStore = Rc<RefCell<Store>>;
 
@@ -98,7 +87,10 @@ impl Store {
                 .copied()
                 .unwrap_or(Decision::Deny),
             Mode::Shadow => Decision::Ask, // jamais de mémoire
-            Mode::Normal => self.saved
+            // Dev se comporte comme Normal pour les permissions : aucune
+            // surface d'attaque ne justifie d'autoriser caméra/micro plus
+            // largement en local que sur le web public.
+            Mode::Normal | Mode::Dev => self.saved
                 .get(&(origin.to_string(), perm))
                 .copied()
                 .unwrap_or(Decision::Ask),
@@ -202,6 +194,19 @@ mod tests {
         let mut s = s();
         s.set_mode(Mode::Banking);
         assert_eq!(s.decide("https://example.com", Permission::Camera), Decision::Deny);
+    }
+
+    /// Dev mode (partagé avec download_policy) doit se comporter comme Normal :
+    /// pas de relâchement sur caméra/micro/géoloc en local.
+    #[test]
+    fn dev_behaves_like_normal_for_permissions() {
+        let mut s = s();
+        s.set_mode(Mode::Dev);
+        assert_eq!(s.decide("https://example.com", Permission::Camera), Decision::Ask);
+        s.grant("https://example.com".into(), Permission::Camera);
+        assert_eq!(s.decide("https://example.com", Permission::Camera), Decision::Allow);
+        // Dev mémorise comme Normal (contrairement à Shadow).
+        assert_eq!(s.len(), 1);
     }
 
     #[test]

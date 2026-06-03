@@ -13,6 +13,10 @@
 use crate::domain_risk::{analyze_url, Risk};
 use crate::sec_log::{self, Level};
 
+/// Mode global du navigateur — partagé via [`crate::mode`]. Ré-exporté pour
+/// préserver la voie d'import `vault_autofill::Mode` historique.
+pub use crate::mode::Mode;
+
 // ─── Modèle ─────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -35,16 +39,6 @@ pub enum FieldKind {
     CreditCard,
     /// Autres champs sensibles (TOTP code, secret).
     Other,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum Mode {
-    #[default]
-    Normal,
-    /// Toujours `Ask`, jamais `Allow` silencieux.
-    Shadow,
-    /// Match exact requis + jamais d'autofill silencieux.
-    Banking,
 }
 
 #[derive(Debug, Clone)]
@@ -155,7 +149,9 @@ fn collect_mode_constraints(mode: Mode, field: FieldKind, out: &mut Vec<Reason>)
     match mode {
         Mode::Shadow  => out.push(Reason::ShadowMode),
         Mode::Banking => out.push(Reason::BankingMode),
-        Mode::Normal  => {}
+        // Dev se comporte comme Normal côté autofill : pas de relâchement,
+        // un credential reste un credential qu'on soit sur localhost ou pas.
+        Mode::Normal | Mode::Dev => {}
     }
     if matches!(field, FieldKind::CreditCard) {
         out.push(Reason::CreditCardField);
@@ -431,6 +427,19 @@ mod tests {
         let mut r = req("https://pаypal.com/", "", "https://pаypal.com");
         r.mode = Mode::Shadow;
         assert_eq!(decide(&r).decision, Decision::Deny);
+    }
+
+    /// Dev se comporte comme Normal pour autofill : aucun relâchement.
+    /// Localhost reste verrouillé par la politique vault (origin match).
+    #[test]
+    fn dev_mode_behaves_like_normal_for_autofill() {
+        let mut r = req("https://example.com/", "", "https://example.com");
+        r.mode = Mode::Dev;
+        assert_eq!(decide(&r).decision, Decision::Allow);
+        // Pas de raison "DevMode" injectée — Dev ne signale rien.
+        let report = decide(&r);
+        assert!(!report.reasons.iter().any(|x|
+            matches!(x, Reason::ShadowMode | Reason::BankingMode)));
     }
 
     // ─── Origines extraites ─────────────────────────────────────────
