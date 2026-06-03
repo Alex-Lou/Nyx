@@ -295,7 +295,7 @@ struct RequestData {
 
 fn read_request(download: &Download) -> RequestData {
     let uri = download.request().and_then(|r| r.uri()).map(|u| u.to_string()).unwrap_or_default();
-    let suggested = DownloadExt::suggested_filename(download)
+    let suggested = download.suggested_filename()
         .map(|s| s.to_string()).unwrap_or_default();
     let response = download.response();
     let mime = response.as_ref().and_then(|r| r.mime_type()).map(|m| m.to_string()).unwrap_or_default();
