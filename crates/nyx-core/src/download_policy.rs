@@ -11,6 +11,10 @@
 use crate::domain_risk::{analyze_url, Risk};
 use crate::sec_log::{self, Level};
 
+/// Mode global du navigateur — partagé via [`crate::mode`]. Ré-exporté pour
+/// préserver la voie d'import `download_policy::Mode` historique.
+pub use crate::mode::Mode;
+
 // ─── Modèle ─────────────────────────────────────────────────────────────────
 
 /// Verdict final — granularité riche pour ne pas confondre un .zip de github
@@ -40,19 +44,6 @@ pub enum Kind {
     /// Office avec macros activées (`.docm`, `.xlsm`, `.pptm`).
     MacroDoc,
     Unknown,
-}
-
-/// Mode d'usage de Nyx — politique drastiquement différente.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum Mode {
-    #[default]
-    Normal,
-    /// Téléchargements traités comme suspects par défaut.
-    Shadow,
-    /// Tout sauf safe + même domaine → bloqué.
-    Banking,
-    /// Plus permissif pour le dev (localhost OK, .deb OK avec Ask seulement).
-    Dev,
 }
 
 /// Entrée du guard. Construite par le browser à partir des données WebKit.
