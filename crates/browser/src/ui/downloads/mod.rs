@@ -20,6 +20,7 @@ mod header;
 mod menu;
 mod popover;
 mod row;
+mod widgets;
 
 use gtk::prelude::*;
 use gtk::Button;
