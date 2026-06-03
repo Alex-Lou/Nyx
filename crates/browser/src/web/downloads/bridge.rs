@@ -96,6 +96,12 @@ fn on_started(
         pre.final_origin.clone(),
         started_at,
     );
+    // Toast immédiat — efface le 2-3s "silent gap" entre clic et premier
+    // received-data côté WebKit. L'user voit que la DL a démarré.
+    toaster.push(ToastLevel::Info, &format!(
+        "Téléchargement démarré : {}",
+        short_filename(&pre.normalized_filename),
+    ));
 
     let pre_rc = Rc::new(pre);
     let temp_rc = Rc::new(temp_path);

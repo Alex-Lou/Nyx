@@ -436,6 +436,214 @@ tooltip decoration { background: transparent; box-shadow: none; }
     box-shadow: 0 6px 24px alpha(#ff7eb3, 0.45);
 }
 
+/* ══════════════════════════════════════════════════
+   WIDGETS GTK NATIFS — TOUT CUSTOM, ZÉRO LOOK LINUX
+   ══════════════════════════════════════════════════ */
+
+/* ── Menus contextuels (right-click WebKit, popover menus) ────── */
+
+menu, .menu, .context-menu, popover.menu, popover modelbutton {
+    background-color: @nyx_surface;
+    border: 1px solid @nyx_border;
+    border-radius: 10px;
+    padding: 6px;
+    color: @nyx_text;
+    box-shadow: 0 12px 36px alpha(@nyx_void, 0.5);
+}
+
+menuitem, menu menuitem, .menu menuitem, modelbutton {
+    background: none;
+    background-image: none;
+    color: @nyx_text;
+    padding: 6px 14px;
+    border-radius: 6px;
+    border: none;
+    box-shadow: none;
+    outline: none;
+    transition: background-color 120ms ease, color 120ms ease;
+}
+
+menuitem:hover, menu menuitem:hover, .menu menuitem:hover,
+modelbutton:hover {
+    background-color: @nyx_raised;
+    background-image: none;
+    color: @nyx_aurora;
+    border: none;
+    box-shadow: none;
+    outline: none;
+}
+
+menuitem:disabled, menu menuitem:disabled { color: @nyx_ghost; }
+
+menu separator, separator.horizontal, separator {
+    background-color: @nyx_border;
+    background-image: none;
+    min-height: 1px;
+    margin: 5px 4px;
+    border: none;
+}
+
+/* Check / radio inside menus */
+menuitem check, menuitem radio,
+modelbutton check, modelbutton radio {
+    background-color: @nyx_raised;
+    border: 1px solid @nyx_border;
+    border-radius: 3px;
+    min-width: 13px;
+    min-height: 13px;
+    margin-right: 6px;
+}
+menuitem check:checked, menuitem radio:checked,
+modelbutton check:checked, modelbutton radio:checked {
+    background-color: @nyx_aurora;
+    background-image: none;
+    border-color: @nyx_aurora;
+    color: @nyx_void;
+}
+
+/* ── FileChooserDialog ─────────────────────────────────────── */
+
+filechooser, filechooser dialog, filechooserdialog,
+filechooser window {
+    background-color: @nyx_void;
+    color: @nyx_text;
+}
+
+filechooser placessidebar,
+filechooser .sidebar,
+filechooser placessidebar list {
+    background-color: @nyx_surface;
+    border-right: 1px solid @nyx_border;
+    color: @nyx_text;
+}
+
+filechooser placessidebar row,
+filechooser .sidebar row {
+    background-color: transparent;
+    color: @nyx_text;
+    border-radius: 6px;
+    padding: 4px 8px;
+    margin: 1px 4px;
+}
+filechooser placessidebar row:hover,
+filechooser .sidebar row:hover {
+    background-color: @nyx_raised;
+    color: @nyx_aurora;
+}
+filechooser placessidebar row:selected,
+filechooser .sidebar row:selected {
+    background-color: alpha(@nyx_aurora, 0.18);
+    color: @nyx_star;
+}
+
+filechooser entry,
+filechooser searchentry {
+    background-color: @nyx_raised;
+    color: @nyx_text;
+    border: 1px solid @nyx_border;
+    border-radius: 7px;
+    padding: 4px 10px;
+    caret-color: @nyx_aurora;
+}
+
+filechooser button {
+    background-color: @nyx_surface;
+    background-image: none;
+    color: @nyx_text;
+    border: 1px solid @nyx_border;
+    border-radius: 7px;
+    padding: 5px 12px;
+    box-shadow: none;
+    text-shadow: none;
+}
+filechooser button:hover {
+    background-color: @nyx_raised;
+    background-image: none;
+    color: @nyx_aurora;
+    border-color: @nyx_moon;
+}
+filechooser button.suggested-action {
+    background-color: @nyx_aurora;
+    background-image: none;
+    color: @nyx_void;
+    border-color: alpha(@nyx_aurora, 0.4);
+}
+filechooser button.suggested-action:hover {
+    background-color: alpha(@nyx_aurora, 0.88);
+}
+
+filechooser treeview,
+filechooser treeview.view {
+    background-color: @nyx_void;
+    color: @nyx_text;
+}
+filechooser treeview:selected,
+filechooser treeview.view:selected {
+    background-color: alpha(@nyx_aurora, 0.18);
+    color: @nyx_star;
+}
+
+filechooser pathbar button {
+    background: none;
+    background-image: none;
+    border: none;
+    color: @nyx_dim;
+    padding: 4px 8px;
+}
+filechooser pathbar button:hover,
+filechooser pathbar button:checked {
+    background-color: @nyx_raised;
+    color: @nyx_star;
+}
+
+/* ── Scrollbars (web content + GTK widgets) ─────────────────── */
+
+scrollbar {
+    background-color: transparent;
+    border: none;
+    min-width: 10px;
+    min-height: 10px;
+}
+scrollbar slider {
+    background-color: alpha(@nyx_dim, 0.45);
+    border-radius: 6px;
+    min-width: 6px;
+    min-height: 6px;
+    margin: 2px;
+    border: none;
+}
+scrollbar slider:hover  { background-color: @nyx_moon; }
+scrollbar slider:active { background-color: @nyx_aurora; }
+scrollbar button         { color: @nyx_dim; }
+scrollbar trough         { background: transparent; }
+
+/* ── ProgressBar text overlay (shelf rows) ──────────────────── */
+
+.nyx-dl-bar { min-height: 14px; }
+
+.nyx-dl-bar text,
+.nyx-dl-bar > text {
+    color: @nyx_text;
+    font-size: 9px;
+    letter-spacing: 0.06em;
+    text-shadow: none;
+    font-weight: 600;
+}
+
+.nyx-dl-bar trough {
+    background-color: alpha(@nyx_raised, 0.7);
+    border: none;
+    border-radius: 7px;
+    min-height: 12px;
+}
+
+/* ── Spinner / loader générique ────────────────────────────── */
+
+spinner {
+    color: @nyx_aurora;
+    -gtk-icon-style: symbolic;
+}
+
 /* ── Titlebar (HeaderBar CSD) ───────────────────── */
 
 headerbar.nyx-headerbar {

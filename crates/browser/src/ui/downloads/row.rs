@@ -62,9 +62,16 @@ fn build_info(entry: &DownloadEntry) -> GtkBox {
     if let DownloadStatus::InProgress { .. } = &entry.status {
         let bar = ProgressBar::new();
         bar.style_context().add_class("nyx-dl-bar");
+        bar.set_show_text(true);
         match entry.status.fraction() {
-            Some(f) => bar.set_fraction(f),
-            None => bar.pulse(),
+            Some(f) => {
+                bar.set_fraction(f);
+                bar.set_text(Some(&format!("{}%", (f * 100.0).round() as i32)));
+            }
+            None => {
+                bar.pulse();
+                bar.set_text(Some("…"));
+            }
         }
         info.pack_start(&bar, false, false, 2);
     }
