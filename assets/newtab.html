@@ -307,17 +307,37 @@ void main(){
  float wakeLong=wl*wl*wl*(wl*(wl*6.0-15.0)+10.0);
  // Anti-front : aucun effet devant le curseur, transition douce.
  float wakeFront=smoothstep(0.0,0.025,backward);
+
+ // ─── Courbe de réponse à la vélocité — viscosité physique ───
+ // Au lieu de wakeMag ∝ u_mvel (réponse linéaire = fast cursor = wake
+ // énorme), on utilise une cloche centrée sur une vitesse moyenne :
+ //   velPresence(v) = v * VEL_PEAK_GAIN / (VEL_PEAK² + v²)
+ //                  = 1.8v / (0.36 + v²)
+ // Pic à v = √0.36 = 0.6, valeur = 1.5.
+ // Plus lent = plus de drag → perturbation forte. Plus rapide = la lame
+ // 'fend' sans drag → perturbation faible. Inspiré du nombre de Froude
+ // en hydrodynamique : à basse vitesse les ondes de gravité dominent,
+ // à haute vitesse seules les ondes capillaires de faible amplitude.
+ //   v=0    → 0        (cursor immobile = pas de wake)
+ //   v=0.3  → 1.20
+ //   v=0.6  → 1.50  ← pic
+ //   v=1.0  → 1.32
+ //   v=2.0  → 0.82
+ float velPresence=u_mvel*1.8/(0.36+u_mvel*u_mvel);
+
  // Magnitude unique — sert au warp ET à la light de trace.
- float wakeMag=wakeTrans*wakeLong*wakeFront*u_mvel*WAKE_STRENGTH;
+ float wakeMag=wakeTrans*wakeLong*wakeFront*velPresence*WAKE_STRENGTH;
 
  // Push perpendiculaire à D, vers l'extérieur des branches, biais
  // arrière. wakeDir normalisée une fois.
  vec2 rawWakeDir=Nperp*sign(lateral)-D*0.28;
  vec2 wakeDir=rawWakeDir/max(length(rawWakeDir),0.001);
- // Warp léger (0.028) : le pattern fbm se DÉPLACE doucement le long des
- // lignes, sans distordre violemment. La présence visible vient surtout
- // de la light (col += warm * wakeMag), pas de la déformation.
- vec2 wakePush=wakeDir*wakeMag*0.028;
+ // Warp 0.060 (vs 0.028 — +114%) : le pattern fbm se DÉPLACE
+ // visiblement sous le passage du curseur. Comme le profil transverse
+ // est désormais un vrai gaussien (lignes FINES), un warp plus marqué
+ // ne ressuscite PAS le rectangle plein → on a la fluidité physique
+ // sans l'artefact géométrique.
+ vec2 wakePush=wakeDir*wakeMag*0.060;
 
  // ─── Click ripples : caillou tombe — dépression + 3 anneaux amortis ───
  vec2 rippleDisp=vec2(0.0);
@@ -374,11 +394,13 @@ void main(){
  // EUX qui créaient le 'rond' indésirable. La lame est invisible au
  // point du curseur ; on ne voit QUE le V derrière.
 
- // ─── Trace lumineuse le long des branches du V — UNIQUE source ───
- // wakeMag réutilisé (1 mul vs 5 ops d'un calcul séparé). La présence
- // visible passe surtout par cette lumière (le warp est très léger).
+ // ─── Trace lumineuse le long des branches du V ───
+ // wakeMag réutilisé (1 mul vs 5 ops). La présence visible se partage
+ // maintenant entre la light (col += warm * wakeMag) et le warp
+ // physique (p += wakePush) — équilibre 50/50 pour un sillon visuel
+ // qui DÉFORME aussi le pattern dessous.
  vec3 warm=mix(u_glow,vec3(1.0,0.78,0.55),0.5);
- col+=warm*wakeMag*0.085;
+ col+=warm*wakeMag*0.065;
 
  // Ondulations lumineuses des ripples (en plus du displacement).
  col+=u_glow*wave*0.12;
