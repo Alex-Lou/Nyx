@@ -15,6 +15,13 @@ use crate::downloads::entry::{DownloadEntry, DownloadStatus};
 use crate::downloads::id::DownloadId;
 use crate::sec_log::{self, Level};
 
+/// Borne dure du nombre d'entrées en mémoire. Au-delà, on évince les
+/// entrées **terminales** les plus anciennes (FIFO). En saturation extrême
+/// (toutes en-cours), on évince la plus ancienne in-progress — le cap est
+/// dur, jamais best-effort. Cible un mois de DL nourris à un rythme
+/// raisonnable sans qu'un site adverse puisse forcer une fuite mémoire.
+pub const MAX_ENTRIES: usize = 10_000;
+
 #[derive(Debug, Default)]
 pub struct DownloadStore {
     entries: Vec<DownloadEntry>,
@@ -31,6 +38,8 @@ impl DownloadStore {
     pub fn entries(&self) -> &[DownloadEntry] { &self.entries }
 
     /// Crée et insère une entrée en tête. Retourne son id.
+    /// Applique le cap [`MAX_ENTRIES`] AVANT l'ajout — la nouvelle entrée
+    /// est toujours acceptée, l'éviction libère la place si nécessaire.
     pub fn add(
         &mut self,
         filename: String,
@@ -39,12 +48,31 @@ impl DownloadStore {
         source_origin: String,
         started_at_unix: i64,
     ) -> DownloadId {
+        self.enforce_cap();
         let id = self.alloc_id();
         sec_log::emit(Level::Allow, &format!(
             "download start {id}: {filename} ← {source_origin}"));
         let e = DownloadEntry::new(id, filename, dest_path, kind, source_origin, started_at_unix);
         self.entries.insert(0, e);
         id
+    }
+
+    /// Garantit `entries.len() < MAX_ENTRIES` avant un add. Stratégie :
+    ///   1. Évince le plus ancien terminal (en fin de Vec : insertion en tête).
+    ///   2. Saturation extrême (tout in-progress) → évince le plus ancien
+    ///      in-progress + log Warn (rare, signale un abus possible).
+    fn enforce_cap(&mut self) {
+        while self.entries.len() >= MAX_ENTRIES {
+            if let Some(pos) = self.entries.iter()
+                .rposition(|e| e.status.is_terminal())
+            {
+                self.entries.remove(pos);
+            } else {
+                sec_log::emit(Level::Warn, &format!(
+                    "download store saturated ({MAX_ENTRIES}) — evicting oldest in-progress"));
+                self.entries.pop();
+            }
+        }
     }
 
     /// Retire l'entrée. `false` si introuvable.

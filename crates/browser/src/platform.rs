@@ -49,10 +49,14 @@ pub fn reveal_in_file_manager(path: &Path) -> Result<(), String> {
 
 #[cfg(target_os = "windows")]
 fn pick_open_command(path: &Path) -> Command {
-    // `cmd /c start "" "<path>"` — "" est le titre vide obligatoire si la
-    // cible contient des espaces. Lance dans l'app par défaut.
-    let mut c = Command::new("cmd");
-    c.args(["/c", "start", ""]).arg(path);
+    // `explorer.exe <path>` : pour un fichier, explorer délègue à ShellExecute
+    // → ouverture dans l'app par défaut. Pour un dossier, idem natif. Évite
+    // `cmd /c start` dont l'arg est re-parsé par cmd.exe (règles de quoting
+    // différentes de CreateProcess → vecteur d'injection théorique si le
+    // path contient `&|"`). Defense-in-depth : un seul exécutable côté
+    // appelant, un seul argument passé à CreateProcess.
+    let mut c = Command::new("explorer.exe");
+    c.arg(path);
     c
 }
 

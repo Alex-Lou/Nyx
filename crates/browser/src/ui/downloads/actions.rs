@@ -13,12 +13,14 @@ use gtk::{ButtonsType, DialogFlags, MessageDialog, MessageType, ResponseType, Wi
 use nyx_core::download_policy::Kind;
 use nyx_core::downloads::DownloadEntry;
 use nyx_core::magic_bytes;
+use nyx_core::sec_log::{self, Level};
 
 use crate::platform;
 use crate::state::settings::Settings;
 
 /// Ouvre le dossier de téléchargements (la « racine », pas un fichier).
 pub fn open_downloads_folder(settings: &Settings) {
+    sec_log::emit(Level::Allow, "user open downloads folder");
     let dir = resolve_downloads_dir(settings);
     if let Some(d) = dir {
         let _ = platform::open_path(&d);
@@ -27,6 +29,7 @@ pub fn open_downloads_folder(settings: &Settings) {
 
 /// Révèle le fichier dans le file manager OS (sélectionné si possible).
 pub fn reveal(entry: &DownloadEntry) {
+    sec_log::emit(Level::Allow, &format!("user reveal: {}", entry.filename));
     let _ = platform::reveal_in_file_manager(Path::new(&entry.dest_path));
 }
 
@@ -35,9 +38,15 @@ pub fn reveal(entry: &DownloadEntry) {
 /// Si `recheck_on_run` est actif et que le contenu réel est exécutable
 /// (sniff des magic bytes), affiche un dialog de confirmation. L'utilisateur
 /// peut désactiver ce re-check dans les paramètres généraux.
+///
+/// Chaque branche logge via `sec_log` (filename uniquement, jamais le full
+/// path) : trace de toute ouverture user-initiated avec `NYX_SECURITY_DEBUG=1`.
 pub fn run(entry: &DownloadEntry, settings: &Settings, parent: Option<&Window>) {
     let recheck = settings.borrow().recheck_on_run;
     let path = PathBuf::from(&entry.dest_path);
+
+    sec_log::emit(Level::Warn,
+        &format!("user open: {} (recheck={recheck})", entry.filename));
 
     if !recheck {
         let _ = platform::open_path(&path);
@@ -45,6 +54,9 @@ pub fn run(entry: &DownloadEntry, settings: &Settings, parent: Option<&Window>) 
     }
 
     let live_kind = sniff_kind(&path).unwrap_or(entry.kind);
+    sec_log::emit(Level::Warn,
+        &format!("open sniff: {} → {live_kind:?}", entry.filename));
+
     match live_kind {
         Kind::Executable | Kind::MacroDoc => confirm_then_open(entry, &path, live_kind, parent),
         Kind::Archive => {
@@ -80,7 +92,12 @@ fn confirm_then_open(entry: &DownloadEntry, path: &Path, kind: Kind, parent: Opt
     let resp = dlg.run();
     dlg.close();
     if resp == ResponseType::Yes {
+        sec_log::emit(Level::Warn, &format!(
+            "user confirmed open: {} (kind={kind:?})", entry.filename));
         let _ = platform::open_path(path);
+    } else {
+        sec_log::emit(Level::Deny, &format!(
+            "user cancelled open: {} (kind={kind:?})", entry.filename));
     }
 }
 
