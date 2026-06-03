@@ -9,9 +9,13 @@
 //!   - bouton item « Choisir le dossier de destination… » → FileChooser.
 //!   - CheckButton « Re-vérifier avant ouverture » → toggle settings.
 //!
-//! Sortir d'un GtkMenu impose aussi de réimplémenter le look ; le CSS
-//! `nyx-dl-menu-pop` / `nyx-dl-menu-item` / `nyx-dl-menu-toggle` s'en
-//! charge dans `assets/theme.css`.
+//! Le choose-dir referme **le shelf parent** avant d'ouvrir le chooser :
+//! sinon le popover modal du shelf intercepte les events du FileChooser
+//! sous certains compositeurs (WSL/WSLg vu en pratique) → dialog
+//! invisible. `idle_add_local_once` défère assez pour laisser les
+//! popovers terminer leur popdown avant que `chooser.run()` ne bloque.
+
+use std::rc::Rc;
 
 use gtk::prelude::*;
 use gtk::{
@@ -21,21 +25,24 @@ use gtk::{
 };
 
 use crate::state::settings::Settings;
+use crate::ui::toast::{ToastHandle, ToastLevel};
 
 const POP_WIDTH: i32 = 260;
 
 /// Construit le `MenuButton` ⋮ avec un Popover ancré + auto-flip.
-pub fn build(parent: Option<Window>, settings: Settings) -> MenuButton {
+pub fn build(
+    parent: Option<Window>,
+    settings: Settings,
+    close_shelf: Rc<dyn Fn()>,
+    toaster: ToastHandle,
+) -> MenuButton {
     let btn = MenuButton::new();
     btn.set_image(Some(&Image::from_icon_name(
         Some("view-more-symbolic"), IconSize::Button,
     )));
     btn.set_relief(gtk::ReliefStyle::None);
-    // Pas de set_tooltip_text : GTK3 calcule la position du tooltip dans
-    // le repère du popover parent (la shelf de DL), ce qui le projette
-    // très loin à gauche quand le popover est en haut-droite de l'écran.
-    // L'icône view-more-symbolic est universellement comprise — pas de
-    // perte d'UX à virer ce tooltip-là spécifiquement.
+    // Pas de set_tooltip_text : GTK3 mis-project le tooltip dans le
+    // repère du popover parent → loin hors écran. L'icône est explicite.
     btn.style_context().add_class("nyx-nav-btn");
     btn.style_context().add_class("nyx-dl-action");
 
@@ -50,7 +57,7 @@ pub fn build(parent: Option<Window>, settings: Settings) -> MenuButton {
     content.set_margin_start(6);
     content.set_margin_end(6);
 
-    add_choose_dir(&content, &pop, parent, settings.clone());
+    add_choose_dir(&content, &pop, parent, settings.clone(), close_shelf, toaster);
     add_recheck_toggle(&content, settings);
 
     pop.add(&content);
@@ -61,29 +68,45 @@ pub fn build(parent: Option<Window>, settings: Settings) -> MenuButton {
 
 fn add_choose_dir(
     content: &GtkBox, pop: &Popover, parent: Option<Window>, settings: Settings,
+    close_shelf: Rc<dyn Fn()>, toaster: ToastHandle,
 ) {
     let item = item_button("Choisir le dossier de destination…");
     content.pack_start(&item, false, false, 0);
 
     let p = pop.clone();
     item.connect_clicked(move |_| {
-        p.popdown(); // ferme avant ouverture du chooser pour éviter overlap
-        let chooser = FileChooserNative::new(
-            Some("Dossier de téléchargement"),
-            parent.as_ref(),
-            FileChooserAction::SelectFolder,
-            Some("Sélectionner"),
-            Some("Annuler"),
-        );
-        if let Some(current) = current_dir(&settings) {
-            let _ = chooser.set_current_folder(current);
-        }
-        if chooser.run() == ResponseType::Accept {
-            if let Some(path) = chooser.filename() {
-                let s = path.to_string_lossy().into_owned();
-                settings.borrow_mut().downloads_dir = Some(s);
+        // 1. Ferme le menu ⋮ (popover du MenuButton).
+        p.popdown();
+        // 2. Ferme le shelf parent — sinon son popover modal bloque le
+        //    FileChooser sur WSL/certains compositeurs.
+        close_shelf();
+        // 3. Défère le chooser au prochain idle : laisse les popovers
+        //    terminer leur popdown avant que `run()` ne bloque.
+        let parent_cl = parent.clone();
+        let settings_cl = settings.clone();
+        let toaster_cl = toaster.clone();
+        gtk::glib::idle_add_local_once(move || {
+            let chooser = FileChooserNative::new(
+                Some("Dossier de téléchargement"),
+                parent_cl.as_ref(),
+                FileChooserAction::SelectFolder,
+                Some("Sélectionner"),
+                Some("Annuler"),
+            );
+            if let Some(current) = current_dir(&settings_cl) {
+                let _ = chooser.set_current_folder(current);
             }
-        }
+            if chooser.run() == ResponseType::Accept {
+                if let Some(path) = chooser.filename() {
+                    let s = path.to_string_lossy().into_owned();
+                    settings_cl.borrow_mut().downloads_dir = Some(s.clone());
+                    toaster_cl.push(ToastLevel::Info, &format!(
+                        "Dossier de téléchargement : {}",
+                        short_path(&s),
+                    ));
+                }
+            }
+        });
     });
 }
 
@@ -116,4 +139,15 @@ fn current_dir(settings: &Settings) -> Option<std::path::PathBuf> {
     let user = settings.borrow().downloads_dir.clone();
     user.filter(|s| !s.is_empty()).map(std::path::PathBuf::from)
         .or_else(crate::platform::default_downloads_dir)
+}
+
+/// Tronque les chemins très longs pour rester lisible dans un toast.
+fn short_path(path: &str) -> String {
+    const MAX: usize = 48;
+    if path.chars().count() <= MAX { path.to_string() }
+    else {
+        let n = path.chars().count();
+        let tail: String = path.chars().skip(n - MAX + 1).collect();
+        format!("…{tail}")
+    }
 }

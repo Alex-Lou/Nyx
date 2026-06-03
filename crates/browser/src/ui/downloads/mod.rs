@@ -27,11 +27,14 @@ use gtk::Button;
 
 use crate::state::downloads::DownloadsHandle;
 use crate::state::settings::Settings;
+use crate::ui::toast::ToastHandle;
 
 /// Crée le bouton et lui attache le popover. À packer dans la navbar.
-pub fn install(handle: &DownloadsHandle, settings: &Settings) -> Button {
+pub fn install(
+    handle: &DownloadsHandle, settings: &Settings, toaster: &ToastHandle,
+) -> Button {
     let btn = button::build();
-    let pop = popover::build(&btn, handle.clone(), settings.clone());
+    let pop = popover::build(&btn, handle.clone(), settings.clone(), toaster.clone());
     btn.connect_clicked(move |_| pop.popup());
     btn
 }

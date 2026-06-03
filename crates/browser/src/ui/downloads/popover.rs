@@ -25,6 +25,7 @@ use gtk::{
 use crate::state::downloads::DownloadsHandle;
 use crate::state::settings::Settings;
 use crate::ui::anim;
+use crate::ui::toast::ToastHandle;
 
 use super::{header, row};
 
@@ -40,6 +41,7 @@ pub fn build(
     anchor: &gtk::Button,
     handle: DownloadsHandle,
     settings: Settings,
+    toaster: ToastHandle,
 ) -> Popover {
     let pop = Popover::new(Some(anchor));
     pop.set_position(PositionType::Bottom);
@@ -75,8 +77,18 @@ pub fn build(
         Rc::new(move || rerender(&list, &handle, &settings, parent.clone()))
     };
 
+    // Closure de fermeture du shelf — propagée jusqu'au menu ⋮ pour que
+    // « Choisir le dossier… » puisse fermer le shelf AVANT d'ouvrir le
+    // FileChooser (sinon le popover modal bloque le dialog sur certains
+    // compositeurs / WSL).
+    let close_shelf: Rc<dyn Fn()> = {
+        let p = pop.clone();
+        Rc::new(move || p.popdown())
+    };
+
     let head = header::build(
         parent_win, handle, settings, refresh.clone(),
+        close_shelf, toaster,
     );
 
     root.pack_start(&head, false, false, 0);

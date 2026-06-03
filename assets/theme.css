@@ -280,6 +280,51 @@ tooltip label,
 
 tooltip decoration { background: transparent; box-shadow: none; }
 
+/* ── Toasts (top-right, auto-dismiss 3.5s) ──────────────────────── */
+
+.nyx-toast-host { background: transparent; }
+
+.nyx-toast {
+    background-color: alpha(@nyx_surface, 0.94);
+    border: 1px solid @nyx_border;
+    border-radius: 10px;
+    padding: 8px 14px;
+    min-width: 240px;
+    box-shadow: 0 6px 28px alpha(@nyx_void, 0.55);
+    transition: opacity 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.nyx-toast-text {
+    color: @nyx_text;
+    font-size: 12px;
+    letter-spacing: 0.02em;
+}
+
+.nyx-toast-icon {
+    -gtk-icon-style: symbolic;
+    margin-right: 2px;
+}
+
+.nyx-toast-info {
+    border-left: 3px solid @nyx_moon;
+}
+.nyx-toast-info .nyx-toast-icon { color: @nyx_moon; }
+
+.nyx-toast-success {
+    border-left: 3px solid @nyx_aurora;
+}
+.nyx-toast-success .nyx-toast-icon { color: @nyx_aurora; }
+
+.nyx-toast-warning {
+    border-left: 3px solid #ffc56a;
+}
+.nyx-toast-warning .nyx-toast-icon { color: #ffc56a; }
+
+.nyx-toast-error {
+    border-left: 3px solid #ff7eb3;
+}
+.nyx-toast-error .nyx-toast-icon { color: #ff7eb3; }
+
 /* ── Titlebar (HeaderBar CSD) ───────────────────── */
 
 headerbar.nyx-headerbar {

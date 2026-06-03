@@ -12,7 +12,7 @@ use crate::state::bookmarks::Bookmarks;
 use crate::state::downloads::DownloadsHandle;
 use crate::state::settings::{LastTab, Settings};
 use crate::ui::tabs::TabBar;
-use crate::ui::{chrome, navbar, shortcuts};
+use crate::ui::{chrome, navbar, shortcuts, toast};
 use crate::web::nyxguard::NyxGuard;
 
 pub struct BrowserWindow {
@@ -43,18 +43,28 @@ impl BrowserWindow {
             .hexpand(true).build();
         url_bar.style_context().add_class("nyx-urlbar");
 
+        let toaster = toast::new();
+
         let tabs = TabBar::new(
             blocker, settings.clone(), bm.clone(), permissions,
             downloads.clone(), crate::state::downloads_temp::temp_root(),
+            toaster.clone(),
         );
         tabs.set_parent(&window);
-        let navbar = navbar::build(&url_bar, &tabs, &settings, &bm, &downloads);
+        let navbar = navbar::build(&url_bar, &tabs, &settings, &bm, &downloads, &toaster);
 
         let vbox = GtkBox::new(Orientation::Vertical, 0);
         vbox.pack_start(&progress,      false, false, 0);
         vbox.pack_start(&navbar,        false, false, 0);
         vbox.pack_start(&tabs.notebook, true,  true,  0);
-        window.add(&vbox);
+
+        // Overlay : vbox dessous, toasts dessus (pass_through laisse les
+        // clics traverser les zones vides du host).
+        let overlay = gtk::Overlay::new();
+        overlay.add(&vbox);
+        overlay.add_overlay(toaster.widget());
+        overlay.set_overlay_pass_through(toaster.widget(), true);
+        window.add(&overlay);
 
         wire_webview_hooks(&tabs, &url_bar, &progress);
         wire_tab_switch(&tabs, &url_bar, &progress);
