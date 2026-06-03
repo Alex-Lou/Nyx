@@ -101,6 +101,75 @@ window, .background {
 
 .nyx-bm-list row:hover { background-color: @nyx_raised; }
 
+/* ── Shelf téléchargements ──────────────────────── */
+
+.nyx-dl-pop {
+    background-color: @nyx_surface;
+    border: 1px solid @nyx_border;
+    border-radius: 12px;
+}
+
+.nyx-dl-header {
+    padding: 0 0 4px 0;
+    border-bottom: 1px solid alpha(@nyx_border, 0.6);
+    margin-bottom: 4px;
+}
+
+.nyx-dl-title {
+    color: @nyx_moon;
+    font-size: 11px;
+    font-weight: bold;
+    letter-spacing: 0.12em;
+}
+
+.nyx-dl-empty {
+    color: @nyx_dim;
+    font-style: italic;
+}
+
+.nyx-dl-list { background-color: transparent; }
+
+.nyx-dl-list row {
+    background-color: transparent;
+    border-radius: 8px;
+    transition: background-color 150ms ease;
+}
+
+.nyx-dl-list row:hover { background-color: @nyx_raised; }
+
+.nyx-dl-row {
+    padding: 6px 8px;
+}
+
+.nyx-dl-name {
+    color: @nyx_text;
+    font-size: 13px;
+}
+
+.nyx-dl-sub {
+    color: @nyx_dim;
+    font-size: 11px;
+}
+
+.nyx-dl-bar {
+    min-height: 4px;
+    background-color: @nyx_raised;
+    border-radius: 2px;
+}
+
+.nyx-dl-bar progress,
+.nyx-dl-bar trough progress {
+    background-color: @nyx_aurora;
+    background-image: none;
+    border-radius: 2px;
+    border: none;
+}
+
+.nyx-dl-btn label {
+    /* Légère respiration pour la flèche, sans casser l'alignement vertical. */
+    font-size: 15px;
+}
+
 /* ── Titlebar (HeaderBar CSD) ───────────────────── */
 
 headerbar.nyx-headerbar {

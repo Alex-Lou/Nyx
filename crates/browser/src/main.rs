@@ -51,8 +51,9 @@ fn main() {
         let prefs   = state::settings::new();
         let bm      = state::bookmarks::new();
         let perms   = nyx_core::permissions::new();
+        let dls     = state::downloads::new();
         let blocker = Arc::new(NyxGuard::new());
-        let win     = BrowserWindow::new(app, blocker, prefs, bm, perms);
+        let win     = BrowserWindow::new(app, blocker, prefs, bm, perms, dls);
         win.tabs.open_new_tab();
         win.show_all();
         ui::anim::fade_in(&win.window); // fondu d'ouverture discret
