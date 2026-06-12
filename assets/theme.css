@@ -31,6 +31,22 @@ window, .background {
     color: @nyx_text;
 }
 
+/* Boutons : base sombre partout (dialogs inclus) */
+button {
+    background-color: @nyx_raised;
+    background-image: none;
+    border: 1px solid @nyx_border;
+    border-radius: 8px;
+    box-shadow: none;
+    color: @nyx_text;
+    text-shadow: none;
+    transition: background-color 180ms ease, border-color 180ms ease;
+}
+
+button:hover {
+    background-color: @nyx_border;
+}
+
 /* ── Barre de navigation ───────────────────────── */
 
 .nyx-navbar {
@@ -196,11 +212,66 @@ scrollbar slider:hover {
     background-color: @nyx_moon;
 }
 
+/* ── Bouton bookmark ★ ─────────────────────────── */
+
+.nyx-star-btn:hover {
+    color: #f7c873;
+}
+
+.nyx-star-btn:active {
+    color: #ffdf9e;
+}
+
 /* ── Sidebar vault ─────────────────────────────── */
 
 .nyx-sidebar {
     background-color: alpha(@nyx_deep, 0.97);
     border-right: 1px solid @nyx_border;
+    padding: 0 8px 8px 8px;
+}
+
+.nyx-sidebar list,
+.nyx-sidebar scrolledwindow,
+.nyx-sidebar viewport,
+.nyx-sidebar row {
+    background-color: transparent;
+    background-image: none;
+}
+
+.nyx-sidebar stackswitcher button {
+    background-color: transparent;
+    background-image: none;
+    border: none;
+    border-radius: 8px;
+    color: @nyx_dim;
+    font-size: 12px;
+    padding: 4px 12px;
+    transition: background-color 180ms ease, color 180ms ease;
+}
+
+.nyx-sidebar stackswitcher button:hover {
+    background-color: @nyx_raised;
+    color: @nyx_text;
+}
+
+.nyx-sidebar stackswitcher button:checked {
+    background-color: @nyx_raised;
+    color: @nyx_aurora;
+}
+
+.nyx-sidebar searchentry,
+.nyx-sidebar entry {
+    background-color: @nyx_raised;
+    border: 1px solid @nyx_border;
+    border-radius: 8px;
+    color: @nyx_text;
+    padding: 4px 10px;
+    transition: border-color 180ms ease;
+}
+
+.nyx-sidebar searchentry:focus,
+.nyx-sidebar entry:focus {
+    border-color: @nyx_aurora;
 }
 
 .nyx-sidebar-section {
@@ -221,6 +292,56 @@ scrollbar slider:hover {
 
 .nyx-list-row:hover {
     background-color: @nyx_raised;
+}
+
+.nyx-list-title {
+    color: @nyx_text;
+    font-size: 13px;
+}
+
+.nyx-list-sub {
+    color: @nyx_dim;
+    font-size: 11px;
+}
+
+.nyx-row-btn {
+    background: none;
+    border: none;
+    border-radius: 6px;
+    color: @nyx_ghost;
+    min-width: 20px;
+    padding: 2px 6px;
+    transition: color 120ms ease;
+}
+
+.nyx-row-btn:hover {
+    color: @nyx_aurora;
+}
+
+.nyx-danger-btn {
+    background: none;
+    border: 1px solid @nyx_border;
+    border-radius: 8px;
+    color: @nyx_dim;
+    padding: 6px;
+    transition: border-color 180ms ease, color 180ms ease;
+}
+
+.nyx-danger-btn:hover {
+    border-color: @nyx_twilight;
+    color: @nyx_twilight;
+}
+
+/* ── Écran de déverrouillage ───────────────────── */
+
+.nyx-unlock-title {
+    color: @nyx_star;
+    font-size: 14px;
+}
+
+.nyx-error {
+    color: @nyx_twilight;
+    font-size: 12px;
 }
 
 /* ── Dialogs & popups ──────────────────────────── */

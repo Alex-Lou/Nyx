@@ -25,9 +25,11 @@ concrètes à implémenter, pas des intentions vagues.
 
 ---
 
-## Sprint 1 — Browser core navigable
+## Sprint 1 — Browser core navigable 🟡 (partiel)
 
 **Objectif** : on peut réellement surfer, les onglets de base fonctionnent.
+
+> Restent à faire : 1.4 favicon, 1.7 bouton home, 1.8 `create-web-view` → nouvel onglet.
 
 | # | Tâche | Notes |
 |---|-------|-------|
@@ -44,9 +46,13 @@ concrètes à implémenter, pas des intentions vagues.
 
 ---
 
-## Sprint 2 — Vault : déverrouillage + UI basique
+## Sprint 2 — Vault : déverrouillage + UI basique ✅ (fait)
 
 **Objectif** : le vault est intégré dans le browser, les données persistent.
+
+> Implémenté : unlock dialog (`unlock.rs`), sidebar Historique/Favoris/Clés
+> (`sidebar.rs`), historique auto + capture MDP câblés dans `window.rs`/`webview.rs`.
+> Vault stocké dans `~/.local/share/nyx/vault.db`.
 
 | # | Tâche | Notes |
 |---|-------|-------|

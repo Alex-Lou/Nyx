@@ -1,13 +1,16 @@
+use std::rc::Rc;
 use std::sync::Arc;
 
 use gtk::prelude::*;
 use gtk::{
-    Application, ApplicationWindow, Box as GtkBox, Button, Entry, Notebook,
-    Orientation, ProgressBar,
+    Application, ApplicationWindow, Box as GtkBox, Button, Entry, EntryCompletion,
+    ListStore, Notebook, Orientation, ProgressBar,
 };
-use webkit2gtk::{WebView, WebViewExt};
+use vault::{Bookmark, Vault};
+use webkit2gtk::{LoadEvent, WebView, WebViewExt};
 
 use crate::adblock::AdBlocker;
+use crate::sidebar::Sidebar;
 use crate::tabs::{current_webview, TabBar};
 use crate::webview;
 use crate::HOME_PAGE;
@@ -15,13 +18,10 @@ use crate::HOME_PAGE;
 pub struct BrowserWindow {
     pub window: ApplicationWindow,
     pub tabs: TabBar,
-    /// Utilisé par le Sprint 2 (autocomplétion, bouton bookmark ★).
-    #[allow(dead_code)]
-    pub url_bar: Entry,
 }
 
 impl BrowserWindow {
-    pub fn new(app: &Application, blocker: Arc<AdBlocker>) -> Self {
+    pub fn new(app: &Application, blocker: Arc<AdBlocker>, vault: Rc<Vault>) -> Self {
         let window = ApplicationWindow::builder()
             .application(app)
             .title("Nyx")
@@ -36,10 +36,13 @@ impl BrowserWindow {
         progress.set_visible(false);
 
         // ── Barre de navigation ──────────────────────────────────────────
+        let sidebar_btn = nav_button("☰");
         let back_btn    = nav_button("◀");
         let forward_btn = nav_button("▶");
         let reload_btn  = nav_button("↺");
+        let star_btn    = nav_button("★");
         let new_tab_btn = nav_button("+");
+        star_btn.style_context().add_class("nyx-star-btn");
 
         let url_bar = Entry::builder()
             .placeholder_text("nyx://  ou  recherche…")
@@ -49,30 +52,45 @@ impl BrowserWindow {
 
         let navbar = GtkBox::new(Orientation::Horizontal, 4);
         navbar.style_context().add_class("nyx-navbar");
+        navbar.pack_start(&sidebar_btn, false, false, 0);
         navbar.pack_start(&back_btn,    false, false, 0);
         navbar.pack_start(&forward_btn, false, false, 0);
         navbar.pack_start(&reload_btn,  false, false, 4);
         navbar.pack_start(&url_bar,     true,  true,  0);
         navbar.pack_end(&new_tab_btn,   false, false, 4);
+        navbar.pack_end(&star_btn,      false, false, 0);
 
-        // ── Onglets ──────────────────────────────────────────────────────
+        // ── Onglets + sidebar ────────────────────────────────────────────
         let tabs = TabBar::new(blocker);
+        let sidebar = Sidebar::new(vault.clone(), tabs.clone());
+
+        let content = GtkBox::new(Orientation::Horizontal, 0);
+        content.pack_start(&sidebar.widget, false, false, 0);
+        content.pack_start(&tabs.notebook,  true,  true,  0);
 
         // ── Layout ───────────────────────────────────────────────────────
         let vbox = GtkBox::new(Orientation::Vertical, 0);
-        vbox.pack_start(&progress,      false, false, 0);
-        vbox.pack_start(&navbar,        false, false, 0);
-        vbox.pack_start(&tabs.notebook, true,  true,  0);
+        vbox.pack_start(&progress, false, false, 0);
+        vbox.pack_start(&navbar,   false, false, 0);
+        vbox.pack_start(&content,  true,  true,  0);
         window.add(&vbox);
 
         // ── Raccourcis clavier ───────────────────────────────────────────
         wire_shortcuts(&window, &tabs, &url_bar);
 
-        // ── Bouton nouvel onglet ─────────────────────────────────────────
+        // ── Boutons ──────────────────────────────────────────────────────
+        {
+            let sb = sidebar.clone();
+            sidebar_btn.connect_clicked(move |_| sb.toggle());
+        }
         {
             let tb = tabs.clone();
             new_tab_btn.connect_clicked(move |_| { tb.open(HOME_PAGE); });
         }
+        wire_star_button(&star_btn, &tabs.notebook, &vault, &sidebar);
+        wire_nav_button(&back_btn,    &tabs.notebook, |wv| wv.go_back());
+        wire_nav_button(&forward_btn, &tabs.notebook, |wv| wv.go_forward());
+        wire_nav_button(&reload_btn,  &tabs.notebook, |wv| wv.reload());
 
         // ── URL bar → charger ────────────────────────────────────────────
         {
@@ -86,10 +104,8 @@ impl BrowserWindow {
             });
         }
 
-        // ── Boutons nav ──────────────────────────────────────────────────
-        wire_nav_button(&back_btn,    &tabs.notebook, |wv| wv.go_back());
-        wire_nav_button(&forward_btn, &tabs.notebook, |wv| wv.go_forward());
-        wire_nav_button(&reload_btn,  &tabs.notebook, |wv| wv.reload());
+        // ── Autocomplétion depuis bookmarks + history (Sprint 2.6) ───────
+        wire_completion(&url_bar, vault.clone());
 
         // ── Sync URL bar + progress ↔ onglet actif ───────────────────────
         // Les signaux par-WebView sont câblés une seule fois, à la création
@@ -98,6 +114,7 @@ impl BrowserWindow {
         {
             let ub = url_bar.clone();
             let prog = progress.clone();
+            let v = vault.clone();
             tabs.notebook.connect_page_added(move |nb, child, _| {
                 let Ok(wv) = child.clone().downcast::<WebView>() else { return };
 
@@ -118,6 +135,28 @@ impl BrowserWindow {
                         prog2.set_visible(p > 0.0 && p < 1.0);
                     }
                 });
+
+                // Historique automatique (Sprint 2.2)
+                let v2 = v.clone();
+                wv.connect_load_changed(move |w, event| {
+                    if event != LoadEvent::Finished {
+                        return;
+                    }
+                    let Some(uri) = w.uri() else { return };
+                    if !uri.starts_with("http") {
+                        return;
+                    }
+                    // Pas de doublon consécutif (reload, redirect déjà noté)
+                    let last = v2.recent_history(1).ok().and_then(|mut h| h.pop());
+                    if last.is_some_and(|l| l.url == uri) {
+                        return;
+                    }
+                    let title = w.title().unwrap_or_default();
+                    let _ = v2.push_history(&uri, &title);
+                });
+
+                // Détection de mot de passe (Sprint 2.8)
+                webview::wire_password_capture(&wv, v.clone());
             });
         }
         {
@@ -145,7 +184,7 @@ impl BrowserWindow {
             });
         }
 
-        Self { window, tabs, url_bar }
+        Self { window, tabs }
     }
 
     pub fn show_all(&self) {
@@ -166,6 +205,66 @@ fn wire_nav_button(btn: &Button, nb: &Notebook, action: impl Fn(&WebView) + 'sta
         if let Some(wv) = current_webview(&nb) {
             action(&wv);
         }
+    });
+}
+
+/// Bouton ★ : ajoute la page courante aux bookmarks (Sprint 2.4).
+fn wire_star_button(btn: &Button, nb: &Notebook, vault: &Rc<Vault>, sidebar: &Sidebar) {
+    let nb = nb.clone();
+    let vault = vault.clone();
+    let sidebar = sidebar.clone();
+    btn.connect_clicked(move |_| {
+        let Some(wv) = current_webview(&nb) else { return };
+        let Some(uri) = wv.uri() else { return };
+
+        // Pas de doublon : déjà bookmarké → rien à faire
+        let already = vault
+            .search_bookmarks(&uri)
+            .unwrap_or_default()
+            .iter()
+            .any(|b| b.url == uri);
+        if already {
+            return;
+        }
+
+        let title = wv.title().map(String::from).unwrap_or_else(|| uri.to_string());
+        if vault.add_bookmark(&Bookmark::new(uri.as_str(), title)).is_ok() {
+            sidebar.refresh_bookmarks();
+        }
+    });
+}
+
+/// Autocomplétion substring sur les URLs des bookmarks + historique.
+/// Le modèle est reconstruit quand l'URL bar prend le focus.
+fn wire_completion(url_bar: &Entry, vault: Rc<Vault>) {
+    let store = ListStore::new(&[glib::Type::STRING]);
+    let completion = EntryCompletion::new();
+    completion.set_model(Some(&store));
+    completion.set_text_column(0);
+    completion.set_minimum_key_length(2);
+    completion.set_match_func(|completion, key, iter| {
+        completion
+            .model()
+            .and_then(|m| m.value(iter, 0).get::<String>().ok())
+            .is_some_and(|url| url.to_lowercase().contains(key))
+    });
+    url_bar.set_completion(Some(&completion));
+
+    url_bar.connect_focus_in_event(move |_, _| {
+        store.clear();
+        let mut seen = std::collections::HashSet::new();
+        let bookmarks = vault.list_bookmarks().unwrap_or_default();
+        let history = vault.recent_history(300).unwrap_or_default();
+        let urls = bookmarks
+            .iter()
+            .map(|b| b.url.as_str())
+            .chain(history.iter().map(|h| h.url.as_str()));
+        for url in urls {
+            if seen.insert(url) {
+                store.set(&store.append(), &[(0, &url)]);
+            }
+        }
+        glib::Propagation::Proceed
     });
 }
 

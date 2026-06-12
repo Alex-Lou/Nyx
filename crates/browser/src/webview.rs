@@ -1,12 +1,18 @@
+use std::rc::Rc;
 use std::sync::Arc;
 
 use glib::prelude::*;
+use javascriptcore::ValueExt;
 use webkit2gtk::{
     NavigationPolicyDecision, NavigationPolicyDecisionExt, PermissionRequestExt,
-    PolicyDecisionExt, PolicyDecisionType, URIRequestExt, WebView, WebViewExt,
+    PolicyDecisionExt, PolicyDecisionType, URIRequestExt, UserContentInjectedFrames,
+    UserContentManagerExt, UserScript, UserScriptInjectionTime, WebView, WebViewExt,
 };
 
+use vault::{Password, Vault};
+
 use crate::adblock::AdBlocker;
+use crate::urls;
 
 pub fn configure(webview: &WebView, blocker: Arc<AdBlocker>) {
     apply_settings(webview);
@@ -51,6 +57,103 @@ fn wire_policy_filter(webview: &WebView, blocker: Arc<AdBlocker>) {
 
         false // laisser webkit gérer
     });
+}
+
+/// Script injecté dans chaque page : capture les soumissions de formulaires
+/// contenant un champ mot de passe (Sprint 2.8).
+const PASSWORD_CAPTURE_JS: &str = r#"
+(function () {
+    document.addEventListener('submit', function (e) {
+        var form = e.target;
+        if (!form || !form.querySelector) return;
+        var pwd = form.querySelector('input[type="password"]');
+        if (!pwd || !pwd.value) return;
+        var user = form.querySelector('input[type="email"], input[type="text"], input[type="tel"]');
+        window.webkit.messageHandlers.nyx_password.postMessage(JSON.stringify({
+            username: user ? user.value : '',
+            password: pwd.value
+        }));
+    }, true);
+})();
+"#;
+
+/// Propose d'enregistrer les identifiants soumis dans les pages (Sprint 2.8).
+pub fn wire_password_capture(webview: &WebView, vault: Rc<Vault>) {
+    let Some(ucm) = webview.user_content_manager() else { return };
+    if !ucm.register_script_message_handler("nyx_password") {
+        return;
+    }
+    ucm.add_script(&UserScript::new(
+        PASSWORD_CAPTURE_JS,
+        UserContentInjectedFrames::TopFrame,
+        UserScriptInjectionTime::End,
+        &[],
+        &[],
+    ));
+
+    let wv = webview.clone();
+    ucm.connect_script_message_received(Some("nyx_password"), move |_, result| {
+        if let Some(value) = result.js_value() {
+            handle_captured_credentials(&wv, &vault, &value.to_str());
+        }
+    });
+}
+
+fn handle_captured_credentials(wv: &WebView, vault: &Rc<Vault>, json: &str) {
+    #[derive(serde::Deserialize)]
+    struct Cred {
+        username: String,
+        password: String,
+    }
+
+    let Ok(cred) = serde_json::from_str::<Cred>(json) else { return };
+    if cred.password.is_empty() {
+        return;
+    }
+    let Some(uri) = wv.uri() else { return };
+    let (host, _) = urls::host_and_path(&uri);
+    if host.is_empty() {
+        return;
+    }
+
+    let existing = vault.passwords_for(host).unwrap_or_default();
+    let who = if cred.username.is_empty() { "ce compte" } else { &cred.username };
+
+    match existing.iter().find(|p| p.username == cred.username) {
+        Some(known) if known.password == cred.password => {} // déjà à jour
+        Some(known) => {
+            let msg = format!("Mettre à jour le mot de passe de {} sur {} ?", who, host);
+            if let Some(id) = known.id {
+                if ask(wv, &msg) {
+                    let _ = vault.update_password(id, &cred.password);
+                }
+            }
+        }
+        None => {
+            let msg = format!("Enregistrer le mot de passe de {} sur {} ?", who, host);
+            if ask(wv, &msg) {
+                let _ = vault.add_password(&Password::new(host, cred.username, cred.password));
+            }
+        }
+    }
+}
+
+fn ask(wv: &WebView, message: &str) -> bool {
+    use gtk::prelude::*;
+    use gtk::{ButtonsType, MessageDialog, MessageType, ResponseType};
+
+    let dialog = MessageDialog::builder()
+        .message_type(MessageType::Question)
+        .buttons(ButtonsType::YesNo)
+        .text(message)
+        .modal(true)
+        .build();
+    if let Some(parent) = wv.toplevel().and_then(|w| w.downcast::<gtk::Window>().ok()) {
+        dialog.set_transient_for(Some(&parent));
+    }
+    let response = dialog.run();
+    dialog.close();
+    response == ResponseType::Yes
 }
 
 /// Normalise une entrée utilisateur en URL chargeable.

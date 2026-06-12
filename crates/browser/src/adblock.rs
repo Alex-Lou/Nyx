@@ -38,14 +38,7 @@ impl AdBlocker {
 
     /// Retourne true si l'URL doit être bloquée.
     pub fn should_block(&self, url: &str) -> bool {
-        let rest = url.split_once("://").map_or(url, |(_, r)| r);
-        let (authority, path) = rest.split_once('/').unwrap_or((rest, ""));
-        let host = authority
-            .rsplit_once('@')
-            .map_or(authority, |(_, h)| h)
-            .split(':')
-            .next()
-            .unwrap_or_default();
+        let (host, path) = crate::urls::host_and_path(url);
 
         self.rules.iter().any(|rule| {
             host_matches(host, rule.domain)

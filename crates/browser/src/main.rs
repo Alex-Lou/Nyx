@@ -1,9 +1,13 @@
 mod adblock;
+mod sidebar;
 mod tabs;
 mod theme;
+mod unlock;
+mod urls;
 mod webview;
 mod window;
 
+use std::rc::Rc;
 use std::sync::Arc;
 
 use gtk::prelude::*;
@@ -24,10 +28,13 @@ fn main() {
         // Thème Nyx — doit être chargé avant toute création de widget
         theme::load();
 
-        // TODO Sprint 2 : écran de déverrouillage vault ici
+        // Déverrouillage du vault (Sprint 2.1) — abandon = pas de fenêtre,
+        // l'application se termine d'elle-même.
+        let Some(vault) = unlock::unlock_vault() else { return };
+        let vault = Rc::new(vault);
 
         let blocker = Arc::new(AdBlocker::new());
-        let win = BrowserWindow::new(app, blocker);
+        let win = BrowserWindow::new(app, blocker, vault);
 
         // Premier onglet
         win.tabs.open(HOME_PAGE);
