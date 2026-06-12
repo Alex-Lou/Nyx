@@ -49,16 +49,10 @@ const YOUTUBE_JS: &str = r#"
         }
     }
 
-    // Boucle légère + observation des mutations (YouTube est une SPA).
+    // Sondage léger toutes les 250 ms : suffisant pour cueillir la pub dès
+    // son apparition, sans le coût d'un MutationObserver sur le DOM massif
+    // et très mouvant de YouTube (fluidité préservée).
     setInterval(killStreamAd, 250);
-    var mo = new MutationObserver(killStreamAd);
-    if (document.body) {
-        mo.observe(document.body, { childList: true, subtree: true });
-    } else {
-        document.addEventListener('DOMContentLoaded', function () {
-            mo.observe(document.body, { childList: true, subtree: true });
-        });
-    }
 })();
 "#;
 

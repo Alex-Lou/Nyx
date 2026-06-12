@@ -23,22 +23,10 @@ pub fn refresh(img: &Image, wv: &WebView) {
 
 /// Repli : un croissant de lune Nyx dessiné (pas l'icône symbolique GTK).
 pub fn set_fallback(img: &Image) {
-    match moon_pixbuf() {
+    match icons::pixbuf(Icon::Moon, FAVICON_PX, (0.482, 0.549, 0.871, 0.9)) {
         Some(pb) => img.set_from_pixbuf(Some(&pb)),
         None => img.clear(),
     }
-}
-
-fn moon_pixbuf() -> Option<gtk::gdk_pixbuf::Pixbuf> {
-    let surf = cairo::ImageSurface::create(cairo::Format::ARgb32, FAVICON_PX, FAVICON_PX).ok()?;
-    {
-        let cr = cairo::Context::new(&surf).ok()?;
-        let f = f64::from(FAVICON_PX);
-        icons::draw(&cr, Icon::Moon, f, f, (0.482, 0.549, 0.871, 0.9)); // lune Nyx #7b8cde
-    }
-    surf.flush();
-    let (w, h) = (surf.width(), surf.height());
-    gtk::gdk::pixbuf_get_from_surface(&surf, 0, 0, w, h)
 }
 
 fn try_load(wv: &WebView) -> Option<gtk::gdk_pixbuf::Pixbuf> {

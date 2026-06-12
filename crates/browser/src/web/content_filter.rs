@@ -73,6 +73,9 @@ pub fn init() {
 pub fn apply_to(ucm: &UserContentManager) {
     APPLIED.with(|a| {
         let mut applied = a.borrow_mut();
+        // Purge les onglets fermés (WeakRef morts) à chaque ajout → la liste
+        // reste bornée au nombre d'onglets vivants, sans attendre un toggle.
+        applied.retain(|w| w.upgrade().is_some());
         if !applied.iter().any(|w| w.upgrade().as_ref() == Some(ucm)) {
             applied.push(ucm.downgrade());
         }
