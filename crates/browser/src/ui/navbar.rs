@@ -1,33 +1,48 @@
+use std::rc::Rc;
+
 use gtk::prelude::*;
-use gtk::{Box as GtkBox, Button, Entry, EntryIconPosition, Orientation};
+use gtk::{Box as GtkBox, Entry, EntryIconPosition, Orientation};
+use vault::Vault;
 use webkit2gtk::{WebView, WebViewExt};
 
 use crate::pages::{self, newtab};
 use crate::state::bookmarks::{self, Bookmarks};
 use crate::state::settings::Settings;
+use crate::ui::icons::{self, Icon};
 use crate::ui::tabs::TabBar;
-use crate::ui::bookmarks_popover;
-use crate::web;
+use crate::ui::{bookmarks_popover, passwords_popover};
+use crate::web::{self, reader};
 
 /// Construit la barre de navigation, câble ses boutons + la barre d'adresse,
 /// et renvoie le widget prêt à packer dans la fenêtre.
-pub fn build(url_bar: &Entry, tabs: &TabBar, settings: &Settings, bm: &Bookmarks) -> GtkBox {
-    let back     = nav_button("◀", "Précédent");
-    let forward  = nav_button("▶", "Suivant");
-    let reload   = nav_button("↺", "Recharger (Ctrl+R)");
-    let home     = nav_button("⌂", "Accueil");
-    let star     = nav_button("☆", "Favoris");
-    let new_tab  = nav_button("+", "Nouvel onglet (Ctrl+T)");
-    let settings_b = nav_button("⚙", "Paramètres (Ctrl+,)");
+pub fn build(
+    url_bar: &Entry,
+    tabs: &TabBar,
+    settings: &Settings,
+    bm: &Bookmarks,
+    vault: &Rc<Vault>,
+) -> GtkBox {
+    let back     = icons::button(Icon::Back,     "Précédent");
+    let forward  = icons::button(Icon::Forward,  "Suivant");
+    let reload   = icons::button(Icon::Reload,   "Recharger (Ctrl+R)");
+    let home     = icons::button(Icon::Home,     "Accueil");
+    let reader_b = icons::button(Icon::Reader,   "Mode lecture (re-cliquer pour sortir)");
+    let keys     = icons::button(Icon::Keys,     "Coffre Nyx — mots de passe (vault déverrouillé)");
+    keys.style_context().add_class("nyx-vault-btn"); // halo : rappelle que le coffre est dispo
+    let star     = icons::button(Icon::Star,     "Favoris");
+    let new_tab  = icons::button(Icon::Plus,     "Nouvel onglet (Ctrl+T)");
+    let settings_b = icons::button(Icon::Settings, "Paramètres (Ctrl+,)");
 
     // ⭐ dans la barre d'adresse → ajout direct du favori courant.
-    url_bar.set_icon_from_icon_name(EntryIconPosition::Secondary, Some("starred-symbolic"));
+    if let Some(pb) = icons::pixbuf(Icon::Star, 16, (0.784, 0.839, 1.0, 0.85)) {
+        url_bar.set_icon_from_pixbuf(EntryIconPosition::Secondary, Some(&pb));
+    }
     url_bar.set_icon_tooltip_text(EntryIconPosition::Secondary, Some("Ajouter aux favoris"));
     {
-        let (t, b) = (tabs.clone(), bm.clone());
+        let (t, b, v) = (tabs.clone(), bm.clone(), vault.clone());
         url_bar.connect_icon_press(move |entry, pos, _| {
             if pos == EntryIconPosition::Secondary {
-                bookmark_current(&t, &b, entry);
+                bookmark_current(&t, &b, &v, entry);
             }
         });
     }
@@ -40,7 +55,9 @@ pub fn build(url_bar: &Entry, tabs: &TabBar, settings: &Settings, bm: &Bookmarks
     bar.pack_start(&home,    false, false, 4);
     bar.pack_start(url_bar,  true,  true,  0);
     bar.pack_end(&settings_b, false, false, 0);
+    bar.pack_end(&keys,       false, false, 0);
     bar.pack_end(&star,       false, false, 0);
+    bar.pack_end(&reader_b,   false, false, 0);
     bar.pack_end(&new_tab,    false, false, 4);
 
     let t = tabs.clone();
@@ -53,6 +70,14 @@ pub fn build(url_bar: &Entry, tabs: &TabBar, settings: &Settings, bm: &Bookmarks
     new_tab.connect_clicked(move |_| { t.open_new_tab(); });
     let t = tabs.clone();
     settings_b.connect_clicked(move |_| { t.open_settings(); });
+    let t = tabs.clone();
+    reader_b.connect_clicked(move |_| t.with_current(reader::toggle));
+
+    // ⚿ → gestionnaire de mots de passe (popover sur le vault).
+    {
+        let pop = passwords_popover::build(&keys, vault);
+        keys.connect_clicked(move |_| pop.popup());
+    }
 
     // Home → URL configurée dans les paramètres.
     let t = tabs.clone();
@@ -67,7 +92,7 @@ pub fn build(url_bar: &Entry, tabs: &TabBar, settings: &Settings, bm: &Bookmarks
 
     // ☆ → petit gestionnaire de favoris (popover).
     {
-        let pop = bookmarks_popover::build(&star, tabs, bm);
+        let pop = bookmarks_popover::build(&star, tabs, bm, vault);
         star.connect_clicked(move |_| pop.popup());
     }
 
@@ -86,7 +111,7 @@ pub fn build(url_bar: &Entry, tabs: &TabBar, settings: &Settings, bm: &Bookmarks
 
 /// Ajoute la page courante aux favoris + court toast dans la barre d'adresse.
 /// Partagé entre la ⭐ de la barre et le raccourci Ctrl+D.
-pub fn bookmark_current(tabs: &TabBar, bm: &Bookmarks, url_bar: &Entry) {
+pub fn bookmark_current(tabs: &TabBar, bm: &Bookmarks, vault: &Rc<Vault>, url_bar: &Entry) {
     let Some(wv) = tabs.current_webview() else { return };
     let url = wv.uri().map(|s| s.to_string()).unwrap_or_default();
     if url.is_empty() {
@@ -94,6 +119,7 @@ pub fn bookmark_current(tabs: &TabBar, bm: &Bookmarks, url_bar: &Entry) {
     }
     let title = wv.title().map(|s| s.to_string()).unwrap_or_else(|| url.clone());
     let msg = if bookmarks::add(bm, url.clone(), title) {
+        bookmarks::persist(bm, vault);
         "  ★  Favori ajouté"
     } else {
         "  ★  Déjà en favori"
@@ -105,14 +131,6 @@ pub fn bookmark_current(tabs: &TabBar, bm: &Bookmarks, url_bar: &Entry) {
         std::time::Duration::from_millis(1400),
         move || ub.set_text(&url),
     );
-}
-
-fn nav_button(label: &str, tooltip: &str) -> Button {
-    let btn = Button::with_label(label);
-    btn.style_context().add_class("nyx-nav-btn");
-    btn.set_relief(gtk::ReliefStyle::None);
-    btn.set_tooltip_text(Some(tooltip));
-    btn
 }
 
 /// Charge une URL ; `nyx://newtab` est rendu directement, le reste passe par

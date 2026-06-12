@@ -179,6 +179,13 @@ input:checked + .chip {
                 <label class="toggle"><input type="checkbox" name="blockauth" value="true"{{BLOCKAUTH}}><span class="slider"></span></label>
             </div>
             <div class="row">
+                <div class="row-text"><div class="row-label">Refuser les cookies automatiquement</div>
+                    <div class="row-desc">Rejette les bandeaux de consentement (Refuser / Nécessaires)
+                        avant qu'ils s'affichent. Cookies tiers déjà bloqués au niveau réseau.
+                        S'applique aux prochains onglets.</div></div>
+                <label class="toggle"><input type="checkbox" name="rejectcookies" value="true"{{REJECTCOOKIES}}><span class="slider"></span></label>
+            </div>
+            <div class="row">
                 <div class="row-text"><div class="row-label">Navigation privée</div>
                     <div class="row-desc">Nouveaux onglets sans trace disque (cookies/cache en RAM).
                         S'applique aux prochains onglets.</div></div>

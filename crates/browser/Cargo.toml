@@ -6,12 +6,30 @@ edition = "2021"
 [dependencies]
 vault      = { path = "../vault" }
 anyhow     = { workspace = true }
+serde      = { workspace = true }
 serde_json = { workspace = true }
 
 # GTK3 + WebKitGTK 4.1 — most mature Rust bindings available today
 gtk        = { version = "0.18", features = ["v3_24"] }
 webkit2gtk = { version = "2.0",  features = ["v2_40"] }
 glib       = "0.18"
+# FFI directe pour UserContentFilterStore (absent des bindings 2.0)
+# — unique module unsafe du projet : src/web/content_filter.rs
+webkit2gtk-sys = "2.0"
+# Lecture des script-messages (capture de mots de passe)
+javascriptcore = { package = "javascriptcore-rs", version = "1.1" }
 
-[lints]
-workspace = true
+# Bloqueur : moteur Brave + EasyList/EasyPrivacy bundlées gzippées
+adblock = { version = "0.12", features = ["content-blocking"] }
+flate2  = "1.0"
+
+[dev-dependencies]
+chrono = { workspace = true }
+
+# Mêmes lints que le workspace, mais unsafe en deny (et non forbid) pour
+# autoriser l'exception auditée de web/content_filter.rs (#[allow] local).
+[lints.rust]
+unsafe_code = "deny"
+
+[lints.clippy]
+all = "warn"

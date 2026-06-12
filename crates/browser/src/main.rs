@@ -3,7 +3,7 @@
 //! Organisation des modules :
 //!   state/  — réglages & favoris (modèles, sans GTK)
 //!   web/    — moteur WebKit : config, NyxGuard, dark mode, routage nyx://
-//!   pages/  — pages internes HTML (newtab, settings, bookmarks)
+//!   pages/  — pages internes HTML (newtab, settings, bookmarks, history)
 //!   ui/     — interface GTK : fenêtre, navbar, onglets, raccourcis, thème
 
 mod pages;
@@ -12,7 +12,7 @@ mod state;
 mod ui;
 mod web;
 
-use std::sync::Arc;
+use std::rc::Rc;
 
 use gtk::prelude::*;
 use gtk::Application;
@@ -43,11 +43,28 @@ fn main() {
     app.connect_activate(|app| {
         ui::theme::load();
         ui::icon::set_default();
-        // TODO Sprint 2 : écran de déverrouillage vault.
+
+        // Content filter pubs/trackers (sous-ressources) — compilé au
+        // premier lancement (asynchrone), chargé du cache ensuite.
+        web::content_filter::init();
+
+        // Déverrouillage du vault (Sprint 2.1) — abandon = pas de fenêtre,
+        // l'application se termine d'elle-même.
+        let Some(vault) = ui::unlock::unlock_vault() else { return };
+        let vault = Rc::new(vault);
+
         let prefs   = state::settings::new();
         let bm      = state::bookmarks::new();
-        let blocker = Arc::new(NyxGuard::new());
-        let win     = BrowserWindow::new(app, blocker, prefs, bm);
+        let blocker = Rc::new(NyxGuard::new());
+
+        // Réglages + favoris persistés dans le vault → rechargés au boot.
+        if let Ok(Some(q)) = vault.setting("app_settings") {
+            state::settings::apply_from_url(&format!("nyx://apply?{q}"), &prefs, &blocker);
+            web::content_filter::set_enabled(prefs.borrow().adblock_enabled);
+        }
+        state::bookmarks::load_from_vault(&bm, &vault);
+
+        let win = BrowserWindow::new(app, blocker, prefs, bm, vault);
         win.tabs.open_new_tab();
         win.show_all();
     });

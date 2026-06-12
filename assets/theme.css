@@ -348,3 +348,159 @@ dialog .dialog-action-area {
     outline: 2px solid alpha(@nyx_aurora, 0.6);
     outline-offset: 2px;
 }
+
+/* ── Déverrouillage du vault ───────────────────── */
+
+/* ── Coffre / déverrouillage ───────────────────── */
+
+.nyx-unlock {
+    background: radial-gradient(ellipse 120% 90% at 50% 0%, #141438 0%, @nyx_deep 60%, @nyx_void 100%);
+    border: 1px solid @nyx_border;
+    border-radius: 18px;
+}
+
+.nyx-unlock-title {
+    color: @nyx_star;
+    font-size: 18px;
+    font-weight: 300;
+    letter-spacing: 0.04em;
+}
+
+.nyx-unlock-sub {
+    color: @nyx_dim;
+    font-size: 12px;
+}
+
+.nyx-unlock .dialog-action-area {
+    border: none;
+    padding: 0 30px 22px 30px;
+}
+
+.nyx-unlock .dialog-action-area button {
+    border-radius: 10px;
+    padding: 7px 16px;
+}
+
+.nyx-unlock .dialog-action-area button {
+    background: @nyx_raised;
+    border: 1px solid @nyx_border;
+    color: @nyx_text;
+}
+
+.nyx-unlock .dialog-action-area button.suggested-action,
+.nyx-unlock .dialog-action-area button:last-child {
+    background: linear-gradient(135deg, alpha(@nyx_nebula, 0.9), alpha(@nyx_aurora, 0.55));
+    border: none;
+    color: #07101a;
+    font-weight: 600;
+}
+
+/* ── Menus contextuels (onglets, etc.) ─────────── */
+
+menu, .menu, .context-menu {
+    background-color: @nyx_surface;
+    border: 1px solid @nyx_border;
+    border-radius: 10px;
+    padding: 6px;
+}
+
+menu menuitem, .menu menuitem {
+    border-radius: 7px;
+    color: @nyx_text;
+    padding: 6px 14px;
+    transition: background-color 120ms ease;
+}
+
+menu menuitem:hover, .menu menuitem:hover {
+    background-color: @nyx_raised;
+    color: @nyx_star;
+}
+
+menu separator, .menu separator {
+    background-color: @nyx_border;
+    margin: 4px 2px;
+    min-height: 1px;
+}
+
+.nyx-error {
+    color: @nyx_twilight;
+    font-size: 12px;
+}
+
+/* ── Halo « coffre disponible » sur le bouton ⚿ ── */
+
+@keyframes nyx-vault-pulse {
+    from { background-color: alpha(@nyx_aurora, 0.0); }
+    to   { background-color: alpha(@nyx_aurora, 0.16); }
+}
+
+.nyx-vault-btn {
+    border-radius: 8px;
+    animation: nyx-vault-pulse 2.6s ease-in-out infinite alternate;
+}
+
+.nyx-vault-btn:hover {
+    animation: none;
+}
+
+/* ── Champs de saisie des popovers (mdp, etc.) ── */
+
+.nyx-field {
+    background-color: @nyx_raised;
+    border: 1px solid @nyx_border;
+    border-radius: 8px;
+    color: @nyx_text;
+    padding: 5px 10px;
+    transition: border-color 160ms ease;
+}
+
+.nyx-field:focus {
+    border-color: @nyx_aurora;
+}
+
+.nyx-add-btn {
+    background: linear-gradient(135deg, alpha(@nyx_nebula, 0.85), alpha(@nyx_aurora, 0.5));
+    border: none;
+    border-radius: 8px;
+    color: #07101a;
+    font-weight: 600;
+    padding: 5px 14px;
+    transition: box-shadow 160ms ease;
+}
+
+.nyx-add-btn:hover {
+    box-shadow: 0 0 12px alpha(@nyx_aurora, 0.4);
+}
+
+/* ── Findbar (Ctrl+F) ──────────────────────────── */
+
+.nyx-findbar {
+    background-color: @nyx_surface;
+    border-bottom: 1px solid @nyx_border;
+    padding: 4px 8px;
+}
+
+.nyx-findbar searchentry,
+.nyx-findbar entry {
+    background-color: @nyx_raised;
+    border: 1px solid @nyx_border;
+    border-radius: 8px;
+    color: @nyx_text;
+    padding: 3px 10px;
+    transition: border-color 180ms ease;
+}
+
+.nyx-findbar searchentry:focus,
+.nyx-findbar entry:focus {
+    border-color: @nyx_aurora;
+}
+
+/* ── Barre de téléchargements ──────────────────── */
+
+.nyx-downloadbar {
+    background-color: @nyx_surface;
+    border-top: 1px solid @nyx_border;
+    color: @nyx_text;
+    font-size: 12px;
+    padding: 6px 8px;
+}

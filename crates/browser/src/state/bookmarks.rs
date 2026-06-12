@@ -1,7 +1,10 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-/// Store en mémoire (Sprint 2 : persistance dans le vault chiffré).
+use vault::Vault;
+
+/// Store en mémoire, persisté dans le vault chiffré (Sprint 2 ✓) :
+/// chargé au déverrouillage, resynchronisé après chaque mutation.
 /// Dossiers + drag-and-drop : itération suivante (modèle hiérarchique).
 pub type Bookmarks = Rc<RefCell<Vec<Bookmark>>>;
 
@@ -13,6 +16,26 @@ pub struct Bookmark {
 
 pub fn new() -> Bookmarks {
     Rc::new(RefCell::new(Vec::new()))
+}
+
+/// Charge les favoris depuis le vault (au déverrouillage).
+pub fn load_from_vault(bm: &Bookmarks, vault: &Vault) {
+    let items = vault.list_bookmarks().unwrap_or_default();
+    *bm.borrow_mut() = items
+        .into_iter()
+        .map(|b| Bookmark { url: b.url, title: b.title })
+        .collect();
+}
+
+/// Resynchronise le vault avec le store mémoire (après add/remove/import —
+/// remplacement complet : les listes restent petites, la simplicité prime).
+pub fn persist(bm: &Bookmarks, vault: &Vault) {
+    let items: Vec<vault::Bookmark> = bm
+        .borrow()
+        .iter()
+        .map(|b| vault::Bookmark::new(b.url.clone(), b.title.clone()))
+        .collect();
+    let _ = vault.replace_bookmarks(&items);
 }
 
 /// Ajoute un favori (ignore les doublons d'URL). Retourne `true` si ajouté.

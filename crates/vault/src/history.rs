@@ -1,6 +1,6 @@
 use anyhow::Result;
 use chrono::Utc;
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, Params, Row};
 
 use crate::models::HistoryEntry;
 
@@ -13,62 +13,44 @@ pub fn push(conn: &Connection, url: &str, title: &str) -> Result<()> {
 }
 
 pub fn list_recent(conn: &Connection, limit: usize) -> Result<Vec<HistoryEntry>> {
-    let mut stmt = conn.prepare(
+    query(
+        conn,
         "SELECT id, url, title, visited_at FROM history
          ORDER BY visited_at DESC LIMIT ?1",
-    )?;
-    let rows = stmt.query_map(params![limit as i64], |row| {
-        Ok((
-            row.get::<_, i64>(0)?,
-            row.get::<_, String>(1)?,
-            row.get::<_, String>(2)?,
-            row.get::<_, String>(3)?,
-        ))
-    })?;
-
-    let mut out = vec![];
-    for row in rows {
-        let (id, url, title, visited_at) = row?;
-        out.push(HistoryEntry {
-            id: Some(id),
-            url,
-            title,
-            visited_at: visited_at.parse().unwrap_or_else(|_| Utc::now()),
-        });
-    }
-    Ok(out)
+        params![limit as i64],
+    )
 }
 
-pub fn search(conn: &Connection, query: &str) -> Result<Vec<HistoryEntry>> {
-    let pattern = format!("%{}%", query);
-    let mut stmt = conn.prepare(
+pub fn search(conn: &Connection, query_str: &str) -> Result<Vec<HistoryEntry>> {
+    let pattern = format!("%{}%", query_str);
+    query(
+        conn,
         "SELECT id, url, title, visited_at FROM history
          WHERE url LIKE ?1 OR title LIKE ?1
          ORDER BY visited_at DESC LIMIT 100",
-    )?;
-    let rows = stmt.query_map(params![pattern], |row| {
-        Ok((
-            row.get::<_, i64>(0)?,
-            row.get::<_, String>(1)?,
-            row.get::<_, String>(2)?,
-            row.get::<_, String>(3)?,
-        ))
-    })?;
-
-    let mut out = vec![];
-    for row in rows {
-        let (id, url, title, visited_at) = row?;
-        out.push(HistoryEntry {
-            id: Some(id),
-            url,
-            title,
-            visited_at: visited_at.parse().unwrap_or_else(|_| Utc::now()),
-        });
-    }
-    Ok(out)
+        params![pattern],
+    )
 }
 
 pub fn clear(conn: &Connection) -> Result<()> {
     conn.execute("DELETE FROM history", [])?;
     Ok(())
+}
+
+fn query(conn: &Connection, sql: &str, params: impl Params) -> Result<Vec<HistoryEntry>> {
+    let mut stmt = conn.prepare(sql)?;
+    let rows = stmt.query_map(params, from_row)?;
+    Ok(rows.collect::<rusqlite::Result<_>>()?)
+}
+
+fn from_row(row: &Row) -> rusqlite::Result<HistoryEntry> {
+    Ok(HistoryEntry {
+        id: Some(row.get(0)?),
+        url: row.get(1)?,
+        title: row.get(2)?,
+        visited_at: row
+            .get::<_, String>(3)?
+            .parse()
+            .unwrap_or_else(|_| Utc::now()),
+    })
 }

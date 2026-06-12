@@ -12,6 +12,7 @@ pub struct AppSettings {
     pub dark_websites:       bool,
     pub private_mode:        bool,
     pub block_third_party:   bool,
+    pub reject_cookies:      bool,
     pub on_last_tab:         LastTab,
     pub home_url:            String,
     pub language:            Language,
@@ -25,6 +26,7 @@ impl Default for AppSettings {
             dark_websites:     false,
             private_mode:      false,
             block_third_party: false,
+            reject_cookies:    true, // bannières de consentement refusées d'office
             on_last_tab:       LastTab::Home,
             home_url:          "nyx://newtab".into(),
             language:          Language::French,
@@ -123,10 +125,37 @@ pub fn apply_from_url(url: &str, settings: &Settings, blocker: &NyxGuard) -> boo
     s.dark_websites     = flag("dark");
     s.private_mode      = flag("private");
     s.block_third_party = flag("blockauth");
+    s.reject_cookies    = flag("rejectcookies");
 
     blocker.set_enabled(s.adblock_enabled);
     blocker.set_block_accounts(s.block_third_party);
     true
+}
+
+/// Sérialise les réglages dans le même format query-string que `nyx://apply`
+/// — la persistance (vault) réutilise ainsi le parseur déjà testé :
+/// au boot, `apply_from_url(&format!("nyx://apply?{q}"), …)` recharge tout.
+pub fn to_query(s: &AppSettings) -> String {
+    let mut q = format!(
+        "engine={}&lang={}&lasttab={}&home={}",
+        s.search_engine.id(),
+        s.language.id(),
+        s.on_last_tab.id(),
+        urlencode(&s.home_url),
+    );
+    // Même convention que le formulaire : une checkbox absente = false.
+    for (key, on) in [
+        ("adblock", s.adblock_enabled),
+        ("dark", s.dark_websites),
+        ("private", s.private_mode),
+        ("blockauth", s.block_third_party),
+        ("rejectcookies", s.reject_cookies),
+    ] {
+        if on {
+            q.push_str(&format!("&{key}=true"));
+        }
+    }
+    q
 }
 
 fn urlencode(s: &str) -> String {
@@ -163,6 +192,37 @@ mod tests {
     fn empty_query_noop() {
         let (s, b) = setup();
         assert!(!apply_from_url("nyx://apply", &s, &b));
+    }
+
+    /// to_query ∘ apply_from_url = identité : la persistance vault repose dessus.
+    #[test]
+    fn to_query_roundtrip() {
+        let (s, b) = setup();
+        {
+            let mut g = s.borrow_mut();
+            g.search_engine = SearchEngine::Ecosia;
+            g.language = Language::German;
+            g.on_last_tab = LastTab::CloseWindow;
+            g.home_url = "https://exemple.fr/?a=1".into();
+            g.adblock_enabled = true;
+            g.dark_websites = true;
+            g.private_mode = false;
+            g.block_third_party = true;
+        }
+        let q = to_query(&s.borrow());
+
+        let (restored, b2) = (new(), NyxGuard::new());
+        apply_from_url(&format!("nyx://apply?{q}"), &restored, &b2);
+        let (a, r) = (s.borrow(), restored.borrow());
+        assert_eq!(a.search_engine, r.search_engine);
+        assert_eq!(a.language, r.language);
+        assert_eq!(a.on_last_tab, r.on_last_tab);
+        assert_eq!(a.home_url, r.home_url);
+        assert_eq!(a.adblock_enabled, r.adblock_enabled);
+        assert_eq!(a.dark_websites, r.dark_websites);
+        assert_eq!(a.private_mode, r.private_mode);
+        assert_eq!(a.block_third_party, r.block_third_party);
+        let _ = b;
     }
 
     /// « Centaines d'utilisateurs » : on martèle apply_from_url avec des
