@@ -157,12 +157,18 @@ notebook > header > tabs > tab:checked {
     min-height: 2px;
 }
 
+@keyframes nyx-progress-glow {
+    0%   { box-shadow: 0 0 4px  alpha(@nyx_aurora, 0.35); }
+    50%  { box-shadow: 0 0 12px alpha(@nyx_aurora, 0.75); }
+    100% { box-shadow: 0 0 4px  alpha(@nyx_aurora, 0.35); }
+}
+
 .nyx-progress > trough > progress {
     background-color: @nyx_aurora;
     border-radius: 2px;
-    box-shadow: 0 0 8px alpha(@nyx_aurora, 0.5);
     min-height: 2px;
     transition: all 120ms ease;
+    animation: nyx-progress-glow 1.4s ease-in-out infinite;
 }
 
 /* ── Scrollbars ────────────────────────────────── */

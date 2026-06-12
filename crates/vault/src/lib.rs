@@ -83,3 +83,102 @@ impl Vault {
         history::clear(&self.conn)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Vault temporaire avec un chemin unique, nettoyé par le guard.
+    struct TempVault {
+        path: PathBuf,
+    }
+
+    impl TempVault {
+        fn new(name: &str) -> Self {
+            let path = std::env::temp_dir()
+                .join(format!("nyx_vault_test_{}_{}.db", std::process::id(), name));
+            let _ = std::fs::remove_file(&path);
+            Self { path }
+        }
+
+        fn open(&self, passphrase: &str) -> Result<Vault> {
+            Vault::open(&self.path, passphrase)
+        }
+    }
+
+    impl Drop for TempVault {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_file(&self.path);
+        }
+    }
+
+    #[test]
+    fn bookmarks_round_trip() -> Result<()> {
+        let tmp = TempVault::new("bookmarks");
+        let vault = tmp.open("secret")?;
+
+        let mut b = Bookmark::new("https://rust-lang.org", "Rust");
+        b.tags = vec!["dev".into()];
+        let id = vault.add_bookmark(&b)?;
+
+        let all = vault.list_bookmarks()?;
+        assert_eq!(all.len(), 1);
+        assert_eq!(all[0].url, "https://rust-lang.org");
+        assert_eq!(all[0].tags, vec!["dev".to_string()]);
+
+        assert_eq!(vault.search_bookmarks("rust")?.len(), 1);
+        assert_eq!(vault.search_bookmarks("nope")?.len(), 0);
+
+        vault.delete_bookmark(id)?;
+        assert!(vault.list_bookmarks()?.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn passwords_round_trip() -> Result<()> {
+        let tmp = TempVault::new("passwords");
+        let vault = tmp.open("secret")?;
+
+        let id = vault.add_password(&Password::new("example.com", "alex", "hunter2"))?;
+        let found = vault.passwords_for("example.com")?;
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].password, "hunter2");
+        assert_eq!(vault.list_password_domains()?, vec!["example.com"]);
+
+        vault.update_password(id, "correct horse")?;
+        assert_eq!(vault.passwords_for("example.com")?[0].password, "correct horse");
+
+        vault.delete_password(id)?;
+        assert!(vault.passwords_for("example.com")?.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn history_round_trip() -> Result<()> {
+        let tmp = TempVault::new("history");
+        let vault = tmp.open("secret")?;
+
+        vault.push_history("https://a.org", "A")?;
+        vault.push_history("https://b.org", "B")?;
+        assert_eq!(vault.recent_history(10)?.len(), 2);
+        assert_eq!(vault.search_history("a.org")?.len(), 1);
+
+        vault.clear_history()?;
+        assert!(vault.recent_history(10)?.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn mauvaise_passphrase_rejetee() -> Result<()> {
+        let tmp = TempVault::new("badpass");
+        {
+            let vault = tmp.open("bonne-passphrase")?;
+            vault.push_history("https://a.org", "A")?;
+        }
+        assert!(tmp.open("mauvaise-passphrase").is_err());
+        // La bonne passphrase fonctionne toujours et les données persistent
+        let vault = tmp.open("bonne-passphrase")?;
+        assert_eq!(vault.recent_history(10)?.len(), 1);
+        Ok(())
+    }
+}

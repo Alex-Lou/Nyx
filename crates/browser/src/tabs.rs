@@ -7,6 +7,7 @@ use webkit2gtk::{WebView, WebViewExt};
 use crate::adblock::AdBlocker;
 use crate::webview;
 
+#[derive(Clone)]
 pub struct TabBar {
     pub notebook: Notebook,
     blocker: Arc<AdBlocker>,
@@ -38,14 +39,25 @@ impl TabBar {
         webview
     }
 
-    /// WebView de l'onglet actif, si disponible.
-    pub fn active_webview(&self) -> Option<WebView> {
-        let page = self.notebook.current_page()?;
-        self.notebook
-            .nth_page(Some(page))?
-            .downcast::<WebView>()
-            .ok()
+    /// Ferme l'onglet actif.
+    pub fn close_current(&self) {
+        if let Some(page) = self.notebook.current_page() {
+            self.notebook.remove_page(Some(page));
+        }
     }
+
+    /// WebView de l'onglet actif, si disponible.
+    /// Utilisé par le Sprint 2 (historique, bookmarks depuis l'URL bar).
+    #[allow(dead_code)]
+    pub fn active_webview(&self) -> Option<WebView> {
+        current_webview(&self.notebook)
+    }
+}
+
+/// WebView de l'onglet actif d'un notebook, si disponible.
+pub fn current_webview(nb: &Notebook) -> Option<WebView> {
+    let page = nb.current_page()?;
+    nb.nth_page(Some(page))?.downcast::<WebView>().ok()
 }
 
 fn build_tab_label(title: &str, webview: &WebView, notebook: &Notebook) -> GtkBox {
