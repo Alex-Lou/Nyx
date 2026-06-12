@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use rusqlite::Connection;
 use std::path::Path;
 
@@ -37,6 +37,11 @@ pub fn open(path: &Path, passphrase: &str) -> Result<Connection> {
 
     // SQLCipher: doit être le tout premier pragma avant toute opération
     conn.pragma_update(None, "key", passphrase)?;
+
+    // SQLCipher ne valide la clé qu'à la première lecture : on force une
+    // lecture immédiate pour échouer franchement si la passphrase est mauvaise.
+    conn.query_row("SELECT count(*) FROM sqlite_master", [], |_| Ok(()))
+        .context("passphrase invalide ou fichier vault corrompu")?;
 
     // Optimisations standard SQLite
     conn.execute_batch("
