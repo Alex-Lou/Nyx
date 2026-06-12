@@ -6,6 +6,7 @@ pub mod chrome;
 pub mod downloads;
 pub mod findbar;
 pub mod icon;
+pub mod icons;
 pub mod navbar;
 pub mod passwords_popover;
 pub mod settings_window;

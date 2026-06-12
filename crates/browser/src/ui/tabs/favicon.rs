@@ -1,7 +1,9 @@
 use gtk::gdk_pixbuf::InterpType;
 use gtk::prelude::*;
-use gtk::{cairo, IconSize, Image};
+use gtk::{cairo, Image};
 use webkit2gtk::{WebView, WebViewExt};
+
+use crate::ui::icons::{self, Icon};
 
 pub const FAVICON_PX: i32 = 16;
 
@@ -19,8 +21,24 @@ pub fn refresh(img: &Image, wv: &WebView) {
     }
 }
 
+/// Repli : un croissant de lune Nyx dessiné (pas l'icône symbolique GTK).
 pub fn set_fallback(img: &Image) {
-    img.set_from_icon_name(Some("text-html-symbolic"), IconSize::Menu);
+    match moon_pixbuf() {
+        Some(pb) => img.set_from_pixbuf(Some(&pb)),
+        None => img.clear(),
+    }
+}
+
+fn moon_pixbuf() -> Option<gtk::gdk_pixbuf::Pixbuf> {
+    let surf = cairo::ImageSurface::create(cairo::Format::ARgb32, FAVICON_PX, FAVICON_PX).ok()?;
+    {
+        let cr = cairo::Context::new(&surf).ok()?;
+        let f = f64::from(FAVICON_PX);
+        icons::draw(&cr, Icon::Moon, f, f, (0.482, 0.549, 0.871, 0.9)); // lune Nyx #7b8cde
+    }
+    surf.flush();
+    let (w, h) = (surf.width(), surf.height());
+    gtk::gdk::pixbuf_get_from_surface(&surf, 0, 0, w, h)
 }
 
 fn try_load(wv: &WebView) -> Option<gtk::gdk_pixbuf::Pixbuf> {

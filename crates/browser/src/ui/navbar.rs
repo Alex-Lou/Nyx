@@ -1,13 +1,14 @@
 use std::rc::Rc;
 
 use gtk::prelude::*;
-use gtk::{Box as GtkBox, Button, Entry, EntryIconPosition, Orientation};
+use gtk::{Box as GtkBox, Entry, EntryIconPosition, Orientation};
 use vault::Vault;
 use webkit2gtk::{WebView, WebViewExt};
 
 use crate::pages::{self, newtab};
 use crate::state::bookmarks::{self, Bookmarks};
 use crate::state::settings::Settings;
+use crate::ui::icons::{self, Icon};
 use crate::ui::tabs::TabBar;
 use crate::ui::{bookmarks_popover, passwords_popover};
 use crate::web::{self, reader};
@@ -21,18 +22,21 @@ pub fn build(
     bm: &Bookmarks,
     vault: &Rc<Vault>,
 ) -> GtkBox {
-    let back     = nav_button("◀", "Précédent");
-    let forward  = nav_button("▶", "Suivant");
-    let reload   = nav_button("↺", "Recharger (Ctrl+R)");
-    let home     = nav_button("⌂", "Accueil");
-    let reader_b = nav_button("Aa", "Mode lecture (re-cliquer pour sortir)");
-    let keys     = nav_button("⚿", "Mots de passe");
-    let star     = nav_button("☆", "Favoris");
-    let new_tab  = nav_button("+", "Nouvel onglet (Ctrl+T)");
-    let settings_b = nav_button("⚙", "Paramètres (Ctrl+,)");
+    let back     = icons::button(Icon::Back,     "Précédent");
+    let forward  = icons::button(Icon::Forward,  "Suivant");
+    let reload   = icons::button(Icon::Reload,   "Recharger (Ctrl+R)");
+    let home     = icons::button(Icon::Home,     "Accueil");
+    let reader_b = icons::button(Icon::Reader,   "Mode lecture (re-cliquer pour sortir)");
+    let keys     = icons::button(Icon::Keys,     "Coffre Nyx — mots de passe (vault déverrouillé)");
+    keys.style_context().add_class("nyx-vault-btn"); // halo : rappelle que le coffre est dispo
+    let star     = icons::button(Icon::Star,     "Favoris");
+    let new_tab  = icons::button(Icon::Plus,     "Nouvel onglet (Ctrl+T)");
+    let settings_b = icons::button(Icon::Settings, "Paramètres (Ctrl+,)");
 
     // ⭐ dans la barre d'adresse → ajout direct du favori courant.
-    url_bar.set_icon_from_icon_name(EntryIconPosition::Secondary, Some("starred-symbolic"));
+    if let Some(pb) = icons::pixbuf(Icon::Star, 16, (0.784, 0.839, 1.0, 0.85)) {
+        url_bar.set_icon_from_pixbuf(EntryIconPosition::Secondary, Some(&pb));
+    }
     url_bar.set_icon_tooltip_text(EntryIconPosition::Secondary, Some("Ajouter aux favoris"));
     {
         let (t, b, v) = (tabs.clone(), bm.clone(), vault.clone());
@@ -127,14 +131,6 @@ pub fn bookmark_current(tabs: &TabBar, bm: &Bookmarks, vault: &Rc<Vault>, url_ba
         std::time::Duration::from_millis(1400),
         move || ub.set_text(&url),
     );
-}
-
-fn nav_button(label: &str, tooltip: &str) -> Button {
-    let btn = Button::with_label(label);
-    btn.style_context().add_class("nyx-nav-btn");
-    btn.set_relief(gtk::ReliefStyle::None);
-    btn.set_tooltip_text(Some(tooltip));
-    btn
 }
 
 /// Charge une URL ; `nyx://newtab` est rendu directement, le reste passe par

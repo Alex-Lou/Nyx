@@ -187,7 +187,7 @@ impl TabBar {
     }
 
     fn attach(&self, wv: &WebView, initial: &str) {
-        let tab = label::build(wv, &self.notebook, initial);
+        let tab = label::build(self, wv, &self.notebook, initial);
         let idx = self.notebook.append_page(wv, Some(&tab));
         self.notebook.set_tab_reorderable(wv, true);
         self.notebook.set_current_page(Some(idx));

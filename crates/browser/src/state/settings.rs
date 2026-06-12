@@ -12,6 +12,7 @@ pub struct AppSettings {
     pub dark_websites:       bool,
     pub private_mode:        bool,
     pub block_third_party:   bool,
+    pub reject_cookies:      bool,
     pub on_last_tab:         LastTab,
     pub home_url:            String,
     pub language:            Language,
@@ -25,6 +26,7 @@ impl Default for AppSettings {
             dark_websites:     false,
             private_mode:      false,
             block_third_party: false,
+            reject_cookies:    true, // bannières de consentement refusées d'office
             on_last_tab:       LastTab::Home,
             home_url:          "nyx://newtab".into(),
             language:          Language::French,
@@ -123,6 +125,7 @@ pub fn apply_from_url(url: &str, settings: &Settings, blocker: &NyxGuard) -> boo
     s.dark_websites     = flag("dark");
     s.private_mode      = flag("private");
     s.block_third_party = flag("blockauth");
+    s.reject_cookies    = flag("rejectcookies");
 
     blocker.set_enabled(s.adblock_enabled);
     blocker.set_block_accounts(s.block_third_party);
@@ -146,6 +149,7 @@ pub fn to_query(s: &AppSettings) -> String {
         ("dark", s.dark_websites),
         ("private", s.private_mode),
         ("blockauth", s.block_third_party),
+        ("rejectcookies", s.reject_cookies),
     ] {
         if on {
             q.push_str(&format!("&{key}=true"));

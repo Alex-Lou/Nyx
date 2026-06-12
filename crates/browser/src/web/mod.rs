@@ -3,11 +3,13 @@
 //! d'adresse. Le rendu HTML appartient à `crate::pages`.
 
 pub mod content_filter;
+pub mod cookies;
 pub mod darkmode;
 pub mod nyxguard;
 pub mod password_capture;
 pub mod reader;
 pub mod security;
+pub mod youtube;
 
 use std::rc::Rc;
 
@@ -40,6 +42,10 @@ pub fn configure(
     }
     wire_history_autosave(webview, vault.clone());
     password_capture::wire(webview, vault.clone());
+    youtube::wire(webview); // anti-pub YouTube (skip in-stream + masque display)
+    if prefs.borrow().reject_cookies {
+        cookies::wire(webview); // refus auto des bannières de consentement
+    }
     wire_policy_filter(webview, blocker, prefs, bm, vault);
 }
 
