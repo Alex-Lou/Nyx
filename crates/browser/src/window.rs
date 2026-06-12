@@ -9,6 +9,9 @@ use vault::{Bookmark, Vault};
 use webkit2gtk::{LoadEvent, WebView, WebViewExt};
 
 use crate::adblock::AdBlocker;
+use crate::downloads;
+use crate::findbar::FindBar;
+use crate::reader;
 use crate::sidebar::Sidebar;
 use crate::tabs::{current_webview, TabBar};
 use crate::webview;
@@ -40,12 +43,14 @@ impl BrowserWindow {
         let forward_btn = nav_button("▶");
         let reload_btn  = nav_button("↺");
         let home_btn    = nav_button("⌂");
+        let reader_btn  = nav_button("Aa");
         let shield_btn  = nav_button("⛨");
         let star_btn    = nav_button("★");
         let new_tab_btn = nav_button("+");
         star_btn.style_context().add_class("nyx-star-btn");
         shield_btn.style_context().add_class("nyx-shield-btn");
         shield_btn.set_tooltip_text(Some("Bloqueur de pubs actif — cliquer pour whitelister ce site"));
+        reader_btn.set_tooltip_text(Some("Mode lecture (re-cliquer pour sortir)"));
 
         let url_bar = Entry::builder()
             .placeholder_text("nyx://  ou  recherche…")
@@ -64,6 +69,7 @@ impl BrowserWindow {
         navbar.pack_end(&new_tab_btn,   false, false, 4);
         navbar.pack_end(&star_btn,      false, false, 0);
         navbar.pack_end(&shield_btn,    false, false, 0);
+        navbar.pack_end(&reader_btn,    false, false, 0);
 
         // ── Onglets + sidebar ────────────────────────────────────────────
         // Whitelist adblock persistée dans le vault (Sprint 3.4)
@@ -74,6 +80,7 @@ impl BrowserWindow {
 
         let tabs = TabBar::new(blocker.clone());
         let sidebar = Sidebar::new(vault.clone(), tabs.clone());
+        let findbar = FindBar::new(&tabs.notebook);
 
         let content = GtkBox::new(Orientation::Horizontal, 0);
         content.pack_start(&sidebar.widget, false, false, 0);
@@ -81,13 +88,15 @@ impl BrowserWindow {
 
         // ── Layout ───────────────────────────────────────────────────────
         let vbox = GtkBox::new(Orientation::Vertical, 0);
-        vbox.pack_start(&progress, false, false, 0);
-        vbox.pack_start(&navbar,   false, false, 0);
-        vbox.pack_start(&content,  true,  true,  0);
+        vbox.pack_start(&progress,       false, false, 0);
+        vbox.pack_start(&navbar,         false, false, 0);
+        vbox.pack_start(&findbar.widget, false, false, 0);
+        vbox.pack_start(&content,        true,  true,  0);
+        downloads::init(&vbox); // barre d'état téléchargements (Sprint 4.3)
         window.add(&vbox);
 
         // ── Raccourcis clavier ───────────────────────────────────────────
-        wire_shortcuts(&window, &tabs, &url_bar);
+        wire_shortcuts(&window, &tabs, &url_bar, &findbar);
 
         // ── Boutons ──────────────────────────────────────────────────────
         {
@@ -104,6 +113,7 @@ impl BrowserWindow {
         wire_nav_button(&forward_btn, &tabs.notebook, |wv| wv.go_forward());
         wire_nav_button(&reload_btn,  &tabs.notebook, |wv| wv.reload());
         wire_nav_button(&home_btn,    &tabs.notebook, |wv| wv.load_uri(HOME_PAGE));
+        wire_nav_button(&reader_btn,  &tabs.notebook, reader::toggle);
 
         // ── URL bar → charger ────────────────────────────────────────────
         {
@@ -333,7 +343,7 @@ fn is_current(nb: &Notebook, wv: &WebView) -> bool {
     nb.current_page().is_some() && nb.current_page() == nb.page_num(wv)
 }
 
-fn wire_shortcuts(window: &ApplicationWindow, tabs: &TabBar, url_bar: &Entry) {
+fn wire_shortcuts(window: &ApplicationWindow, tabs: &TabBar, url_bar: &Entry, findbar: &FindBar) {
     let accel = gtk::AccelGroup::new();
     window.add_accel_group(&accel);
 
@@ -357,6 +367,28 @@ fn wire_shortcuts(window: &ApplicationWindow, tabs: &TabBar, url_bar: &Entry) {
     // Ctrl+W → fermer onglet
     let tb = tabs.clone();
     add_ctrl_accel(&accel, 'w', move || tb.close_current());
+
+    // Ctrl+F → recherche dans la page (Sprint 4.2)
+    let fb = findbar.clone();
+    add_ctrl_accel(&accel, 'f', move || fb.open());
+
+    // Ctrl + / − / 0 → zoom (Sprint 4.5) ; '=' = '+' sans Shift
+    for key in ['+', '='] {
+        let nb = tabs.notebook.clone();
+        add_ctrl_accel(&accel, key, move || zoom_by(&nb, 0.1));
+    }
+    let nb = tabs.notebook.clone();
+    add_ctrl_accel(&accel, '-', move || zoom_by(&nb, -0.1));
+    let nb = tabs.notebook.clone();
+    add_ctrl_accel(&accel, '0', move || {
+        if let Some(wv) = current_webview(&nb) { wv.set_zoom_level(1.0); }
+    });
+}
+
+fn zoom_by(nb: &Notebook, delta: f64) {
+    if let Some(wv) = current_webview(nb) {
+        wv.set_zoom_level((wv.zoom_level() + delta).clamp(0.3, 3.0));
+    }
 }
 
 fn add_ctrl_accel(accel: &gtk::AccelGroup, key: char, action: impl Fn() + 'static) {

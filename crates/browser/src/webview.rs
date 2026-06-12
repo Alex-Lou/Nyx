@@ -24,6 +24,11 @@ pub fn configure(webview: &WebView, blocker: Rc<AdBlocker>, on_block: impl Fn() 
     wire_policy_filter(webview, blocker, on_block);
 }
 
+/// User-agent neutre (Sprint 5.5) : même façade qu'Epiphany — un Safari
+/// générique, le pool d'utilisateurs le plus large possible.
+const NEUTRAL_UA: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) \
+    AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15";
+
 fn apply_settings(webview: &WebView) {
     use webkit2gtk::SettingsExt;
     let settings = WebViewExt::settings(webview).expect("WebView sans settings");
@@ -31,6 +36,8 @@ fn apply_settings(webview: &WebView) {
     // WebRTC leak prevention
     // (hyperlink auditing : plus besoin, WebKitGTK ≥ 2.46 le désactive en dur)
     settings.set_enable_media_stream(false);
+
+    settings.set_user_agent(Some(NEUTRAL_UA));
 
     // Géolocalisation, notifications, micro/caméra : tout refusé par défaut
     webview.connect_permission_request(|_, request| {

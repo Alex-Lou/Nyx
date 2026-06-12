@@ -95,9 +95,14 @@ concrètes à implémenter, pas des intentions vagues.
 
 ---
 
-## Sprint 4 — UX & ergonomie
+## Sprint 4 — UX & ergonomie ✅ (fait, sauf 4.4)
 
 **Objectif** : le navigateur est plaisant à utiliser au quotidien.
+
+> 4.4 abandonné : le menu natif WebKit suffit — son « Ouvrir dans une
+> nouvelle fenêtre » passe par notre signal `create` → nouvel onglet.
+> 4.6 : heuristique JS maison (`reader.rs`), pas de dépendance Readability.
+> 4.7 était déjà couvert par la sidebar du Sprint 2.
 
 | # | Tâche | Notes |
 |---|-------|-------|
@@ -113,9 +118,14 @@ concrètes à implémenter, pas des intentions vagues.
 
 ---
 
-## Sprint 5 — Privacy avancée
+## Sprint 5 — Privacy avancée 🟡 (partiel)
 
 **Objectif** : le navigateur protège activement la vie privée.
+
+> Fait : 5.2 (cookies tiers bloqués), 5.4 (media-stream off + permissions
+> refusées), 5.5 (UA neutre type Safari, configurabilité à venir).
+> Restent : 5.1 (HTTPS forcé — nécessite un fallback propre pour les sites
+> http-only), 5.3, 5.6, 5.7 (limité par l'opacité du content filter WebKit).
 
 | # | Tâche | Notes |
 |---|-------|-------|

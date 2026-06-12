@@ -168,6 +168,37 @@ notebook > header > tabs > tab:checked {
     color: @nyx_twilight;
 }
 
+/* ── Findbar & téléchargements ─────────────────── */
+
+.nyx-findbar {
+    background-color: @nyx_surface;
+    border-bottom: 1px solid @nyx_border;
+    padding: 4px 8px;
+}
+
+.nyx-findbar searchentry,
+.nyx-findbar entry {
+    background-color: @nyx_raised;
+    border: 1px solid @nyx_border;
+    border-radius: 8px;
+    color: @nyx_text;
+    padding: 3px 10px;
+    transition: border-color 180ms ease;
+}
+
+.nyx-findbar searchentry:focus,
+.nyx-findbar entry:focus {
+    border-color: @nyx_aurora;
+}
+
+.nyx-downloadbar {
+    background-color: @nyx_surface;
+    border-top: 1px solid @nyx_border;
+    color: @nyx_text;
+    font-size: 12px;
+    padding: 6px 8px;
+}
+
 /* ── Barre de chargement ───────────────────────── */
 
 .nyx-progress {
