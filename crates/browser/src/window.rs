@@ -13,17 +13,27 @@ use crate::downloads;
 use crate::findbar::FindBar;
 use crate::reader;
 use crate::sidebar::Sidebar;
+use crate::startpage::START_PAGE;
 use crate::tabs::{current_webview, TabBar};
 use crate::webview;
-use crate::HOME_PAGE;
 
 pub struct BrowserWindow {
     pub window: ApplicationWindow,
     pub tabs: TabBar,
+    /// Page d'accueil : clé `homepage` du vault, défaut nyx://start.
+    pub homepage: Rc<String>,
 }
 
 impl BrowserWindow {
     pub fn new(app: &Application, blocker: Rc<AdBlocker>, vault: Rc<Vault>) -> Self {
+        let homepage: Rc<String> = Rc::new(
+            vault
+                .setting("homepage")
+                .ok()
+                .flatten()
+                .filter(|s| !s.trim().is_empty())
+                .unwrap_or_else(|| START_PAGE.to_string()),
+        );
         let window = ApplicationWindow::builder()
             .application(app)
             .title("Nyx")
@@ -96,7 +106,7 @@ impl BrowserWindow {
         window.add(&vbox);
 
         // ── Raccourcis clavier ───────────────────────────────────────────
-        wire_shortcuts(&window, &tabs, &url_bar, &findbar);
+        wire_shortcuts(&window, &tabs, &url_bar, &findbar, &homepage);
 
         // ── Boutons ──────────────────────────────────────────────────────
         {
@@ -105,14 +115,18 @@ impl BrowserWindow {
         }
         {
             let tb = tabs.clone();
-            new_tab_btn.connect_clicked(move |_| { tb.open(HOME_PAGE); });
+            let hp = homepage.clone();
+            new_tab_btn.connect_clicked(move |_| { tb.open(&hp); });
         }
         wire_star_button(&star_btn, &tabs.notebook, &vault, &sidebar);
         wire_shield_button(&shield_btn, &tabs.notebook, &blocker, &vault);
         wire_nav_button(&back_btn,    &tabs.notebook, |wv| wv.go_back());
         wire_nav_button(&forward_btn, &tabs.notebook, |wv| wv.go_forward());
         wire_nav_button(&reload_btn,  &tabs.notebook, |wv| wv.reload());
-        wire_nav_button(&home_btn,    &tabs.notebook, |wv| wv.load_uri(HOME_PAGE));
+        {
+            let hp = homepage.clone();
+            wire_nav_button(&home_btn, &tabs.notebook, move |wv| wv.load_uri(&hp));
+        }
         wire_nav_button(&reader_btn,  &tabs.notebook, reader::toggle);
 
         // ── URL bar → charger ────────────────────────────────────────────
@@ -150,7 +164,7 @@ impl BrowserWindow {
                 wv.connect_uri_notify(move |w| {
                     if is_current(&nb2, w) {
                         let uri = w.uri().unwrap_or_default();
-                        ub2.set_text(&uri);
+                        ub2.set_text(display_uri(&uri));
                         update_shield(&shield2, &bl2, &uri);
                     }
                 });
@@ -198,12 +212,28 @@ impl BrowserWindow {
             tabs.notebook.connect_switch_page(move |_, page, _| {
                 if let Some(wv) = page.downcast_ref::<WebView>() {
                     let uri = wv.uri().unwrap_or_default();
-                    ub.set_text(&uri);
+                    ub.set_text(display_uri(&uri));
                     update_shield(&shield, &bl, &uri);
                     let p = wv.estimated_load_progress();
                     prog.set_fraction(p);
                     prog.set_visible(p > 0.0 && p < 1.0);
                 }
+            });
+        }
+
+        // ── Double-clic sur le bandeau vide → nouvel onglet ──────────────
+        {
+            let tb = tabs.clone();
+            let hp = homepage.clone();
+            tabs.notebook.connect_button_press_event(move |nb, event| {
+                if event.event_type() == gtk::gdk::EventType::DoubleButtonPress
+                    && event.button() == 1
+                    && in_empty_header_area(nb, event.position())
+                {
+                    tb.open(&hp);
+                    return glib::Propagation::Stop;
+                }
+                glib::Propagation::Proceed
             });
         }
 
@@ -217,7 +247,7 @@ impl BrowserWindow {
             });
         }
 
-        Self { window, tabs }
+        Self { window, tabs, homepage }
     }
 
     pub fn show_all(&self) {
@@ -343,7 +373,48 @@ fn is_current(nb: &Notebook, wv: &WebView) -> bool {
     nb.current_page().is_some() && nb.current_page() == nb.page_num(wv)
 }
 
-fn wire_shortcuts(window: &ApplicationWindow, tabs: &TabBar, url_bar: &Entry, findbar: &FindBar) {
+/// true si le point (coords notebook) est dans le bandeau d'onglets,
+/// hors de tout onglet existant — la zone « double-clic = nouvel onglet ».
+fn in_empty_header_area(nb: &Notebook, (x, y): (f64, f64)) -> bool {
+    // Sous le bandeau (dans le contenu) ? → non
+    if let Some(content_y) = nb
+        .nth_page(Some(0))
+        .and_then(|page| page.translate_coordinates(nb, 0, 0))
+        .map(|(_, py)| py)
+    {
+        if y >= content_y as f64 {
+            return false;
+        }
+    }
+    // Sur un onglet existant ? → non (laisser le notebook gérer)
+    for i in 0..nb.n_pages() {
+        let Some(page) = nb.nth_page(Some(i)) else { continue };
+        let Some(tab) = nb.tab_label(&page) else { continue };
+        let Some((tx, ty)) = tab.translate_coordinates(nb, 0, 0) else { continue };
+        let alloc = tab.allocation();
+        if x >= tx as f64
+            && x <= (tx + alloc.width()) as f64
+            && y >= ty as f64
+            && y <= (ty + alloc.height()) as f64
+        {
+            return false;
+        }
+    }
+    true
+}
+
+/// URL affichée dans la barre : la page de démarrage reste vide.
+fn display_uri(uri: &str) -> &str {
+    if uri == START_PAGE { "" } else { uri }
+}
+
+fn wire_shortcuts(
+    window: &ApplicationWindow,
+    tabs: &TabBar,
+    url_bar: &Entry,
+    findbar: &FindBar,
+    homepage: &Rc<String>,
+) {
     let accel = gtk::AccelGroup::new();
     window.add_accel_group(&accel);
 
@@ -362,7 +433,8 @@ fn wire_shortcuts(window: &ApplicationWindow, tabs: &TabBar, url_bar: &Entry, fi
 
     // Ctrl+T → nouvel onglet
     let tb = tabs.clone();
-    add_ctrl_accel(&accel, 't', move || { tb.open(HOME_PAGE); });
+    let hp = homepage.clone();
+    add_ctrl_accel(&accel, 't', move || { tb.open(&hp); });
 
     // Ctrl+W → fermer onglet
     let tb = tabs.clone();

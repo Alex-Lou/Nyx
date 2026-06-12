@@ -4,6 +4,7 @@ mod downloads;
 mod findbar;
 mod reader;
 mod sidebar;
+mod startpage;
 mod tabs;
 mod theme;
 mod unlock;
@@ -19,8 +20,7 @@ use gtk::Application;
 use adblock::AdBlocker;
 use window::BrowserWindow;
 
-const APP_ID: &str        = "io.nyx.browser";
-pub const HOME_PAGE: &str = "https://duckduckgo.com";
+const APP_ID: &str = "io.nyx.browser";
 
 fn main() {
     let app = Application::builder()
@@ -31,9 +31,13 @@ fn main() {
         // Thème Nyx — doit être chargé avant toute création de widget
         theme::load();
 
-        // Favicons des onglets (Sprint 1.4) — None = chemin par défaut
         if let Some(ctx) = webkit2gtk::WebContext::default() {
             use webkit2gtk::{CookieManagerExt, WebContextExt};
+
+            // Page de démarrage nyx://start (bundlée, animée)
+            startpage::register(&ctx);
+
+            // Favicons des onglets (Sprint 1.4) — None = chemin par défaut
             ctx.set_favicon_database_directory(None);
 
             // Cookies tiers bloqués par défaut (Sprint 5.2)
@@ -53,8 +57,8 @@ fn main() {
         let blocker = Rc::new(AdBlocker::new());
         let win = BrowserWindow::new(app, blocker, vault);
 
-        // Premier onglet
-        win.tabs.open(HOME_PAGE);
+        // Premier onglet : page d'accueil (nyx://start par défaut)
+        win.tabs.open(&win.homepage);
 
         win.show_all();
     });

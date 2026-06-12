@@ -196,7 +196,10 @@ fn ask(wv: &WebView, message: &str) -> bool {
 /// "rust lang"  → recherche DuckDuckGo
 pub fn resolve_input(input: &str) -> String {
     let trimmed = input.trim();
-    if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
+    if trimmed.starts_with("http://")
+        || trimmed.starts_with("https://")
+        || trimmed.starts_with("nyx://")
+    {
         return trimmed.to_string();
     }
     if trimmed.contains('.') && !trimmed.contains(' ') {
@@ -230,6 +233,7 @@ mod tests {
     fn url_complete_inchangee() {
         assert_eq!(resolve_input("https://rust-lang.org"), "https://rust-lang.org");
         assert_eq!(resolve_input("http://example.com"), "http://example.com");
+        assert_eq!(resolve_input("nyx://start"), "nyx://start");
     }
 
     #[test]
