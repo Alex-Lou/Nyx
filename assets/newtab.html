@@ -176,6 +176,20 @@ main * { pointer-events: auto; }
         const sprites = palette.map(softSprite);
         let clouds = [], embers = [], blooms = [];
 
+        function makeEmber() {
+            return {
+                x: rnd(0, W), y: rnd(0, H), vx: 0, vy: 0,
+                r: rnd(0.8, 2.4), z: rnd(.4, 1),
+                hue: (Math.random() * palette.length) | 0, tw: rnd(0, TAU),
+            };
+        }
+        // Ajuste le NOMBRE de braises sans toucher aux existantes → le
+        // gouverneur FPS ne provoque aucun saut visuel.
+        function density() {
+            const n = Math.round(150 * quality);
+            if (embers.length > n) embers.length = n;
+            else while (embers.length < n) embers.push(makeEmber());
+        }
         function build() {
             clouds = [];
             for (let i = 0; i < 7; i++) clouds.push({
@@ -183,16 +197,12 @@ main * { pointer-events: auto; }
                 hue: (Math.random() * palette.length) | 0,
                 ph: rnd(0, TAU), sp: rnd(0.08, 0.22), drift: rnd(8, 26) * DPR,
             });
-            const n = Math.round(150 * quality);
             embers = [];
-            for (let i = 0; i < n; i++) embers.push({
-                x: rnd(0, W), y: rnd(0, H), vx: 0, vy: 0,
-                r: rnd(0.8, 2.4), z: rnd(.4, 1),
-                hue: (Math.random() * palette.length) | 0, tw: rnd(0, TAU),
-            });
+            density();
         }
         return {
             palette,
+            density,
             glow: 'radial-gradient(ellipse 75% 60% at 26% 20%, rgba(157,110,247,.16), transparent 60%),' +
                   'radial-gradient(ellipse 65% 55% at 82% 80%, rgba(255,126,179,.08), transparent 55%)',
             resize: build,
@@ -283,6 +293,7 @@ main * { pointer-events: auto; }
         }
         return {
             palette,
+            density() {}, // nombre de rideaux fixe : la qualité ne change rien ici
             glow: 'radial-gradient(ellipse 90% 75% at 50% 120%, rgba(74,242,200,.16), transparent 60%),' +
                   'radial-gradient(ellipse 55% 45% at 20% 8%, rgba(123,140,222,.08), transparent 55%)',
             resize: build,
@@ -349,21 +360,19 @@ main * { pointer-events: auto; }
     function Sky() {
         const palette = ['#ffffff', '#c8d6ff', '#9fb0e8'];
         const sprites = palette.map(softSprite);
-        let stars = [], links = [], shoot = null, shootIn = 160, flashes = [], ripples = [];
+        let stars = [], links = [], shoot = null, shootIn = 160, flashes = [];
 
-        function build() {
-            const n = Math.round(220 * quality);
-            stars = [];
-            for (let i = 0; i < n; i++) {
-                const big = Math.random() < 0.10;
-                stars.push({
-                    x: rnd(0, W), y: rnd(0, H), z: rnd(0.15, 1),
-                    r: big ? rnd(1.6, 2.6) : rnd(0.5, 1.4), big,
-                    hue: (Math.random() * palette.length) | 0,
-                    tw: rnd(0, TAU), tws: rnd(1.2, 3),
-                });
-            }
-            // Constellations : relie quelques étoiles vives proches.
+        function makeStar() {
+            const big = Math.random() < 0.10;
+            return {
+                x: rnd(0, W), y: rnd(0, H), z: rnd(0.15, 1),
+                r: big ? rnd(1.6, 2.6) : rnd(0.5, 1.4), big,
+                hue: (Math.random() * palette.length) | 0,
+                tw: rnd(0, TAU), tws: rnd(1.2, 3),
+            };
+        }
+        // Constellations : relie quelques étoiles vives proches.
+        function relink() {
             links = [];
             const bigs = stars.filter(s => s.big);
             for (const a of bigs) {
@@ -376,19 +385,97 @@ main * { pointer-events: auto; }
                 if (near) links.push([a, near, rnd(0, TAU)]);
             }
         }
+        // Ajuste le nombre d'étoiles SANS déplacer les existantes (le
+        // gouverneur FPS ne fait jamais sauter le ciel), puis recâble les
+        // constellations sur les étoiles survivantes.
+        function density() {
+            const n = Math.round(220 * quality);
+            if (stars.length > n) stars.length = n;
+            else while (stars.length < n) stars.push(makeStar());
+            relink();
+        }
+        function build() {
+            stars = [];
+            density();
+        }
         function px(s) { return s.x + (mouse.active ? (mouse.x - W / 2) * s.z * 0.04 : 0); }
         function py(s) { return s.y + (mouse.active ? (mouse.y - H / 2) * s.z * 0.04 : 0); }
+
+        // Lune : sprite préparé UNE fois hors écran (halo + disque + croissant
+        // + cratères) — le découpage destination-out reste confiné à ce canvas,
+        // il ne troue plus la voie lactée. Dessinée ensuite comme un astre du
+        // ciel : parallaxe profonde + lente dérive.
+        let moonSprite = null, moonSize = 0;
+        function makeMoon() {
+            const mr = 46 * DPR;
+            moonSize = mr * 3.4;
+            const c = document.createElement('canvas');
+            c.width = c.height = Math.ceil(moonSize);
+            const g = c.getContext('2d');
+            const cx = moonSize / 2, cy = moonSize / 2;
+            // Halo doux.
+            const halo = g.createRadialGradient(cx, cy, mr * 0.6, cx, cy, mr * 1.7);
+            halo.addColorStop(0, 'rgba(200,214,255,.16)');
+            halo.addColorStop(1, 'rgba(200,214,255,0)');
+            g.fillStyle = halo; g.fillRect(0, 0, moonSize, moonSize);
+            // Disque.
+            const disc = g.createRadialGradient(cx - mr * .35, cy - mr * .35, mr * .15, cx, cy, mr);
+            disc.addColorStop(0, '#eef2ff');
+            disc.addColorStop(.7, '#aebadf');
+            disc.addColorStop(1, '#8893c4');
+            g.fillStyle = disc;
+            g.beginPath(); g.arc(cx, cy, mr, 0, TAU); g.fill();
+            // Cratères discrets (dans le disque seulement).
+            g.globalCompositeOperation = 'source-atop';
+            g.fillStyle = 'rgba(110,120,170,.30)';
+            for (const [dx, dy, r] of [[-.30, .12, .16], [.05, -.28, .11], [.22, .25, .13], [-.05, .38, .08]]) {
+                g.beginPath(); g.arc(cx + dx * mr, cy + dy * mr, r * mr, 0, TAU); g.fill();
+            }
+            // Ombre du croissant : grand disque sombre décalé, bord adouci.
+            const sh = g.createRadialGradient(cx + mr * .55, cy - mr * .18, mr * .55, cx + mr * .55, cy - mr * .18, mr * 1.05);
+            sh.addColorStop(0, 'rgba(8,8,20,.96)');
+            sh.addColorStop(.85, 'rgba(8,8,20,.96)');
+            sh.addColorStop(1, 'rgba(8,8,20,0)');
+            g.fillStyle = sh;
+            g.beginPath(); g.arc(cx + mr * .55, cy - mr * .18, mr * 1.05, 0, TAU); g.fill();
+            // (toujours en source-atop : l'ombre ne mord que le disque/halo,
+            //  jamais la scène — contrairement à l'ancien destination-out)
+            moonSprite = c;
+        }
         return {
             palette,
+            density,
             glow: 'radial-gradient(ellipse 70% 55% at 50% 4%, rgba(123,140,222,.12), transparent 60%),' +
                   'radial-gradient(ellipse 60% 50% at 82% 82%, rgba(200,214,255,.05), transparent 55%)',
-            resize: build,
-            enter() { build(); },
+            resize() { build(); makeMoon(); },
+            enter() { build(); makeMoon(); },
+            // Clic = NAISSANCE d'une étoile vive à cet endroit, aussitôt
+            // reliée aux étoiles brillantes voisines → ta constellation
+            // grandit sous tes clics. Flash de naissance, pas de « vague ».
             click(x, y) {
-                ripples.push({ x: x * DPR, y: y * DPR, age: 0, life: 55 });
-                let lit = 0;
-                for (const s of stars) {
-                    if (s.big && Math.hypot(s.x - x * DPR, s.y - y * DPR) < 220 * DPR) { flashes.push({ s, life: 1 }); if (++lit > 6) break; }
+                const s = {
+                    x: x * DPR, y: y * DPR, z: rnd(0.6, 1),
+                    r: rnd(1.9, 2.6), big: true, born: true,
+                    hue: (Math.random() * palette.length) | 0,
+                    tw: rnd(0, TAU), tws: rnd(1.2, 3),
+                };
+                stars.push(s);
+                // Relie aux 2 étoiles vives les plus proches (portée limitée).
+                const bigs = stars.filter(o => o.big && o !== s)
+                    .sort((a, b) => Math.hypot(a.x - s.x, a.y - s.y) - Math.hypot(b.x - s.x, b.y - s.y));
+                for (let i = 0; i < Math.min(2, bigs.length); i++) {
+                    if (Math.hypot(bigs[i].x - s.x, bigs[i].y - s.y) < 420 * DPR) {
+                        links.push([s, bigs[i], rnd(0, TAU)]);
+                    }
+                }
+                flashes.push({ s, life: 1 });
+                // Borne anti-spam : au-delà de 24 étoiles nées, la plus
+                // ancienne s'éteint (et ses liens avec elle).
+                const born = stars.filter(o => o.born);
+                if (born.length > 24) {
+                    const old = born[0];
+                    stars.splice(stars.indexOf(old), 1);
+                    links = links.filter(l => l[0] !== old && l[1] !== old);
                 }
             },
             frame(k, surge, surgeRGB) {
@@ -402,15 +489,17 @@ main * { pointer-events: auto; }
                 ctx.fillStyle = mw; ctx.fillRect(-W, H * 0.36, W * 3, H * 0.28);
                 ctx.restore();
 
-                // Croissant de lune (haut-droite).
-                const mx = W * 0.84, my = H * 0.16, mr = 46 * DPR;
+                // Croissant de lune : sprite préparé, astre DU ciel — parallaxe
+                // profonde (suit la souris comme les étoiles) + lente dérive.
                 ctx.globalCompositeOperation = 'source-over';
-                ctx.beginPath(); ctx.arc(mx, my, mr, 0, TAU);
-                const mg = ctx.createRadialGradient(mx - mr * .3, my - mr * .3, mr * .2, mx, my, mr);
-                mg.addColorStop(0, 'rgba(232,238,255,.95)'); mg.addColorStop(1, 'rgba(123,140,222,.5)');
-                ctx.fillStyle = mg; ctx.fill();
-                ctx.globalCompositeOperation = 'destination-out';
-                ctx.beginPath(); ctx.arc(mx + mr * .42, my - mr * .12, mr * .92, 0, TAU); ctx.fill();
+                if (moonSprite) {
+                    const mz = 0.55; // profondeur : bouge un peu plus que les étoiles lointaines
+                    const mmx = W * 0.84 + Math.sin(t * 0.10) * 9 * DPR
+                        + (mouse.active ? (mouse.x - W / 2) * mz * 0.04 : 0);
+                    const mmy = H * 0.17 + Math.cos(t * 0.07) * 7 * DPR
+                        + (mouse.active ? (mouse.y - H / 2) * mz * 0.04 : 0);
+                    ctx.drawImage(moonSprite, mmx - moonSize / 2, mmy - moonSize / 2);
+                }
                 ctx.globalCompositeOperation = 'lighter';
 
                 // Constellations (lignes douces) — au surge, TOUTES s'illuminent.
@@ -435,14 +524,7 @@ main * { pointer-events: auto; }
                     ctx.drawImage(sprites[0], px(f.s) - r, py(f.s) - r, r * 2, r * 2);
                 }
                 flashes = flashes.filter(f => f.life > 0);
-                // Ondes au clic.
                 ctx.globalAlpha = 1;
-                for (const rp of ripples) {
-                    rp.age += k; const ring = rp.age * 8 * DPR, al = Math.max(0, 1 - rp.age / rp.life);
-                    ctx.strokeStyle = `rgba(200,214,255,${al * 0.4})`; ctx.lineWidth = 1.5 * DPR;
-                    ctx.beginPath(); ctx.arc(rp.x, rp.y, ring, 0, TAU); ctx.stroke();
-                }
-                ripples = ripples.filter(r => r.age < r.life);
 
                 // Étoile filante occasionnelle.
                 if (!shoot) { if ((shootIn -= k) <= 0) { shootIn = rnd(160, 420); shoot = { x: rnd(W * .1, W * .7), y: rnd(0, H * .35), vx: rnd(7, 11) * DPR, vy: rnd(3, 5) * DPR, life: 1 }; } }
@@ -491,7 +573,9 @@ main * { pointer-events: auto; }
         if (fpsTimer >= 1000) {
             const fps = fpsFrames * 1000 / fpsTimer; fpsFrames = 0; fpsTimer = 0;
             const nq = fps < 45 ? Math.max(0.3, quality - 0.15) : fps > 57 ? Math.min(1, quality + 0.1) : quality;
-            if (Math.abs(nq - quality) > 0.001) { quality = nq; scene.resize(); }
+            // density() ajuste le NOMBRE d'éléments sans déplacer l'existant :
+            // le gouverneur ne provoque jamais de « switch » brutal du fond.
+            if (Math.abs(nq - quality) > 0.001) { quality = nq; scene.density(); }
         }
 
         surge = surge > 0.001 ? surge - 0.018 * k : 0; // retour au calme
