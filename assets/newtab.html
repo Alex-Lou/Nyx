@@ -125,8 +125,16 @@ main * { pointer-events: auto; }
     const glowEl = document.getElementById('glow');
     const wordmark = document.querySelector('.wordmark');
 
-    let DPR = 1, W = 0, H = 0, t = 0, last = 0;
+    let DPR = 1, W = 0, H = 0, t = 0, last = 0, running = true;
     const mouse = { x: -1e4, y: -1e4, active: false };
+
+    // « Surge » : impulsion expressive au toucher. Montée instantanée à 1 au
+    // clic puis décroissance douce (~0,9 s) → chaque scène la lit pour métamor-
+    // phoser temporairement couleurs/formes/intensité avant de revenir au calme.
+    // Un seul scalaire partagé : coût négligeable, effet appliqué en facteur
+    // multiplicatif sur les boucles de dessin existantes (pas de loop en plus).
+    let surge = 0, surgeRGB = '157,110,247';
+    const hexToRgb = h => { const n = parseInt(h.slice(1), 16); return `${(n >> 16) & 255},${(n >> 8) & 255},${n & 255}`; };
 
     // Qualité adaptative : départ selon les cœurs CPU, ajustée par le FPS réel.
     const CORES = navigator.hardwareConcurrency || 4;
@@ -190,14 +198,15 @@ main * { pointer-events: auto; }
             resize: build,
             enter() { build(); },
             click(x, y) { blooms.push({ x: x * DPR, y: y * DPR, age: 0, life: 50 }); if (blooms.length > 4) blooms.shift(); },
-            frame(k) {
+            frame(k, surge, surgeRGB) {
                 // Nuages : positions oscillantes, rayon qui respire (additif).
+                // Au surge : ils enflent et s'éclaircissent brièvement.
                 ctx.globalCompositeOperation = 'lighter';
                 for (const c of clouds) {
                     const ox = Math.sin(t * c.sp + c.ph) * c.drift;
                     const oy = Math.cos(t * c.sp * 0.8 + c.ph) * c.drift;
-                    const pr = c.r * (0.92 + 0.08 * Math.sin(t * 0.5 + c.ph));
-                    ctx.globalAlpha = 0.10;
+                    const pr = c.r * (0.92 + 0.08 * Math.sin(t * 0.5 + c.ph)) * (1 + surge * 0.25);
+                    ctx.globalAlpha = 0.10 * (1 + surge * 1.2);
                     ctx.drawImage(sprites[c.hue], c.x + ox - pr, c.y + oy - pr, pr * 2, pr * 2);
                 }
                 // Braises : champ de flux curl + vortex souris + blooms.
@@ -221,9 +230,9 @@ main * { pointer-events: auto; }
                     e.vx *= 0.94; e.vy *= 0.94; e.x += e.vx; e.y += e.vy;
                     if (e.x < -30) e.x = W + 30; else if (e.x > W + 30) e.x = -30;
                     if (e.y < -30) e.y = H + 30; else if (e.y > H + 30) e.y = -30;
-                    const tw = 0.5 + 0.5 * Math.sin(e.tw + t * 3);
-                    const r = e.r * e.z * DPR * 4.5 * (0.7 + tw * 0.5);
-                    ctx.globalAlpha = 0.3 + 0.5 * tw;
+                    const tw = 0.5 + 0.5 * Math.sin(e.tw + t * (3 + surge * 4));   // scintillement accéléré au surge
+                    const r = e.r * e.z * DPR * 4.5 * (0.7 + tw * 0.5) * (1 + surge * 0.7);
+                    ctx.globalAlpha = (0.3 + 0.5 * tw) * (1 + surge * 0.5);
                     ctx.drawImage(sprites[e.hue], e.x - r, e.y - r, r * 2, r * 2);
                 }
                 for (const bl of blooms) {
@@ -232,6 +241,13 @@ main * { pointer-events: auto; }
                     ctx.drawImage(sprites[1], bl.x - ring, bl.y - ring, ring * 2, ring * 2);
                 }
                 blooms = blooms.filter(b => b.age < b.life);
+                // Voile de couleur teinté (la « base » vire un instant vers la
+                // teinte du clic) — additif, une seule passe, seulement actif.
+                if (surge > 0.01) {
+                    ctx.globalAlpha = surge * 0.06;
+                    ctx.fillStyle = `rgb(${surgeRGB})`;
+                    ctx.fillRect(0, 0, W, H);
+                }
                 ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
             },
         };
@@ -276,8 +292,10 @@ main * { pointer-events: auto; }
                 for (const rb of ribbons) { const d = Math.abs(rb.base - x * DPR); if (d < bd) { bd = d; best = rb; } }
                 pulses.push({ rb: best, y: H, life: 1 });
             },
-            frame(k) {
+            frame(k, surge, surgeRGB) {
                 ctx.globalCompositeOperation = 'lighter';
+                // Au surge : les rideaux s'élargissent et s'embrasent.
+                const wmul = 1 + surge * 0.7, amul = 1 + surge * 2.2;
                 const STEP = 16 * DPR;
                 for (const rb of ribbons) {
                     // Souris : le rideau proche s'incline vers le curseur.
@@ -288,20 +306,21 @@ main * { pointer-events: auto; }
                     }
                     rb.bend += (target - rb.bend) * 0.06 * k;
 
-                    const shimmer = 0.5 + 0.5 * Math.sin(t * 1.5 + rb.ph);
+                    const w = rb.w * wmul;
+                    const shimmer = 0.5 + 0.5 * Math.sin(t * (1.5 + surge * 3) + rb.ph);
                     for (let y = -STEP; y < H + STEP; y += STEP) {
                         const cx = edge(rb, y);
-                        const grad = ctx.createLinearGradient(cx - rb.w, 0, cx + rb.w, 0);
-                        const a = (0.018 + 0.026 * shimmer) * (0.5 + 0.5 * Math.sin(y * 0.003 + t));
+                        const grad = ctx.createLinearGradient(cx - w, 0, cx + w, 0);
+                        const a = (0.018 + 0.026 * shimmer) * amul * (0.5 + 0.5 * Math.sin(y * 0.003 + t));
                         grad.addColorStop(0, `rgba(${rb.hue},0)`);
                         grad.addColorStop(0.5, `rgba(${rb.hue},${a})`);
                         grad.addColorStop(1, `rgba(${rb.hue},0)`);
                         ctx.fillStyle = grad;
-                        ctx.fillRect(cx - rb.w, y, rb.w * 2, STEP + 1);
+                        ctx.fillRect(cx - w, y, w * 2, STEP + 1);
                     }
                     // Crête lumineuse + reflet bas.
-                    ctx.strokeStyle = `rgba(${rb.hue},${0.10 + 0.10 * shimmer})`;
-                    ctx.lineWidth = 2 * DPR; ctx.beginPath();
+                    ctx.strokeStyle = `rgba(${rb.hue},${(0.10 + 0.10 * shimmer) * amul})`;
+                    ctx.lineWidth = (2 + surge * 2) * DPR; ctx.beginPath();
                     for (let y = 0; y <= H; y += STEP) { const cx = edge(rb, y); y === 0 ? ctx.moveTo(cx, y) : ctx.lineTo(cx, y); }
                     ctx.stroke();
                 }
@@ -315,6 +334,7 @@ main * { pointer-events: auto; }
                     ctx.fillStyle = grd; ctx.fillRect(cx - 80 * DPR, p.y - 80 * DPR, 160 * DPR, 160 * DPR);
                 }
                 pulses = pulses.filter(p => p.life > 0 && p.y > -100);
+                if (surge > 0.01) { ctx.globalAlpha = surge * 0.05; ctx.fillStyle = `rgb(${surgeRGB})`; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1; }
                 ctx.globalCompositeOperation = 'source-over';
             },
         };
@@ -371,7 +391,7 @@ main * { pointer-events: auto; }
                     if (s.big && Math.hypot(s.x - x * DPR, s.y - y * DPR) < 220 * DPR) { flashes.push({ s, life: 1 }); if (++lit > 6) break; }
                 }
             },
-            frame(k) {
+            frame(k, surge, surgeRGB) {
                 // Voie lactée : bande diagonale douce.
                 ctx.save();
                 ctx.translate(W * 0.5, H * 0.5); ctx.rotate(-0.5); ctx.translate(-W * 0.5, -H * 0.5);
@@ -393,18 +413,19 @@ main * { pointer-events: auto; }
                 ctx.beginPath(); ctx.arc(mx + mr * .42, my - mr * .12, mr * .92, 0, TAU); ctx.fill();
                 ctx.globalCompositeOperation = 'lighter';
 
-                // Constellations (lignes douces, pulsation lente).
-                ctx.lineWidth = DPR * 0.7;
+                // Constellations (lignes douces) — au surge, TOUTES s'illuminent.
+                ctx.lineWidth = (0.7 + surge * 1.3) * DPR;
                 for (const [a, b, ph] of links) {
-                    const al = 0.10 + 0.10 * Math.sin(t * 0.6 + ph);
-                    ctx.strokeStyle = `rgba(160,180,240,${al})`;
+                    const al = 0.10 + 0.10 * Math.sin(t * 0.6 + ph) + surge * 0.55;
+                    ctx.strokeStyle = `rgba(170,190,255,${al})`;
                     ctx.beginPath(); ctx.moveTo(px(a), py(a)); ctx.lineTo(px(b), py(b)); ctx.stroke();
                 }
-                // Étoiles : scintillement net + parallaxe.
+                // Étoiles : scintillement net + parallaxe ; enflent au surge.
+                const smul = 1 + surge * 0.8;
                 for (const s of stars) {
                     const tw = 0.5 + 0.5 * Math.sin(s.tw + t * s.tws);
-                    const r = s.r * DPR * (s.big ? 4 : 2.6) * (0.6 + tw * 0.6);
-                    ctx.globalAlpha = (s.big ? 0.5 : 0.32) + 0.5 * tw;
+                    const r = s.r * DPR * (s.big ? 4 : 2.6) * (0.6 + tw * 0.6) * smul;
+                    ctx.globalAlpha = ((s.big ? 0.5 : 0.32) + 0.5 * tw) * (1 + surge * 0.4);
                     ctx.drawImage(sprites[s.hue], px(s) - r, py(s) - r, r * 2, r * 2);
                 }
                 // Flashs au clic.
@@ -473,22 +494,34 @@ main * { pointer-events: auto; }
             if (Math.abs(nq - quality) > 0.001) { quality = nq; scene.resize(); }
         }
 
+        surge = surge > 0.001 ? surge - 0.018 * k : 0; // retour au calme
+
         ctx.clearRect(0, 0, W, H);
-        scene.frame(k);
-        requestAnimationFrame(frame);
+        scene.frame(k, surge, surgeRGB);
+        if (running) requestAnimationFrame(frame);
     }
 
     // ── Entrées ─────────────────────────────────────────────────────────────
     addEventListener('resize', resize);
     canvas.addEventListener('pointermove', e => { mouse.x = e.clientX * DPR; mouse.y = e.clientY * DPR; mouse.active = true; });
     canvas.addEventListener('pointerleave', () => { mouse.active = false; mouse.x = mouse.y = -1e4; });
-    canvas.addEventListener('pointerdown', e => { if (scene.click) scene.click(e.clientX, e.clientY); });
-    document.querySelectorAll('.ambiance button').forEach(b => b.addEventListener('click', () => setMode(b.dataset.mode)));
-    document.addEventListener('visibilitychange', () => { if (!document.hidden) last = performance.now(); });
+    canvas.addEventListener('pointerdown', e => {
+        surge = 1;
+        surgeRGB = hexToRgb(scene.palette[(Math.random() * scene.palette.length) | 0]);
+        if (scene.click) scene.click(e.clientX, e.clientY);
+    });
+    document.querySelectorAll('.ambiance button').forEach(b => b.addEventListener('click', () => { surge = 1; setMode(b.dataset.mode); }));
+
+    // Onglet masqué → on arrête complètement la boucle (économie CPU/GPU/batterie),
+    // on reprend exactement où on en était au retour.
+    document.addEventListener('visibilitychange', () => {
+        if (document.hidden) { running = false; }
+        else if (!running) { running = true; last = performance.now(); requestAnimationFrame(frame); }
+    });
 
     // ── Démarrage ───────────────────────────────────────────────────────────
     resize(); setMode('nebula');
-    if (reduce) { scene.frame(1); } else { requestAnimationFrame(frame); }
+    if (reduce) { scene.frame(1, 0, surgeRGB); } else { requestAnimationFrame(frame); }
 })();
 </script>
 </body>
