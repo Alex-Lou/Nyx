@@ -348,3 +348,48 @@ dialog .dialog-action-area {
     outline: 2px solid alpha(@nyx_aurora, 0.6);
     outline-offset: 2px;
 }
+
+/* ── Déverrouillage du vault ───────────────────── */
+
+.nyx-unlock-title {
+    color: @nyx_star;
+    font-size: 14px;
+}
+
+.nyx-error {
+    color: @nyx_twilight;
+    font-size: 12px;
+}
+
+/* ── Findbar (Ctrl+F) ──────────────────────────── */
+
+.nyx-findbar {
+    background-color: @nyx_surface;
+    border-bottom: 1px solid @nyx_border;
+    padding: 4px 8px;
+}
+
+.nyx-findbar searchentry,
+.nyx-findbar entry {
+    background-color: @nyx_raised;
+    border: 1px solid @nyx_border;
+    border-radius: 8px;
+    color: @nyx_text;
+    padding: 3px 10px;
+    transition: border-color 180ms ease;
+}
+
+.nyx-findbar searchentry:focus,
+.nyx-findbar entry:focus {
+    border-color: @nyx_aurora;
+}
+
+/* ── Barre de téléchargements ──────────────────── */
+
+.nyx-downloadbar {
+    background-color: @nyx_surface;
+    border-top: 1px solid @nyx_border;
+    color: @nyx_text;
+    font-size: 12px;
+    padding: 6px 8px;
+}

@@ -1,10 +1,10 @@
 use std::cell::RefCell;
 use std::rc::Rc;
-use std::sync::Arc;
 
 use gtk::glib::WeakRef;
 use gtk::prelude::*;
 use gtk::{ApplicationWindow, Notebook, Widget, Window};
+use vault::Vault;
 use webkit2gtk::{
     UserContentManager, UserContentManagerExt, WebContext, WebContextExt,
     WebView, WebViewExt,
@@ -13,7 +13,7 @@ use webkit2gtk::{
 use crate::pages::{self, newtab};
 use crate::state::bookmarks::Bookmarks;
 use crate::state::settings::Settings;
-use crate::ui::settings_window;
+use crate::ui::{downloads, settings_window};
 use crate::web::{self, darkmode, nyxguard::NyxGuard};
 
 mod favicon;
@@ -26,19 +26,20 @@ type WebViewHook = Rc<RefCell<Box<dyn Fn(&WebView)>>>;
 #[derive(Clone)]
 pub struct TabBar {
     pub notebook:   Notebook,
-    blocker:        Arc<NyxGuard>,
+    blocker:        Rc<NyxGuard>,
     settings:       Settings,
     bookmarks:      Bookmarks,
+    vault:          Rc<Vault>,
     on_new_webview: WebViewHook,
     settings_modal: Rc<RefCell<Option<Window>>>,
     parent:         Rc<RefCell<Option<WeakRef<Window>>>>,
 }
 
 impl TabBar {
-    pub fn new(blocker: Arc<NyxGuard>, settings: Settings, bm: Bookmarks) -> Self {
+    pub fn new(blocker: Rc<NyxGuard>, settings: Settings, bm: Bookmarks, vault: Rc<Vault>) -> Self {
         let notebook = Notebook::builder().scrollable(true).show_border(false).build();
         Self {
-            notebook, blocker, settings, bookmarks: bm,
+            notebook, blocker, settings, bookmarks: bm, vault,
             on_new_webview: Rc::new(RefCell::new(Box::new(|_| {}))),
             settings_modal: Rc::new(RefCell::new(None)),
             parent:         Rc::new(RefCell::new(None)),
@@ -80,6 +81,7 @@ impl TabBar {
             self.blocker.clone(),
             self.settings.clone(),
             self.bookmarks.clone(),
+            self.vault.clone(),
         );
         let slot = self.settings_modal.clone();
         modal.connect_destroy(move |_| { *slot.borrow_mut() = None; });
@@ -149,6 +151,8 @@ impl TabBar {
                 if !crate::platform::is_wsl() {
                     ctx.set_sandbox_enabled(true);
                 }
+                // Téléchargements : chaque contexte doit être branché.
+                downloads::wire_context(&ctx);
 
                 // Mode sombre forcé : injecté via un UserContentManager dédié.
                 let ucm = UserContentManager::new();
@@ -164,7 +168,13 @@ impl TabBar {
         };
         wv.set_vexpand(true);
         wv.set_hexpand(true);
-        web::configure(&wv, self.blocker.clone(), self.settings.clone(), self.bookmarks.clone());
+        web::configure(
+            &wv,
+            self.blocker.clone(),
+            self.settings.clone(),
+            self.bookmarks.clone(),
+            self.vault.clone(),
+        );
 
         // Liens target=_blank / window.open → nouvel onglet.
         let tabs = self.clone();

@@ -1,16 +1,20 @@
+use std::rc::Rc;
+
 use gtk::prelude::*;
 use gtk::{
     Box as GtkBox, Button, FileChooserAction, FileChooserNative, Label, ListBox,
     Orientation, Popover, PositionType, ResponseType, ScrolledWindow, Window,
 };
+use vault::Vault;
 
 use crate::state::bookmarks::{self, Bookmarks};
 use crate::ui::tabs::TabBar;
 
 /// Petit gestionnaire de favoris ancré sur le bouton ☆ : liste (ouvrir /
 /// supprimer) + import / export au format Netscape (universel).
+/// Persistance : vault chiffré, resynchronisé après chaque mutation.
 /// Dossiers + drag-and-drop : itération suivante.
-pub fn build(anchor: &Button, tabs: &TabBar, bm: &Bookmarks) -> Popover {
+pub fn build(anchor: &Button, tabs: &TabBar, bm: &Bookmarks, vault: &Rc<Vault>) -> Popover {
     let pop = Popover::new(Some(anchor));
     pop.set_position(PositionType::Bottom);
     pop.style_context().add_class("nyx-bm-pop");
@@ -45,12 +49,13 @@ pub fn build(anchor: &Button, tabs: &TabBar, bm: &Bookmarks) -> Popover {
 
     // Reconstruit la liste à chaque ouverture (les favoris changent).
     {
-        let (list, tabs, bm, p) = (list.clone(), tabs.clone(), bm.clone(), pop.clone());
-        pop.connect_show(move |_| repopulate(&list, &tabs, &bm, &p));
+        let (list, tabs, bm, v, p) =
+            (list.clone(), tabs.clone(), bm.clone(), vault.clone(), pop.clone());
+        pop.connect_show(move |_| repopulate(&list, &tabs, &bm, &v, &p));
     }
     {
-        let (anchor, bm) = (anchor.clone(), bm.clone());
-        import.connect_clicked(move |_| import_dialog(&anchor, &bm));
+        let (anchor, bm, v) = (anchor.clone(), bm.clone(), vault.clone());
+        import.connect_clicked(move |_| import_dialog(&anchor, &bm, &v));
     }
     {
         let bm = bm.clone();
@@ -61,7 +66,7 @@ pub fn build(anchor: &Button, tabs: &TabBar, bm: &Bookmarks) -> Popover {
     pop
 }
 
-fn repopulate(list: &ListBox, tabs: &TabBar, bm: &Bookmarks, pop: &Popover) {
+fn repopulate(list: &ListBox, tabs: &TabBar, bm: &Bookmarks, vault: &Rc<Vault>, pop: &Popover) {
     for child in list.children() {
         list.remove(&child);
     }
@@ -101,10 +106,12 @@ fn repopulate(list: &ListBox, tabs: &TabBar, bm: &Bookmarks, pop: &Popover) {
             });
         }
         {
-            let (list, tabs, bm, pop) = (list.clone(), tabs.clone(), bm.clone(), pop.clone());
+            let (list, tabs, bm, v, pop) =
+                (list.clone(), tabs.clone(), bm.clone(), vault.clone(), pop.clone());
             del.connect_clicked(move |_| {
                 bookmarks::remove(&bm, i);
-                repopulate(&list, &tabs, &bm, &pop);
+                bookmarks::persist(&bm, &v);
+                repopulate(&list, &tabs, &bm, &v, &pop);
             });
         }
     }
@@ -129,7 +136,7 @@ fn export_dialog(anchor: &Button, bm: &Bookmarks) {
     }
 }
 
-fn import_dialog(anchor: &Button, bm: &Bookmarks) {
+fn import_dialog(anchor: &Button, bm: &Bookmarks, vault: &Rc<Vault>) {
     let parent = toplevel_window(anchor);
     let chooser = FileChooserNative::new(
         Some("Importer des favoris"),
@@ -144,6 +151,7 @@ fn import_dialog(anchor: &Button, bm: &Bookmarks) {
                 for b in bookmarks::import_netscape(&html) {
                     bookmarks::add(bm, b.url, b.title);
                 }
+                bookmarks::persist(bm, vault);
             }
         }
     }

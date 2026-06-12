@@ -1,15 +1,18 @@
-use std::sync::Arc;
+use std::rc::Rc;
 
 use gtk::prelude::*;
 use gtk::{
-    Application, ApplicationWindow, Box as GtkBox, Entry, Orientation, ProgressBar,
+    Application, ApplicationWindow, Box as GtkBox, Entry, Notebook, Orientation,
+    ProgressBar,
 };
-use webkit2gtk::WebViewExt;
+use vault::Vault;
+use webkit2gtk::{WebView, WebViewExt};
 
 use crate::state::bookmarks::Bookmarks;
 use crate::state::settings::{LastTab, Settings};
+use crate::ui::findbar::FindBar;
 use crate::ui::tabs::TabBar;
-use crate::ui::{chrome, navbar, shortcuts};
+use crate::ui::{chrome, downloads, navbar, shortcuts};
 use crate::web::nyxguard::NyxGuard;
 
 pub struct BrowserWindow {
@@ -18,7 +21,13 @@ pub struct BrowserWindow {
 }
 
 impl BrowserWindow {
-    pub fn new(app: &Application, blocker: Arc<NyxGuard>, settings: Settings, bm: Bookmarks) -> Self {
+    pub fn new(
+        app: &Application,
+        blocker: Rc<NyxGuard>,
+        settings: Settings,
+        bm: Bookmarks,
+        vault: Rc<Vault>,
+    ) -> Self {
         let window = ApplicationWindow::builder()
             .application(app).title("Nyx")
             .default_width(1400).default_height(860)
@@ -36,21 +45,24 @@ impl BrowserWindow {
             .hexpand(true).build();
         url_bar.style_context().add_class("nyx-urlbar");
 
-        let tabs   = TabBar::new(blocker, settings.clone(), bm.clone());
+        let tabs = TabBar::new(blocker, settings.clone(), bm.clone(), vault.clone());
         tabs.set_parent(&window);  // ancre le modal Paramètres
-        let navbar = navbar::build(&url_bar, &tabs, &settings, &bm);
+        let navbar  = navbar::build(&url_bar, &tabs, &settings, &bm, &vault);
+        let findbar = FindBar::new(&tabs);
 
         let vbox = GtkBox::new(Orientation::Vertical, 0);
-        vbox.pack_start(&progress,      false, false, 0);
-        vbox.pack_start(&navbar,        false, false, 0);
-        vbox.pack_start(&tabs.notebook, true,  true,  0);
+        vbox.pack_start(&progress,       false, false, 0);
+        vbox.pack_start(&navbar,         false, false, 0);
+        vbox.pack_start(&findbar.widget, false, false, 0);
+        vbox.pack_start(&tabs.notebook,  true,  true,  0);
+        downloads::init(&vbox); // barre d'état téléchargements (Sprint 4.3)
         window.add(&vbox);
 
         wire_webview_hooks(&tabs, &url_bar, &progress);
         wire_tab_switch(&tabs, &url_bar, &progress);
         wire_last_tab(&window, &tabs, &settings);
         wire_double_click(&tabs);
-        shortcuts::wire(&window, &tabs, &url_bar, &bm);
+        shortcuts::wire(&window, &tabs, &url_bar, &bm, &vault, &findbar);
 
         Self { window, tabs }
     }
@@ -94,19 +106,33 @@ fn wire_double_click(tabs: &TabBar) {
 }
 
 /// URL bar + progress câblés une fois par WebView à sa création.
+/// Garde `is_current` : un onglet en arrière-plan (chargement, redirect) ne
+/// doit pas écraser la barre d'adresse de l'onglet affiché.
 fn wire_webview_hooks(tabs: &TabBar, url_bar: &Entry, progress: &ProgressBar) {
+    let nb   = tabs.notebook.clone();
     let ub   = url_bar.clone();
     let prog = progress.clone();
     tabs.set_on_new_webview(move |wv| {
-        let ub2 = ub.clone();
-        wv.connect_uri_notify(move |w| { ub2.set_text(w.uri().as_deref().unwrap_or("")); });
-        let prog2 = prog.clone();
+        let (nb2, ub2) = (nb.clone(), ub.clone());
+        wv.connect_uri_notify(move |w| {
+            if is_current(&nb2, w) {
+                ub2.set_text(w.uri().as_deref().unwrap_or(""));
+            }
+        });
+        let (nb3, prog2) = (nb.clone(), prog.clone());
         wv.connect_estimated_load_progress_notify(move |w| {
-            let p = w.estimated_load_progress();
-            prog2.set_fraction(p);
-            prog2.set_visible(p > 0.0 && p < 1.0);
+            if is_current(&nb3, w) {
+                let p = w.estimated_load_progress();
+                prog2.set_fraction(p);
+                prog2.set_visible(p > 0.0 && p < 1.0);
+            }
         });
     });
+}
+
+/// true si `wv` est la page actuellement affichée.
+fn is_current(nb: &Notebook, wv: &WebView) -> bool {
+    nb.current_page().is_some() && nb.current_page() == nb.page_num(wv)
 }
 
 /// Resync URL bar + progress au changement d'onglet.
