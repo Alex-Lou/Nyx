@@ -28,6 +28,11 @@ CREATE TABLE IF NOT EXISTS history (
     visited_at TEXT    NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_history_visited ON history(visited_at DESC);
 CREATE INDEX IF NOT EXISTS idx_passwords_domain ON passwords(domain);
 ";

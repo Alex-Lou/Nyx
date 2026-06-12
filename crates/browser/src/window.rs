@@ -1,5 +1,4 @@
 use std::rc::Rc;
-use std::sync::Arc;
 
 use gtk::prelude::*;
 use gtk::{
@@ -21,7 +20,7 @@ pub struct BrowserWindow {
 }
 
 impl BrowserWindow {
-    pub fn new(app: &Application, blocker: Arc<AdBlocker>, vault: Rc<Vault>) -> Self {
+    pub fn new(app: &Application, blocker: Rc<AdBlocker>, vault: Rc<Vault>) -> Self {
         let window = ApplicationWindow::builder()
             .application(app)
             .title("Nyx")
@@ -40,9 +39,13 @@ impl BrowserWindow {
         let back_btn    = nav_button("◀");
         let forward_btn = nav_button("▶");
         let reload_btn  = nav_button("↺");
+        let home_btn    = nav_button("⌂");
+        let shield_btn  = nav_button("⛨");
         let star_btn    = nav_button("★");
         let new_tab_btn = nav_button("+");
         star_btn.style_context().add_class("nyx-star-btn");
+        shield_btn.style_context().add_class("nyx-shield-btn");
+        shield_btn.set_tooltip_text(Some("Bloqueur de pubs actif — cliquer pour whitelister ce site"));
 
         let url_bar = Entry::builder()
             .placeholder_text("nyx://  ou  recherche…")
@@ -56,12 +59,20 @@ impl BrowserWindow {
         navbar.pack_start(&back_btn,    false, false, 0);
         navbar.pack_start(&forward_btn, false, false, 0);
         navbar.pack_start(&reload_btn,  false, false, 4);
+        navbar.pack_start(&home_btn,    false, false, 0);
         navbar.pack_start(&url_bar,     true,  true,  0);
         navbar.pack_end(&new_tab_btn,   false, false, 4);
         navbar.pack_end(&star_btn,      false, false, 0);
+        navbar.pack_end(&shield_btn,    false, false, 0);
 
         // ── Onglets + sidebar ────────────────────────────────────────────
-        let tabs = TabBar::new(blocker);
+        // Whitelist adblock persistée dans le vault (Sprint 3.4)
+        if let Ok(Some(json)) = vault.setting("adblock_whitelist") {
+            let domains: Vec<String> = serde_json::from_str(&json).unwrap_or_default();
+            blocker.load_whitelist(domains);
+        }
+
+        let tabs = TabBar::new(blocker.clone());
         let sidebar = Sidebar::new(vault.clone(), tabs.clone());
 
         let content = GtkBox::new(Orientation::Horizontal, 0);
@@ -88,9 +99,11 @@ impl BrowserWindow {
             new_tab_btn.connect_clicked(move |_| { tb.open(HOME_PAGE); });
         }
         wire_star_button(&star_btn, &tabs.notebook, &vault, &sidebar);
+        wire_shield_button(&shield_btn, &tabs.notebook, &blocker, &vault);
         wire_nav_button(&back_btn,    &tabs.notebook, |wv| wv.go_back());
         wire_nav_button(&forward_btn, &tabs.notebook, |wv| wv.go_forward());
         wire_nav_button(&reload_btn,  &tabs.notebook, |wv| wv.reload());
+        wire_nav_button(&home_btn,    &tabs.notebook, |wv| wv.load_uri(HOME_PAGE));
 
         // ── URL bar → charger ────────────────────────────────────────────
         {
@@ -115,14 +128,20 @@ impl BrowserWindow {
             let ub = url_bar.clone();
             let prog = progress.clone();
             let v = vault.clone();
+            let shield = shield_btn.clone();
+            let bl = blocker.clone();
             tabs.notebook.connect_page_added(move |nb, child, _| {
                 let Ok(wv) = child.clone().downcast::<WebView>() else { return };
 
                 let nb2 = nb.clone();
                 let ub2 = ub.clone();
+                let shield2 = shield.clone();
+                let bl2 = bl.clone();
                 wv.connect_uri_notify(move |w| {
                     if is_current(&nb2, w) {
-                        ub2.set_text(&w.uri().unwrap_or_default());
+                        let uri = w.uri().unwrap_or_default();
+                        ub2.set_text(&uri);
+                        update_shield(&shield2, &bl2, &uri);
                     }
                 });
 
@@ -164,9 +183,13 @@ impl BrowserWindow {
             // utiliser current_page() ici, il pointe encore l'ancien onglet.
             let ub = url_bar.clone();
             let prog = progress.clone();
+            let shield = shield_btn.clone();
+            let bl = blocker.clone();
             tabs.notebook.connect_switch_page(move |_, page, _| {
                 if let Some(wv) = page.downcast_ref::<WebView>() {
-                    ub.set_text(&wv.uri().unwrap_or_default());
+                    let uri = wv.uri().unwrap_or_default();
+                    ub.set_text(&uri);
+                    update_shield(&shield, &bl, &uri);
                     let p = wv.estimated_load_progress();
                     prog.set_fraction(p);
                     prog.set_visible(p > 0.0 && p < 1.0);
@@ -232,6 +255,43 @@ fn wire_star_button(btn: &Button, nb: &Notebook, vault: &Rc<Vault>, sidebar: &Si
             sidebar.refresh_bookmarks();
         }
     });
+}
+
+/// Bouton ⛨ : whitelist le site courant (Sprint 3.4), persiste dans le vault.
+fn wire_shield_button(btn: &Button, nb: &Notebook, blocker: &Rc<AdBlocker>, vault: &Rc<Vault>) {
+    let nb = nb.clone();
+    let blocker = blocker.clone();
+    let vault = vault.clone();
+    btn.connect_clicked(move |btn| {
+        let Some(wv) = current_webview(&nb) else { return };
+        let Some(uri) = wv.uri() else { return };
+        let (host, _) = crate::urls::host_and_path(&uri);
+        if host.is_empty() {
+            return;
+        }
+
+        blocker.set_whitelisted(host, !blocker.is_whitelisted(host));
+        let json = serde_json::to_string(&blocker.whitelist_snapshot())
+            .unwrap_or_else(|_| "[]".into());
+        let _ = vault.set_setting("adblock_whitelist", &json);
+
+        update_shield(btn, &blocker, &uri);
+        wv.reload();
+    });
+}
+
+/// Reflète l'état du bloqueur pour l'URL affichée (classe CSS + tooltip).
+fn update_shield(btn: &Button, blocker: &Rc<AdBlocker>, url: &str) {
+    let (host, _) = crate::urls::host_and_path(url);
+    let off = !host.is_empty() && blocker.is_whitelisted(host);
+    let ctx = btn.style_context();
+    if off {
+        ctx.add_class("nyx-shield-off");
+        btn.set_tooltip_text(Some("Bloqueur coupé sur ce site — cliquer pour réactiver"));
+    } else {
+        ctx.remove_class("nyx-shield-off");
+        btn.set_tooltip_text(Some("Bloqueur de pubs actif — cliquer pour whitelister ce site"));
+    }
 }
 
 /// Autocomplétion substring sur les URLs des bookmarks + historique.

@@ -1,4 +1,5 @@
 mod adblock;
+mod content_filter;
 mod sidebar;
 mod tabs;
 mod theme;
@@ -8,7 +9,6 @@ mod webview;
 mod window;
 
 use std::rc::Rc;
-use std::sync::Arc;
 
 use gtk::prelude::*;
 use gtk::Application;
@@ -28,12 +28,21 @@ fn main() {
         // Thème Nyx — doit être chargé avant toute création de widget
         theme::load();
 
+        // Favicons des onglets (Sprint 1.4) — None = chemin par défaut
+        if let Some(ctx) = webkit2gtk::WebContext::default() {
+            use webkit2gtk::WebContextExt;
+            ctx.set_favicon_database_directory(None);
+        }
+
+        // Content filter pubs/trackers (compilé au 1er lancement, asynchrone)
+        content_filter::init();
+
         // Déverrouillage du vault (Sprint 2.1) — abandon = pas de fenêtre,
         // l'application se termine d'elle-même.
         let Some(vault) = unlock::unlock_vault() else { return };
         let vault = Rc::new(vault);
 
-        let blocker = Arc::new(AdBlocker::new());
+        let blocker = Rc::new(AdBlocker::new());
         let win = BrowserWindow::new(app, blocker, vault);
 
         // Premier onglet

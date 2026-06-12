@@ -12,6 +12,12 @@ serde_json = { workspace = true }
 # GTK3 + WebKitGTK 4.1 — most mature Rust bindings available today
 gtk        = { version = "0.18", features = ["v3_24"] }
 webkit2gtk = { version = "2.0", features = ["v2_40"] }
+# FFI directe pour UserContentFilterStore (absent des bindings 2.0) — voir content_filter.rs
+webkit2gtk-sys = "2.0"
 glib       = "0.18"
 # Déjà dans l'arbre via webkit2gtk — exposé pour lire les script-messages
 javascriptcore = { package = "javascriptcore-rs", version = "1.1" }
+
+# Bloqueur : moteur Brave + EasyList/EasyPrivacy bundlées gzippées
+adblock = { version = "0.12", features = ["content-blocking"] }
+flate2  = "1.0"

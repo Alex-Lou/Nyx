@@ -1,50 +1,101 @@
-// Sprint 3 — intégration complète avec la crate `adblock` de Brave
-// Pour l'instant : liste de règles en dur pour valider le pipeline.
+// Sprint 3 — moteur `adblock` de Brave + EasyList/EasyPrivacy bundlées.
+//
+// Deux niveaux de blocage :
+// - le moteur (ici) filtre les navigations via decide-policy ;
+// - les sous-ressources (img, script, xhr…) sont bloquées par le
+//   content filter WebKit compilé depuis les mêmes listes (content_filter.rs).
 
-/// Règle : domaine (+ préfixe de chemin optionnel).
-/// Le matching se fait sur le host réel de l'URL, pas en substring,
-/// pour éviter les faux positifs ("notdoubleclick.net") et les
-/// contournements ("https://evil.com/?x=doubleclick.net").
-struct Rule {
-    domain: &'static str,
-    path_prefix: Option<&'static str>,
-}
+use std::cell::RefCell;
+use std::collections::HashSet;
+use std::io::Read;
 
+use adblock::lists::{FilterSet, ParseOptions};
+use adblock::request::Request;
+use adblock::Engine;
+
+const EASYLIST_GZ: &[u8] = include_bytes!("../../../assets/filterlists/easylist.txt.gz");
+const EASYPRIVACY_GZ: &[u8] = include_bytes!("../../../assets/filterlists/easyprivacy.txt.gz");
+
+// Tout vit sur le thread GTK : Rc<AdBlocker> + RefCell, pas de verrou.
 pub struct AdBlocker {
-    rules: Vec<Rule>,
+    engine: Engine,
+    /// Hosts pour lesquels l'utilisateur a désactivé le blocage (Sprint 3.4).
+    whitelist: RefCell<HashSet<String>>,
 }
 
 impl AdBlocker {
     pub fn new() -> Self {
-        // TODO Sprint 3: charger les règles depuis EasyList / uBlock Origin
-        // via la crate `adblock = "0.9"` et un fichier de règles embarqué.
-        let rules = [
-            "doubleclick.net",
-            "googlesyndication.com",
-            "ads.twitter.com",
-            "facebook.com/tr",
-            "analytics.google.com",
-            "hotjar.com",
-        ]
-        .iter()
-        .map(|pattern| match pattern.split_once('/') {
-            Some((domain, path)) => Rule { domain, path_prefix: Some(path) },
-            None => Rule { domain: pattern, path_prefix: None },
-        })
-        .collect();
-
-        Self { rules }
+        Self {
+            engine: Engine::from_filter_set(bundled_filter_set(false), true),
+            whitelist: RefCell::new(HashSet::new()),
+        }
     }
 
-    /// Retourne true si l'URL doit être bloquée.
-    pub fn should_block(&self, url: &str) -> bool {
-        let (host, path) = crate::urls::host_and_path(url);
+    /// true si la navigation vers `url` (depuis `source_url`) doit être bloquée.
+    pub fn should_block(&self, url: &str, source_url: &str, main_frame: bool) -> bool {
+        let (target_host, _) = crate::urls::host_and_path(url);
+        let (source_host, _) = crate::urls::host_and_path(source_url);
+        if self.is_whitelisted(target_host) || self.is_whitelisted(source_host) {
+            return false;
+        }
 
-        self.rules.iter().any(|rule| {
-            host_matches(host, rule.domain)
-                && rule.path_prefix.is_none_or(|prefix| path.starts_with(prefix))
-        })
+        let source = if source_url.is_empty() { url } else { source_url };
+        let kind = if main_frame { "document" } else { "subdocument" };
+        Request::new(url, source, kind)
+            .map(|r| self.engine.check_network_request(&r).matched)
+            .unwrap_or(false)
     }
+
+    pub fn is_whitelisted(&self, host: &str) -> bool {
+        self.whitelist
+            .borrow()
+            .iter()
+            .any(|domain| host_matches(host, domain))
+    }
+
+    pub fn set_whitelisted(&self, host: &str, allowed: bool) {
+        let mut wl = self.whitelist.borrow_mut();
+        if allowed {
+            wl.insert(host.to_string());
+        } else {
+            wl.remove(host);
+        }
+    }
+
+    pub fn load_whitelist(&self, domains: impl IntoIterator<Item = String>) {
+        self.whitelist.borrow_mut().extend(domains);
+    }
+
+    pub fn whitelist_snapshot(&self) -> Vec<String> {
+        let mut out: Vec<String> = self.whitelist.borrow().iter().cloned().collect();
+        out.sort();
+        out
+    }
+}
+
+/// JSON content-blocker WebKit généré depuis les listes bundlées.
+/// Coûteux (re-parse les listes) : appelé une seule fois, à la première
+/// compilation du filtre (ensuite il est en cache disque).
+/// Le mode debug est requis : la conversion a besoin du texte brut des règles.
+pub fn content_blocking_json() -> String {
+    match bundled_filter_set(true).into_content_blocking() {
+        Ok((rules, _unsupported)) => serde_json::to_string(&rules).unwrap_or_else(|_| "[]".into()),
+        Err(_) => "[]".into(),
+    }
+}
+
+fn bundled_filter_set(debug: bool) -> FilterSet {
+    let mut set = FilterSet::new(debug);
+    for gz in [EASYLIST_GZ, EASYPRIVACY_GZ] {
+        set.add_filters(gunzip(gz).lines(), ParseOptions::default());
+    }
+    set
+}
+
+fn gunzip(data: &[u8]) -> String {
+    let mut out = String::new();
+    let _ = flate2::read::GzDecoder::new(data).read_to_string(&mut out);
+    out
 }
 
 /// true si `host` est `domain` ou un sous-domaine de `domain`.
@@ -61,27 +112,34 @@ impl Default for AdBlocker {
 mod tests {
     use super::*;
 
+    // Un seul test : la construction du moteur parse ~3,5 MB de règles,
+    // on ne la paie qu'une fois.
     #[test]
-    fn bloque_domaine_et_sous_domaines() {
+    fn moteur_easylist_et_whitelist() {
         let b = AdBlocker::new();
-        assert!(b.should_block("https://doubleclick.net/ads"));
-        assert!(b.should_block("https://stats.doubleclick.net/x"));
-        assert!(b.should_block("https://hotjar.com"));
+
+        // Règles EasyList réelles (iframe pub typique)
+        const AD_IFRAME: &str = "https://googleads.g.doubleclick.net/pagead/ads?client=x";
+        assert!(b.should_block(AD_IFRAME, "https://example.com", false));
+        assert!(!b.should_block("https://duckduckgo.com", "", true));
+        assert!(!b.should_block("https://rust-lang.org/learn", "https://rust-lang.org", true));
+
+        // Whitelist : site source autorisé → plus de blocage
+        b.set_whitelisted("example.com", true);
+        assert!(b.is_whitelisted("example.com"));
+        assert!(b.is_whitelisted("www.example.com"));
+        assert!(!b.is_whitelisted("notexample.com"));
+        assert!(!b.should_block(AD_IFRAME, "https://example.com", false));
+        b.set_whitelisted("example.com", false);
+        assert!(!b.is_whitelisted("example.com"));
+
+        assert_eq!(b.whitelist_snapshot(), Vec::<String>::new());
     }
 
     #[test]
-    fn ne_bloque_pas_les_faux_positifs() {
-        let b = AdBlocker::new();
-        assert!(!b.should_block("https://notdoubleclick.net/page"));
-        assert!(!b.should_block("https://example.com/?ref=doubleclick.net"));
-        assert!(!b.should_block("https://duckduckgo.com"));
-    }
-
-    #[test]
-    fn regle_avec_chemin() {
-        let b = AdBlocker::new();
-        assert!(b.should_block("https://facebook.com/tr?id=123"));
-        assert!(b.should_block("https://www.facebook.com/tr/"));
-        assert!(!b.should_block("https://facebook.com/profile"));
+    fn correspondance_de_host() {
+        assert!(host_matches("a.b.com", "b.com"));
+        assert!(host_matches("b.com", "b.com"));
+        assert!(!host_matches("notb.com", "b.com"));
     }
 }

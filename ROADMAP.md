@@ -25,11 +25,12 @@ concrètes à implémenter, pas des intentions vagues.
 
 ---
 
-## Sprint 1 — Browser core navigable 🟡 (partiel)
+## Sprint 1 — Browser core navigable ✅ (fait)
 
 **Objectif** : on peut réellement surfer, les onglets de base fonctionnent.
 
-> Restent à faire : 1.4 favicon, 1.7 bouton home, 1.8 `create-web-view` → nouvel onglet.
+> 1.2 nuance : les onglets partagent le `WebContext` par défaut (l'isolation
+> par contexte séparé casserait les vues liées `window.open` de 1.8).
 
 | # | Tâche | Notes |
 |---|-------|-------|
@@ -69,9 +70,17 @@ concrètes à implémenter, pas des intentions vagues.
 
 ---
 
-## Sprint 3 — Bloqueur de pub production-ready
+## Sprint 3 — Bloqueur de pub production-ready ✅ (fait, sauf 3.6)
 
 **Objectif** : le bloqueur filtre vraiment les pubs via des règles standards.
+
+> Implémenté avec `adblock = "0.12"` (0.9 a des deps cassées). 3.3 : WebKitGTK
+> n'expose pas les requêtes réseau côté UI — les sous-ressources sont bloquées
+> par un content filter WebKit compilé depuis les mêmes listes (FFI directe,
+> `content_filter.rs`), les navigations par le moteur dans `decide-policy`.
+> 3.5 : WebKit ne notifie pas les blocages du content filter ; le compteur ne
+> voit que les navigations/popups bloquées. 3.6 : reporté — les listes se
+> mettent à jour en relançant `scripts/update-filterlists.sh` + rebuild.
 
 | # | Tâche | Notes |
 |---|-------|-------|

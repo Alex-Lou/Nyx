@@ -3,6 +3,7 @@ mod db;
 mod history;
 mod models;
 mod passwords;
+mod settings;
 
 pub use models::{Bookmark, HistoryEntry, Password};
 
@@ -81,6 +82,16 @@ impl Vault {
 
     pub fn clear_history(&self) -> Result<()> {
         history::clear(&self.conn)
+    }
+
+    // ── Settings ───────────────────────────────────────────────────────────
+
+    pub fn setting(&self, key: &str) -> Result<Option<String>> {
+        settings::get(&self.conn, key)
+    }
+
+    pub fn set_setting(&self, key: &str, value: &str) -> Result<()> {
+        settings::set(&self.conn, key, value)
     }
 }
 
@@ -165,6 +176,23 @@ mod tests {
 
         vault.clear_history()?;
         assert!(vault.recent_history(10)?.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn settings_round_trip() -> Result<()> {
+        let tmp = TempVault::new("settings");
+        let vault = tmp.open("secret")?;
+
+        assert_eq!(vault.setting("adblock_whitelist")?, None);
+        vault.set_setting("adblock_whitelist", r#"["example.com"]"#)?;
+        assert_eq!(
+            vault.setting("adblock_whitelist")?.as_deref(),
+            Some(r#"["example.com"]"#)
+        );
+        // Upsert : la nouvelle valeur remplace l'ancienne
+        vault.set_setting("adblock_whitelist", "[]")?;
+        assert_eq!(vault.setting("adblock_whitelist")?.as_deref(), Some("[]"));
         Ok(())
     }
 

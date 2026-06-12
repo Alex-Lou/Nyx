@@ -1,5 +1,4 @@
 use std::rc::Rc;
-use std::sync::Arc;
 
 use glib::prelude::*;
 use javascriptcore::ValueExt;
@@ -12,11 +11,17 @@ use webkit2gtk::{
 use vault::{Password, Vault};
 
 use crate::adblock::AdBlocker;
+use crate::content_filter;
 use crate::urls;
 
-pub fn configure(webview: &WebView, blocker: Arc<AdBlocker>) {
+/// Prépare une WebView : settings privacy, content filter (sous-ressources),
+/// filtre de navigation. `on_block` est appelé à chaque blocage (compteur).
+pub fn configure(webview: &WebView, blocker: Rc<AdBlocker>, on_block: impl Fn() + 'static) {
     apply_settings(webview);
-    wire_policy_filter(webview, blocker);
+    if let Some(ucm) = webview.user_content_manager() {
+        content_filter::apply_to(&ucm);
+    }
+    wire_policy_filter(webview, blocker, on_block);
 }
 
 fn apply_settings(webview: &WebView) {
@@ -34,25 +39,48 @@ fn apply_settings(webview: &WebView) {
     });
 }
 
-fn wire_policy_filter(webview: &WebView, blocker: Arc<AdBlocker>) {
-    webview.connect_decide_policy(move |_wv, decision, decision_type| {
-        // TODO Sprint 3.3 : filtrer aussi les sous-ressources (img, script, xhr…)
+fn wire_policy_filter(webview: &WebView, blocker: Rc<AdBlocker>, on_block: impl Fn() + 'static) {
+    webview.connect_decide_policy(move |wv, decision, decision_type| {
+        // Ici : navigations et popups. Les sous-ressources (img, script,
+        // xhr…) sont bloquées par le content filter WebKit (content_filter.rs).
         match decision_type {
             PolicyDecisionType::NavigationAction | PolicyDecisionType::NewWindowAction => {}
             _ => return false,
         }
 
-        if let Some(nav) = decision.downcast_ref::<NavigationPolicyDecision>() {
-            let url = nav
-                .navigation_action()
-                .and_then(|a| a.request())
-                .and_then(|r| r.uri())
-                .unwrap_or_default();
+        let Some(nav) = decision.downcast_ref::<NavigationPolicyDecision>() else {
+            return false;
+        };
+        let url = nav
+            .navigation_action()
+            .and_then(|a| a.request())
+            .and_then(|r| r.uri())
+            .unwrap_or_default();
+        if url.is_empty() {
+            return false;
+        }
 
-            if blocker.should_block(&url) {
-                decision.ignore();
-                return true;
+        let source = wv.uri().unwrap_or_default();
+        let main_frame = decision_type == PolicyDecisionType::NavigationAction
+            && nav.navigation_action().is_some_and(|mut a| a.frame_name().is_none());
+
+        // Whitelist (Sprint 3.4) : sur navigation principale, activer ou
+        // couper le content filter selon le site visité.
+        if main_frame {
+            if let Some(ucm) = wv.user_content_manager() {
+                let (host, _) = urls::host_and_path(&url);
+                if blocker.is_whitelisted(host) {
+                    content_filter::remove_from(&ucm);
+                } else {
+                    content_filter::apply_to(&ucm);
+                }
             }
+        }
+
+        if blocker.should_block(&url, &source, main_frame) {
+            decision.ignore();
+            on_block();
+            return true;
         }
 
         false // laisser webkit gérer

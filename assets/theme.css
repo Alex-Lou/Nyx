@@ -141,6 +141,16 @@ notebook > header > tabs > tab:checked {
     box-shadow: 0 0 10px alpha(@nyx_aurora, 0.12);
 }
 
+.nyx-tab-badge {
+    background-color: alpha(@nyx_aurora, 0.15);
+    border-radius: 8px;
+    color: @nyx_aurora;
+    font-size: 10px;
+    font-weight: bold;
+    min-width: 16px;
+    padding: 1px 5px;
+}
+
 .nyx-tab-close {
     background: none;
     border: none;
@@ -220,6 +230,16 @@ scrollbar slider:hover {
 
 .nyx-star-btn:active {
     color: #ffdf9e;
+}
+
+/* ── Bouclier adblock ⛨ ────────────────────────── */
+
+.nyx-shield-btn {
+    color: @nyx_aurora;
+}
+
+.nyx-shield-btn.nyx-shield-off {
+    color: @nyx_twilight;
 }
 
 /* ── Sidebar vault ─────────────────────────────── */
