@@ -21,10 +21,11 @@ pub struct BrowserWindow {
 }
 
 impl BrowserWindow {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         app: &Application, blocker: Arc<NyxGuard>, settings: Settings,
         bm: Bookmarks, permissions: nyx_core::permissions::PermissionStore,
-        downloads: DownloadsHandle,
+        downloads: DownloadsHandle, vault: std::rc::Rc<vault::Vault>,
     ) -> Self {
         let window = ApplicationWindow::builder()
             .application(app).title("Nyx")
@@ -61,15 +62,17 @@ impl BrowserWindow {
         let tabs = TabBar::new(
             blocker, settings.clone(), bm.clone(), permissions,
             downloads.clone(), crate::state::downloads_temp::temp_root(),
-            toaster.clone(),
+            toaster.clone(), vault.clone(),
         );
         tabs.set_parent(&window);
-        let navbar = navbar::build(&url_bar, &tabs, &settings, &bm, &downloads, &toaster);
+        let navbar = navbar::build(&url_bar, &tabs, &settings, &bm, &downloads, &toaster, &vault);
+        let findbar = crate::ui::findbar::FindBar::new(&tabs);
 
         let vbox = GtkBox::new(Orientation::Vertical, 0);
-        vbox.pack_start(&progress,      false, false, 0);
-        vbox.pack_start(&navbar,        false, false, 0);
-        vbox.pack_start(&tabs.notebook, true,  true,  0);
+        vbox.pack_start(&progress,       false, false, 0);
+        vbox.pack_start(&navbar,         false, false, 0);
+        vbox.pack_start(&findbar.widget, false, false, 0);
+        vbox.pack_start(&tabs.notebook,  true,  true,  0);
 
         // Overlay : vbox dessous, toasts dessus (pass_through laisse les
         // clics traverser les zones vides du host).
@@ -83,7 +86,7 @@ impl BrowserWindow {
         wire_tab_switch(&tabs, &url_bar, &progress);
         wire_last_tab(&window, &tabs, &settings);
         wire_double_click(&tabs);
-        shortcuts::wire(&window, &tabs, &url_bar, &bm);
+        shortcuts::wire(&window, &tabs, &url_bar, &bm, &findbar);
 
         Self { window, tabs }
     }

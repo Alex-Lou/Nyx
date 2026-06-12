@@ -16,7 +16,7 @@ use crate::web::{self, nyxguard::NyxGuard};
 /// un onglet (même filtre de politique).
 pub fn build(
     parent: Option<&Window>, blocker: Arc<NyxGuard>, prefs: Settings, bm: Bookmarks,
-    perms: nyx_core::permissions::PermissionStore,
+    perms: nyx_core::permissions::PermissionStore, vault: std::rc::Rc<vault::Vault>,
 ) -> Window {
     let win = Window::builder()
         .title("Paramètres — Nyx")
@@ -35,7 +35,7 @@ pub fn build(
     }
 
     let wv = WebView::new();
-    web::configure(&wv, blocker, prefs.clone(), bm, perms);
+    web::configure(&wv, blocker, prefs.clone(), bm, perms, vault);
     wv.load_html(&settings_page::html(&prefs.borrow()), Some(&pages::assets_base_uri()));
     win.add(&wv);
 

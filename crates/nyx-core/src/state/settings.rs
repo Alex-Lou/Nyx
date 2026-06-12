@@ -22,6 +22,9 @@ pub struct AppSettings {
     /// « Ouvrir / Exécuter » dans la shelf. Défaut : `true` (défense
     /// en profondeur). Désactivable depuis les paramètres généraux.
     pub recheck_on_run:      bool,
+    /// Refus automatique des bandeaux de consentement cookies (UserScript).
+    /// Les cookies tiers réseau sont déjà bloqués par `cookie_policy`.
+    pub reject_cookies:      bool,
 }
 
 impl Default for AppSettings {
@@ -37,6 +40,7 @@ impl Default for AppSettings {
             language:          Language::French,
             downloads_dir:     None,
             recheck_on_run:    true,
+            reject_cookies:    true,
         }
     }
 }
@@ -136,6 +140,7 @@ pub fn apply_from_url(url: &str, settings: &Settings, blocker: &NyxGuard) -> boo
     s.dark_websites     = flag("dark");
     s.private_mode      = flag("private");
     s.block_third_party = flag("blockauth");
+    s.reject_cookies    = flag("rejectcookies");
     // Defaut historique = true. Absent = on garde la valeur courante pour
     // ne pas forcer un downgrade silencieux.
     if params.contains_key("recheckrun") {
@@ -145,6 +150,35 @@ pub fn apply_from_url(url: &str, settings: &Settings, blocker: &NyxGuard) -> boo
     blocker.set_enabled(s.adblock_enabled);
     blocker.set_block_accounts(s.block_third_party);
     true
+}
+
+/// Sérialise les réglages dans le même format query-string que `nyx://apply`
+/// — la persistance (vault) réutilise ainsi le parseur déjà testé :
+/// au boot, `apply_from_url(&format!("nyx://apply?{q}"), …)` recharge tout.
+pub fn to_query(s: &AppSettings) -> String {
+    let mut q = format!(
+        "engine={}&lang={}&lasttab={}&home={}&dldir={}",
+        s.search_engine.id(),
+        s.language.id(),
+        s.on_last_tab.id(),
+        urlencode(&s.home_url),
+        urlencode(s.downloads_dir.as_deref().unwrap_or("")),
+    );
+    // recheckrun n'est appliqué que si présent → toujours l'émettre.
+    q.push_str(&format!("&recheckrun={}", s.recheck_on_run));
+    // Même convention que le formulaire : une checkbox absente = false.
+    for (key, on) in [
+        ("adblock", s.adblock_enabled),
+        ("dark", s.dark_websites),
+        ("private", s.private_mode),
+        ("blockauth", s.block_third_party),
+        ("rejectcookies", s.reject_cookies),
+    ] {
+        if on {
+            q.push_str(&format!("&{key}=true"));
+        }
+    }
+    q
 }
 
 fn urlencode(s: &str) -> String {
@@ -205,6 +239,43 @@ mod tests {
             assert!(g.adblock_enabled);
             assert_eq!(g.home_url, format!("site{i}.com"));
         }
+    }
+
+    /// to_query ∘ apply_from_url = identité : la persistance vault repose dessus.
+    #[test]
+    fn to_query_roundtrip() {
+        let (s, b) = setup();
+        {
+            let mut g = s.borrow_mut();
+            g.search_engine = SearchEngine::Ecosia;
+            g.language = Language::German;
+            g.on_last_tab = LastTab::CloseWindow;
+            g.home_url = "https://exemple.fr/?a=1".into();
+            g.downloads_dir = Some("/home/lou/dl".into());
+            g.recheck_on_run = false;
+            g.adblock_enabled = true;
+            g.dark_websites = true;
+            g.private_mode = false;
+            g.block_third_party = true;
+            g.reject_cookies = true;
+        }
+        let q = to_query(&s.borrow());
+
+        let (restored, b2) = setup();
+        apply_from_url(&format!("nyx://apply?{q}"), &restored, &b2);
+        let (a, r) = (s.borrow(), restored.borrow());
+        assert_eq!(a.search_engine, r.search_engine);
+        assert_eq!(a.language, r.language);
+        assert_eq!(a.on_last_tab, r.on_last_tab);
+        assert_eq!(a.home_url, r.home_url);
+        assert_eq!(a.downloads_dir, r.downloads_dir);
+        assert_eq!(a.recheck_on_run, r.recheck_on_run);
+        assert_eq!(a.adblock_enabled, r.adblock_enabled);
+        assert_eq!(a.dark_websites, r.dark_websites);
+        assert_eq!(a.private_mode, r.private_mode);
+        assert_eq!(a.block_third_party, r.block_third_party);
+        assert_eq!(a.reject_cookies, r.reject_cookies);
+        let _ = b;
     }
 
     /// Entrées hostiles / malformées : ne doivent jamais paniquer.

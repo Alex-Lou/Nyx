@@ -10,7 +10,9 @@ use crate::state::downloads::DownloadsHandle;
 use crate::state::settings::Settings;
 use crate::ui::tabs::TabBar;
 use crate::ui::toast::ToastHandle;
-use crate::ui::{bookmarks_popover, downloads as downloads_ui};
+use crate::ui::{bookmarks_popover, downloads as downloads_ui, passwords_popover};
+use std::rc::Rc;
+use vault::Vault;
 use crate::web::{self, site_data};
 
 /// Construit la barre de navigation, câble ses boutons + la barre d'adresse,
@@ -18,6 +20,7 @@ use crate::web::{self, site_data};
 pub fn build(
     url_bar: &Entry, tabs: &TabBar, settings: &Settings,
     bm: &Bookmarks, downloads: &DownloadsHandle, toaster: &ToastHandle,
+    vault: &Rc<Vault>,
 ) -> GtkBox {
     let back     = nav_button("◀", "Précédent");
     let forward  = nav_button("▶", "Suivant");
@@ -26,6 +29,8 @@ pub fn build(
     let star     = nav_button("☆", "Favoris");
     let forget   = nav_icon_button("edit-clear-all-symbolic", "Oublier ce site");
     let new_tab  = nav_button("+", "Nouvel onglet (Ctrl+T)");
+    let keys     = nav_button("⚿", "Mots de passe (coffre)");
+    keys.style_context().add_class("nyx-vault-btn");
     let settings_b = nav_button("⚙", "Paramètres (Ctrl+,)");
     let dl_btn   = downloads_ui::install(downloads, settings, toaster);
 
@@ -50,6 +55,7 @@ pub fn build(
     bar.pack_start(url_bar,  true,  true,  0);
     bar.pack_end(&settings_b, false, false, 0);
     bar.pack_end(&star,       false, false, 0);
+    bar.pack_end(&keys,       false, false, 0);
     bar.pack_end(&dl_btn,     false, false, 0);
     bar.pack_end(&forget,     false, false, 0);
     bar.pack_end(&new_tab,    false, false, 4);
@@ -64,6 +70,12 @@ pub fn build(
     new_tab.connect_clicked(move |_| { t.open_new_tab(); });
     let t = tabs.clone();
     settings_b.connect_clicked(move |_| { t.open_settings(); });
+
+    // ⚿ → gestionnaire de mots de passe (popover sur le vault).
+    {
+        let pop = passwords_popover::build(&keys, vault);
+        keys.connect_clicked(move |_| pop.popup());
+    }
 
     // Home → URL configurée dans les paramètres.
     let t = tabs.clone();

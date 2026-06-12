@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use rusqlite::Connection;
 use std::path::Path;
 
@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS bookmarks (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     url        TEXT    NOT NULL,
     title      TEXT    NOT NULL,
+    folder     TEXT    NOT NULL DEFAULT '',    -- '' = racine
     tags       TEXT    NOT NULL DEFAULT '[]',  -- JSON array
     created_at TEXT    NOT NULL
 );
@@ -28,6 +29,11 @@ CREATE TABLE IF NOT EXISTS history (
     visited_at TEXT    NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_history_visited ON history(visited_at DESC);
 CREATE INDEX IF NOT EXISTS idx_passwords_domain ON passwords(domain);
 ";
@@ -37,6 +43,11 @@ pub fn open(path: &Path, passphrase: &str) -> Result<Connection> {
 
     // SQLCipher: doit être le tout premier pragma avant toute opération
     conn.pragma_update(None, "key", passphrase)?;
+
+    // SQLCipher ne valide la clé qu'à la première lecture : on force une
+    // lecture immédiate pour échouer franchement si la passphrase est mauvaise.
+    conn.query_row("SELECT count(*) FROM sqlite_master", [], |_| Ok(()))
+        .context("passphrase invalide ou fichier vault corrompu")?;
 
     // Optimisations standard SQLite
     conn.execute_batch("

@@ -2,6 +2,7 @@
 //! Génèrent du HTML embarqué ; aucune logique d'état ici.
 
 pub mod bookmarks;
+pub mod history;
 pub mod newtab;
 pub mod settings;
 pub mod tokens;

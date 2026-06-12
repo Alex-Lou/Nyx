@@ -8,11 +8,12 @@ use webkit2gtk::{WebInspectorExt, WebViewExt};
 use crate::state::bookmarks::Bookmarks;
 use crate::ui::tabs::TabBar;
 use crate::ui::navbar;
+use crate::ui::findbar::FindBar;
 
 /// Ctrl+T nouvel onglet · Ctrl+W fermer · Ctrl+L adresse · Ctrl+R recharger
 /// Ctrl+Tab suivant · Ctrl+, paramètres · Ctrl+D favori
 /// F12 / Ctrl+Shift+I inspecteur (WebKit DevTools)
-pub fn wire(window: &ApplicationWindow, tabs: &TabBar, url_bar: &Entry, bm: &Bookmarks) {
+pub fn wire(window: &ApplicationWindow, tabs: &TabBar, url_bar: &Entry, bm: &Bookmarks, findbar: &FindBar) {
     let accel = AccelGroup::new();
     window.add_accel_group(&accel);
     let ctrl       = ModifierType::CONTROL_MASK;
@@ -41,6 +42,16 @@ pub fn wire(window: &ApplicationWindow, tabs: &TabBar, url_bar: &Entry, bm: &Boo
     bind(&accel, key::d.into_glib(), ctrl, flags, {
         let t = tabs.clone(); let b = bm.clone(); let ub = url_bar.clone();
         move |_| { navbar::bookmark_current(&t, &b, &ub); true }
+    });
+
+    // Ctrl+F → recherche dans la page
+    bind(&accel, key::f.into_glib(), ctrl, flags, {
+        let fb = findbar.clone(); move |_| { fb.open(); true }
+    });
+    // Ctrl+H → historique (page interne, données du vault)
+    bind(&accel, key::h.into_glib(), ctrl, flags, {
+        let t = tabs.clone();
+        move |_| { t.with_current(|wv| wv.load_uri("nyx://history")); true }
     });
 
     // Inspecteur WebKit (DevTools natif). F12 = standard navigateur,

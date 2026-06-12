@@ -36,22 +36,24 @@ pub struct TabBar {
     downloads:      DownloadsHandle,
     downloads_temp: Rc<PathBuf>,
     toaster:        ToastHandle,
+    vault:          Rc<vault::Vault>,
     on_new_webview: WebViewHook,
     settings_modal: Rc<RefCell<Option<Window>>>,
     parent:         Rc<RefCell<Option<WeakRef<Window>>>>,
 }
 
 impl TabBar {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         blocker: Arc<NyxGuard>, settings: Settings, bm: Bookmarks,
         permissions: nyx_core::permissions::PermissionStore,
         downloads: DownloadsHandle, downloads_temp: PathBuf,
-        toaster: ToastHandle,
+        toaster: ToastHandle, vault: Rc<vault::Vault>,
     ) -> Self {
         let notebook = Notebook::builder().scrollable(true).show_border(false).build();
         Self {
             notebook, blocker, settings, bookmarks: bm, permissions,
-            downloads, downloads_temp: Rc::new(downloads_temp), toaster,
+            downloads, downloads_temp: Rc::new(downloads_temp), toaster, vault,
             on_new_webview: Rc::new(RefCell::new(Box::new(|_| {}))),
             settings_modal: Rc::new(RefCell::new(None)),
             parent:         Rc::new(RefCell::new(None)),
@@ -94,6 +96,7 @@ impl TabBar {
             self.settings.clone(),
             self.bookmarks.clone(),
             self.permissions.clone(),
+            self.vault.clone(),
         );
         let slot = self.settings_modal.clone();
         modal.connect_destroy(move |_| { *slot.borrow_mut() = None; });
@@ -190,7 +193,8 @@ impl TabBar {
         wv.set_vexpand(true);
         wv.set_hexpand(true);
         web::configure(&wv, self.blocker.clone(), self.settings.clone(),
-                       self.bookmarks.clone(), self.permissions.clone());
+                       self.bookmarks.clone(), self.permissions.clone(),
+                       self.vault.clone());
 
         // Liens target=_blank / window.open → nouvel onglet.
         let tabs = self.clone();
@@ -219,7 +223,7 @@ impl TabBar {
     }
 
     fn attach(&self, wv: &WebView, initial: &str) {
-        let tab = label::build(wv, &self.notebook, initial);
+        let tab = label::build(self, wv, &self.notebook, initial);
         let idx = self.notebook.append_page(wv, Some(&tab));
         self.notebook.set_tab_reorderable(wv, true);
         self.notebook.set_current_page(Some(idx));

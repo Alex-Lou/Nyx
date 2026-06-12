@@ -51,13 +51,30 @@ fn main() {
     app.connect_activate(|app| {
         ui::theme::load();
         ui::icon::set_default();
-        // TODO Sprint 2 : écran de déverrouillage vault.
+
+        // Content filter pubs/trackers (sous-ressources) — compilé au
+        // premier lancement (asynchrone), chargé du cache ensuite.
+        web::content_filter::init();
+
+        // Déverrouillage du vault (Sprint 2) — abandon = pas de fenêtre,
+        // l'application se termine d'elle-même.
+        let Some(vault) = ui::unlock::unlock_vault() else { return };
+        let vault = std::rc::Rc::new(vault);
+
         let prefs   = state::settings::new();
         let bm      = state::bookmarks::new();
         let perms   = nyx_core::permissions::new();
         let dls     = state::downloads::new();
         let blocker = Arc::new(NyxGuard::new());
-        let win     = BrowserWindow::new(app, blocker, prefs, bm, perms, dls);
+
+        // Réglages + favoris persistés dans le vault → rechargés au boot.
+        if let Ok(Some(q)) = vault.setting("app_settings") {
+            state::settings::apply_from_url(&format!("nyx://apply?{q}"), &prefs, &blocker);
+            web::content_filter::set_enabled(prefs.borrow().adblock_enabled);
+        }
+        state::vault_sync::load_bookmarks(&bm, &vault);
+
+        let win = BrowserWindow::new(app, blocker, prefs, bm, perms, dls, vault);
         win.tabs.open_new_tab();
         win.show_all();
         ui::anim::fade_in(&win.window); // fondu d'ouverture discret

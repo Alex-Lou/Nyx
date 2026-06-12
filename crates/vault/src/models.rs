@@ -6,6 +6,8 @@ pub struct Bookmark {
     pub id: Option<i64>,
     pub url: String,
     pub title: String,
+    /// Dossier d'appartenance ("" = racine) — miroir du modèle UI.
+    pub folder: String,
     pub tags: Vec<String>,
     pub created_at: DateTime<Utc>,
 }
@@ -16,9 +18,15 @@ impl Bookmark {
             id: None,
             url: url.into(),
             title: title.into(),
+            folder: String::new(),
             tags: vec![],
             created_at: Utc::now(),
         }
+    }
+
+    pub fn in_folder(mut self, folder: impl Into<String>) -> Self {
+        self.folder = folder.into();
+        self
     }
 }
 

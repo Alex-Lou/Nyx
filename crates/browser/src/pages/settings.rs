@@ -15,6 +15,7 @@ pub fn html(s: &AppSettings) -> String {
         .replace("{{HOME_URL}}",      &s.home_url)
         .replace("{{ADBLOCK}}",       flag(s.adblock_enabled))
         .replace("{{BLOCKAUTH}}",     flag(s.block_third_party))
+        .replace("{{REJECTCOOKIES}}", flag(s.reject_cookies))
         .replace("{{PRIVATE}}",       flag(s.private_mode))
         .replace("{{DARK}}",          flag(s.dark_websites))
         .replace("{{LASTTAB_HOME}}",  chk("home",  s.on_last_tab.id()))

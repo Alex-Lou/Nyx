@@ -1,44 +1,35 @@
 use anyhow::Result;
 use chrono::Utc;
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, Params, Row};
 
 use crate::models::Bookmark;
 
 pub fn add(conn: &Connection, b: &Bookmark) -> Result<i64> {
     let tags = serde_json::to_string(&b.tags)?;
     conn.execute(
-        "INSERT INTO bookmarks (url, title, tags, created_at) VALUES (?1, ?2, ?3, ?4)",
-        params![b.url, b.title, tags, b.created_at.to_rfc3339()],
+        "INSERT INTO bookmarks (url, title, folder, tags, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![b.url, b.title, b.folder, tags, b.created_at.to_rfc3339()],
     )?;
     Ok(conn.last_insert_rowid())
 }
 
 pub fn list(conn: &Connection) -> Result<Vec<Bookmark>> {
-    let mut stmt = conn.prepare(
-        "SELECT id, url, title, tags, created_at FROM bookmarks ORDER BY created_at DESC",
-    )?;
-    let rows = stmt.query_map([], |row| {
-        Ok((
-            row.get::<_, i64>(0)?,
-            row.get::<_, String>(1)?,
-            row.get::<_, String>(2)?,
-            row.get::<_, String>(3)?,
-            row.get::<_, String>(4)?,
-        ))
-    })?;
+    query(
+        conn,
+        "SELECT id, url, title, folder, tags, created_at FROM bookmarks ORDER BY created_at DESC",
+        [],
+    )
+}
 
-    let mut out = vec![];
-    for row in rows {
-        let (id, url, title, tags_json, created_at) = row?;
-        out.push(Bookmark {
-            id: Some(id),
-            url,
-            title,
-            tags: serde_json::from_str(&tags_json).unwrap_or_default(),
-            created_at: created_at.parse().unwrap_or_else(|_| Utc::now()),
-        });
-    }
-    Ok(out)
+pub fn search(conn: &Connection, query_str: &str) -> Result<Vec<Bookmark>> {
+    let pattern = format!("%{}%", query_str);
+    query(
+        conn,
+        "SELECT id, url, title, folder, tags, created_at FROM bookmarks
+         WHERE url LIKE ?1 OR title LIKE ?1
+         ORDER BY created_at DESC",
+        params![pattern],
+    )
 }
 
 pub fn delete(conn: &Connection, id: i64) -> Result<()> {
@@ -46,33 +37,32 @@ pub fn delete(conn: &Connection, id: i64) -> Result<()> {
     Ok(())
 }
 
-pub fn search(conn: &Connection, query: &str) -> Result<Vec<Bookmark>> {
-    let pattern = format!("%{}%", query);
-    let mut stmt = conn.prepare(
-        "SELECT id, url, title, tags, created_at FROM bookmarks
-         WHERE url LIKE ?1 OR title LIKE ?1
-         ORDER BY created_at DESC",
-    )?;
-    let rows = stmt.query_map(params![pattern], |row| {
-        Ok((
-            row.get::<_, i64>(0)?,
-            row.get::<_, String>(1)?,
-            row.get::<_, String>(2)?,
-            row.get::<_, String>(3)?,
-            row.get::<_, String>(4)?,
-        ))
-    })?;
-
-    let mut out = vec![];
-    for row in rows {
-        let (id, url, title, tags_json, created_at) = row?;
-        out.push(Bookmark {
-            id: Some(id),
-            url,
-            title,
-            tags: serde_json::from_str(&tags_json).unwrap_or_default(),
-            created_at: created_at.parse().unwrap_or_else(|_| Utc::now()),
-        });
+/// Remplace tout le contenu de la table (sync complète du store mémoire —
+/// les listes de favoris restent petites, la simplicité prime).
+pub fn replace_all(conn: &Connection, items: &[Bookmark]) -> Result<()> {
+    conn.execute("DELETE FROM bookmarks", [])?;
+    for b in items {
+        add(conn, b)?;
     }
-    Ok(out)
+    Ok(())
+}
+
+fn query(conn: &Connection, sql: &str, params: impl Params) -> Result<Vec<Bookmark>> {
+    let mut stmt = conn.prepare(sql)?;
+    let rows = stmt.query_map(params, from_row)?;
+    Ok(rows.collect::<rusqlite::Result<_>>()?)
+}
+
+fn from_row(row: &Row) -> rusqlite::Result<Bookmark> {
+    Ok(Bookmark {
+        id: Some(row.get(0)?),
+        url: row.get(1)?,
+        title: row.get(2)?,
+        folder: row.get(3)?,
+        tags: serde_json::from_str(&row.get::<_, String>(4)?).unwrap_or_default(),
+        created_at: row
+            .get::<_, String>(5)?
+            .parse()
+            .unwrap_or_else(|_| Utc::now()),
+    })
 }

@@ -1,12 +1,21 @@
+use std::cell::Cell;
+use std::rc::Rc;
+
 use gtk::pango::EllipsizeMode;
 use gtk::prelude::*;
-use gtk::{Box as GtkBox, Button, Image, Label, Notebook, Orientation};
+use gtk::{
+    Box as GtkBox, Button, EventBox, Image, Label, Menu, MenuItem, Notebook,
+    Orientation, SeparatorMenuItem,
+};
 use webkit2gtk::{WebView, WebViewExt};
 
-use super::favicon;
+use super::{favicon, TabBar};
 
-/// Construit le contenu d'un onglet : favicon + titre (dynamique) + bouton ×.
-pub fn build(wv: &WebView, nb: &Notebook, initial: &str) -> GtkBox {
+/// Construit l'onglet : favicon + titre + ×, enveloppé dans un EventBox qui
+/// porte les interactions souris :
+///   • clic milieu → ferme l'onglet
+///   • clic droit  → menu (épingler, dupliquer, recharger, fermer, …)
+pub fn build(tabs: &TabBar, wv: &WebView, nb: &Notebook, initial: &str) -> EventBox {
     let icon = Image::new();
     icon.set_pixel_size(favicon::FAVICON_PX);
     icon.style_context().add_class("nyx-tab-favicon");
@@ -25,7 +34,13 @@ pub fn build(wv: &WebView, nb: &Notebook, initial: &str) -> GtkBox {
     row.pack_start(&icon,  false, false, 0);
     row.pack_start(&label, true,  true,  0);
     row.pack_start(&close, false, false, 0);
-    row.show_all();
+
+    let host = EventBox::new();
+    host.set_visible_window(false);
+    host.add(&row);
+    host.show_all();
+
+    let pinned = Rc::new(Cell::new(false));
 
     // Titre dynamique
     let lbl = label.clone();
@@ -37,12 +52,110 @@ pub fn build(wv: &WebView, nb: &Notebook, initial: &str) -> GtkBox {
         lbl.set_tooltip_text(Some(&t));
     });
 
-    // Fermeture
-    let nb = nb.clone();
-    let wv = wv.clone();
-    close.connect_clicked(move |_| {
-        if let Some(i) = nb.page_num(&wv) { nb.remove_page(Some(i)); }
-    });
+    // Bouton ×
+    {
+        let (nb, wv) = (nb.clone(), wv.clone());
+        close.connect_clicked(move |_| {
+            if let Some(i) = nb.page_num(&wv) { nb.remove_page(Some(i)); }
+        });
+    }
 
-    row
+    // Souris : clic milieu = fermer · clic droit = menu contextuel.
+    {
+        let (tabs, nb, wv) = (tabs.clone(), nb.clone(), wv.clone());
+        let (label, close, pinned) = (label.clone(), close.clone(), pinned.clone());
+        host.connect_button_press_event(move |_, ev| {
+            match ev.button() {
+                2 => {
+                    if let Some(i) = nb.page_num(&wv) { nb.remove_page(Some(i)); }
+                    gtk::glib::Propagation::Stop
+                }
+                3 => {
+                    context_menu(&tabs, &nb, &wv, &label, &close, &pinned)
+                        .popup_at_pointer(Some(ev));
+                    gtk::glib::Propagation::Stop
+                }
+                _ => gtk::glib::Propagation::Proceed, // gauche → bascule d'onglet
+            }
+        });
+    }
+
+    host
+}
+
+/// Menu contextuel d'onglet (reconstruit à chaque clic droit).
+fn context_menu(
+    tabs: &TabBar, nb: &Notebook, wv: &WebView,
+    label: &Label, close: &Button, pinned: &Rc<Cell<bool>>,
+) -> Menu {
+    let menu = Menu::new();
+
+    let pin = MenuItem::with_label(if pinned.get() { "Détacher" } else { "Épingler" });
+    {
+        let (nb, wv, label, close, pinned) =
+            (nb.clone(), wv.clone(), label.clone(), close.clone(), pinned.clone());
+        pin.connect_activate(move |_| {
+            let now = !pinned.get();
+            pinned.set(now);
+            set_pinned(&nb, &wv, &label, &close, now);
+        });
+    }
+
+    let dup = MenuItem::with_label("Dupliquer");
+    {
+        let (tabs, wv) = (tabs.clone(), wv.clone());
+        dup.connect_activate(move |_| {
+            if let Some(uri) = wv.uri() {
+                if !uri.is_empty() { tabs.open_url(&uri); }
+            }
+        });
+    }
+
+    let reload = MenuItem::with_label("Recharger");
+    { let wv = wv.clone(); reload.connect_activate(move |_| wv.reload()); }
+
+    let close_it = MenuItem::with_label("Fermer");
+    {
+        let (nb, wv) = (nb.clone(), wv.clone());
+        close_it.connect_activate(move |_| {
+            if let Some(i) = nb.page_num(&wv) { nb.remove_page(Some(i)); }
+        });
+    }
+
+    let close_others = MenuItem::with_label("Fermer les autres");
+    {
+        let (nb, wv) = (nb.clone(), wv.clone());
+        close_others.connect_activate(move |_| {
+            for i in (0..nb.n_pages()).rev() {
+                if let Some(page) = nb.nth_page(Some(i)) {
+                    let keep = page.downcast_ref::<WebView>().map(|p| p == &wv).unwrap_or(false);
+                    if !keep { nb.remove_page(Some(i)); }
+                }
+            }
+        });
+    }
+
+    menu.append(&pin);
+    menu.append(&dup);
+    menu.append(&reload);
+    menu.append(&SeparatorMenuItem::new());
+    menu.append(&close_it);
+    menu.append(&close_others);
+    menu.show_all();
+    menu
+}
+
+/// Épingle/détache : onglet compact (favicon seul) déplacé en tête, non
+/// réordonnable tant qu'épinglé.
+fn set_pinned(nb: &Notebook, wv: &WebView, label: &Label, close: &Button, pinned: bool) {
+    label.set_visible(!pinned);
+    close.set_visible(!pinned);
+    if let Some(tab) = nb.tab_label(wv) {
+        let ctx = tab.style_context();
+        if pinned { ctx.add_class("nyx-tab-pinned"); } else { ctx.remove_class("nyx-tab-pinned"); }
+    }
+    if pinned {
+        nb.reorder_child(wv, Some(0));
+    }
+    nb.set_tab_reorderable(wv, !pinned);
 }

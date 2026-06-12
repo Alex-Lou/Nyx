@@ -2,11 +2,16 @@
 //! (NyxGuard + routage des pages internes `nyx://`). La logique pure
 //! (sécurité, URL, NyxGuard) vit dans `nyx-core`.
 
+pub mod adfilter;
+pub mod content_filter;
+pub mod cookies;
 pub mod darkmode;
 pub mod downloads;
 pub mod inspector;
+pub mod password_capture;
 pub mod permissions;
 pub mod site_data;
+pub mod youtube;
 
 pub use nyx_core::nyxguard;
 pub use nyx_core::security;
@@ -19,7 +24,12 @@ use webkit2gtk::{
     PolicyDecisionExt, PolicyDecisionType, URIRequestExt, WebView, WebViewExt,
 };
 
-use crate::pages::{self, bookmarks as bookmarks_page, newtab, settings as settings_page};
+use std::rc::Rc;
+
+use vault::Vault;
+use webkit2gtk::LoadEvent;
+
+use crate::pages::{self, bookmarks as bookmarks_page, history as history_page, newtab, settings as settings_page};
 use crate::state::bookmarks::{self, Bookmarks};
 use crate::state::settings::{self, Settings};
 use nyxguard::NyxGuard;
@@ -29,11 +39,40 @@ pub use nyx_core::url::resolve_input;
 
 pub fn configure(
     webview: &WebView, blocker: Arc<NyxGuard>, prefs: Settings, bm: Bookmarks,
-    perms: nyx_core::permissions::PermissionStore,
+    perms: nyx_core::permissions::PermissionStore, vault: Rc<Vault>,
 ) {
     apply_privacy_settings(webview);
-    wire_policy_filter(webview, blocker, prefs, bm);
+    if let Some(ucm) = webview.user_content_manager() {
+        content_filter::apply_to(&ucm);
+    }
+    wire_history_autosave(webview, vault.clone());
+    password_capture::wire(webview, vault.clone());
+    youtube::wire(webview); // anti-pub YouTube (skip in-stream + masque display)
+    if prefs.borrow().reject_cookies {
+        cookies::wire(webview); // refus auto des bannières de consentement
+    }
+    wire_policy_filter(webview, blocker, prefs, bm, vault);
     permissions::wire(webview, perms);
+}
+
+/// Historique automatique : chaque chargement http(s) terminé est poussé
+/// dans le vault, sans doublon consécutif (reload, redirect).
+fn wire_history_autosave(webview: &WebView, vault: Rc<Vault>) {
+    webview.connect_load_changed(move |wv, event| {
+        if event != LoadEvent::Finished {
+            return;
+        }
+        let Some(uri) = wv.uri() else { return };
+        if !uri.starts_with("http") {
+            return; // pages internes (nyx://, file://assets) hors historique
+        }
+        let last = vault.recent_history(1).ok().and_then(|mut h| h.pop());
+        if last.is_some_and(|l| l.url == uri) {
+            return;
+        }
+        let title = wv.title().unwrap_or_default();
+        let _ = vault.push_history(&uri, &title);
+    });
 }
 
 fn apply_privacy_settings(webview: &WebView) {
@@ -50,7 +89,9 @@ fn apply_privacy_settings(webview: &WebView) {
     s.set_enable_smooth_scrolling(true);
 }
 
-fn wire_policy_filter(webview: &WebView, blocker: Arc<NyxGuard>, prefs: Settings, bm: Bookmarks) {
+fn wire_policy_filter(
+    webview: &WebView, blocker: Arc<NyxGuard>, prefs: Settings, bm: Bookmarks, vault: Rc<Vault>,
+) {
     webview.connect_decide_policy(move |wv, decision, dtype| {
         if dtype != PolicyDecisionType::NavigationAction {
             return false;
@@ -58,7 +99,15 @@ fn wire_policy_filter(webview: &WebView, blocker: Arc<NyxGuard>, prefs: Settings
         let url = extract_url(decision);
 
         match security::decide(&url, page_is_internal(wv), &blocker) {
-            Verdict::Allow => false,
+            Verdict::Allow => {
+                // Second rideau : le moteur Brave (EasyList complet), trop
+                // lourd pour la couche pure — consulté ici, main-thread.
+                if prefs.borrow().adblock_enabled && adfilter::should_block(&url) {
+                    decision.ignore();
+                    return true;
+                }
+                false
+            }
             Verdict::Block | Verdict::BlockFileAccess => {
                 decision.ignore();
                 true
@@ -66,26 +115,41 @@ fn wire_policy_filter(webview: &WebView, blocker: Arc<NyxGuard>, prefs: Settings
             Verdict::ApplySettings => {
                 decision.ignore();
                 settings::apply_from_url(&url, &prefs, &blocker);
+                // Le content filter (sous-ressources) suit le toggle adblock.
+                content_filter::set_enabled(prefs.borrow().adblock_enabled);
+                // Réglages persistés dans le vault — survivent au redémarrage.
+                let _ = vault.set_setting("app_settings", &settings::to_query(&prefs.borrow()));
                 true
             }
             Verdict::MoveBookmark => {
                 decision.ignore();
                 apply_move(&url, &bm);
+                crate::state::vault_sync::persist_bookmarks(&bm, &vault);
+                true
+            }
+            Verdict::ClearHistory => {
+                decision.ignore();
+                let _ = vault.clear_history();
+                load_internal_page(wv, Page::History, &prefs, &bm, &vault);
                 true
             }
             Verdict::Load(page) => {
                 decision.ignore();
-                load_internal_page(wv, page, &prefs, &bm);
+                load_internal_page(wv, page, &prefs, &bm, &vault);
                 true
             }
         }
     });
 }
 
-fn load_internal_page(wv: &WebView, page: Page, prefs: &Settings, bm: &Bookmarks) {
+fn load_internal_page(wv: &WebView, page: Page, prefs: &Settings, bm: &Bookmarks, vault: &Rc<Vault>) {
     let (html, base) = match page {
         Page::Settings  => (settings_page::html(&prefs.borrow()), Some(pages::assets_base_uri())),
         Page::Bookmarks => (bookmarks_page::page_html(&bm.borrow()), None),
+        Page::History => {
+            let entries = vault.recent_history(200).unwrap_or_default();
+            (history_page::html(&entries), None)
+        }
         Page::NewTab    => (newtab::html(), Some(pages::assets_base_uri())),
     };
     let wv = wv.clone();

@@ -24,12 +24,14 @@ pub enum Verdict {
     ApplySettings,
     /// Annuler la navigation et déplacer un favori (`nyx://move`).
     MoveBookmark,
+    /// Annuler la navigation et effacer l'historique (`nyx://history/clear`).
+    ClearHistory,
     /// Annuler la navigation et charger une page interne.
     Load(Page),
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub enum Page { Settings, Bookmarks, NewTab }
+pub enum Page { Settings, Bookmarks, History, NewTab }
 
 /// Décide du sort d'une navigation.
 ///
@@ -50,8 +52,15 @@ pub fn decide(url: &str, page_internal: bool, guard: &NyxGuard) -> Verdict {
                 Verdict::Block
             };
         }
+        if rest.starts_with("history/clear") {
+            return if page_internal { Verdict::ClearHistory } else {
+                sec_log::emit(Level::Block, &format!("nyx://history/clear from remote page: {}", sec_log::redact_url(url)));
+                Verdict::Block
+            };
+        }
         if rest.starts_with("settings")  { return Verdict::Load(Page::Settings); }
         if rest.starts_with("bookmarks") { return Verdict::Load(Page::Bookmarks); }
+        if rest.starts_with("history")   { return Verdict::Load(Page::History); }
         return Verdict::Load(Page::NewTab);
     }
     // file:// : autorisé UNIQUEMENT depuis une source interne (notre base_uri
@@ -114,5 +123,16 @@ mod tests {
         let g = guard();
         g.set_enabled(false);
         assert_eq!(decide("https://doubleclick.net/x", true, &g), Verdict::Allow);
+    }
+
+    #[test] fn history_page() {
+        assert_eq!(decide("nyx://history", false, &guard()), Verdict::Load(Page::History));
+    }
+    #[test] fn clear_history_from_internal_ok() {
+        assert_eq!(decide("nyx://history/clear", true, &guard()), Verdict::ClearHistory);
+    }
+    #[test] fn clear_history_from_remote_blocked() {
+        // SÉCURITÉ : une page distante ne peut pas effacer l'historique.
+        assert_eq!(decide("nyx://history/clear", false, &guard()), Verdict::Block);
     }
 }
