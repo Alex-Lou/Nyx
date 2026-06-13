@@ -25,6 +25,9 @@ body {
 #loom-fx { position: fixed; inset: 0; z-index: 0; width: 100%; height: 100%; display: none; }
 body.fx-loom #fx       { display: none; }
 body.fx-loom #loom-fx  { display: block; }
+#aurora-fx { position: fixed; inset: 0; z-index: 0; width: 100%; height: 100%; display: none; }
+body.fx-aurora #fx        { display: none; }
+body.fx-aurora #aurora-fx { display: block; }
 
 /* Voile de profondeur + lisibilité du centre */
 .vignette {
@@ -94,6 +97,7 @@ main * { pointer-events: auto; }
 <body>
 <canvas id="fx" aria-hidden="true"></canvas>
 <canvas id="loom-fx" aria-hidden="true"></canvas>
+<canvas id="aurora-fx" aria-hidden="true"></canvas>
 <div class="vignette" aria-hidden="true"></div>
 
 <p class="hint"><kbd>Ctrl</kbd><kbd>T</kbd> onglet · <kbd>Ctrl</kbd><kbd>L</kbd> adresse</p>
@@ -153,6 +157,7 @@ main * { pointer-events: auto; }
     // L'engine inactif est pause() — son rAF est annulé, ses listeners gardés
     // au repos. Pas de dispose tant que l'utilisateur peut basculer en retour.
     let activeTheme = 'fluid';
+    let active2D = null;   // moteur Canvas-2D actif (LoomEngine | AuroraEngine | null)
     let fluidCtl = null;   // { pause(), resume() } renvoyé par runGL / runCanvas2D
 
     // Parse une couleur CSS → [r,g,b] floats via le moteur du navigateur (gère hex, rgb, hsl, named…).
@@ -181,20 +186,23 @@ main * { pointer-events: auto; }
     rebuildPalettes();
 
     function setMode(name) {
-        if (name === 'loom') {
-            // → Bascule vers Nocturnal Loom.
-            if (activeTheme !== 'loom') {
-                if (fluidCtl) fluidCtl.pause();
-                document.body.classList.add('fx-loom');
-                LoomEngine.start();
-                activeTheme = 'loom';
-            }
+        // Aurore et Tissage sont des moteurs Canvas-2D distincts ; nébuleuse
+        // et ciel sont des sous-ambiances du fluide WebGL.
+        const twoD = name === 'loom' ? LoomEngine : name === 'aurora' ? AuroraEngine : null;
+        if (active2D && active2D !== twoD) active2D.stop();
+
+        if (twoD) {
+            if (activeTheme === 'fluid' && fluidCtl) fluidCtl.pause();
+            document.body.classList.remove('fx-loom', 'fx-aurora');
+            document.body.classList.add(name === 'loom' ? 'fx-loom' : 'fx-aurora');
+            if (active2D !== twoD) twoD.start();
+            active2D = twoD;
+            activeTheme = name;
         } else {
-            // → Retour au fluide (ou changement d'ambiance interne).
-            if (activeTheme === 'loom') {
-                LoomEngine.stop();
-                document.body.classList.remove('fx-loom');
+            if (activeTheme !== 'fluid') {
+                document.body.classList.remove('fx-loom', 'fx-aurora');
                 if (fluidCtl) fluidCtl.resume();
+                active2D = null;
                 activeTheme = 'fluid';
             }
             A = AMB[name] || AMB.nebula; mode = name;
@@ -971,6 +979,164 @@ void main(){
         }
 
         return { init, start, stop, dispose, LOOM };
+    })();
+
+    // ══════════════════ Aurore : orbes néon remontants + filaments ════════
+    // Des orbes de néon montent lentement en diffusant un halo ; quand deux
+    // orbes se croisent (proximité), un filament de lumière les relie — il
+    // s'allume/s'éteint selon la distance, et s'avive près du curseur.
+    // Canvas-2D dédié (#aurora-fx). Même lifecycle que LoomEngine.
+    const AuroraEngine = (() => {
+        const CFG = {
+            orbCount: 64, connectDist: 158, mouseRadius: 210,
+            rise: 0.85, sway: 0.5, glow: 1.0, lineOpacity: 0.55, pulseLife: 1300,
+        };
+        const cv = document.getElementById('aurora-fx');
+        if (!cv) return { init() {}, start() {}, stop() {}, dispose() {} };
+        const ctx = cv.getContext('2d');
+
+        let W = 0, H = 0, dpr = 1, orbs = null, n = 0;
+        let raf = 0, running = false, lastT = 0, mx = -1e4, my = -1e4;
+        let onResize = null, onDown = null, onMove = null, onLeave = null, inited = false;
+        const PULSES = Array.from({ length: 5 }, () => ({ x: 0, y: 0, age: 9999 }));
+        let pal = ['#4af2c8', '#46d6a0', '#8a7bff', '#9d6ef7', '#7be0ff'];
+
+        const hex = h => { const x = h.trim(); const v = x[0] === '#' ? x.slice(1) : x;
+            const k = v.length === 3 ? v.split('').map(c => c + c).join('') : v;
+            const num = parseInt(k, 16); return [(num >> 16) & 255, (num >> 8) & 255, num & 255]; };
+        const mix = (a, b, t) => { const A = hex(a), B = hex(b);
+            return `rgb(${(A[0]+(B[0]-A[0])*t)|0},${(A[1]+(B[1]-A[1])*t)|0},${(A[2]+(B[2]-A[2])*t)|0})`; };
+        const rgba = (c, al) => { const A = hex(c); return `rgba(${A[0]},${A[1]},${A[2]},${al})`; };
+
+        function readPalette() {
+            const cs = getComputedStyle(document.documentElement);
+            const a = (cs.getPropertyValue('--nyx-aurora').trim()) || '#4af2c8';
+            const nb = (cs.getPropertyValue('--nyx-nebula').trim()) || '#9d6ef7';
+            const st = (cs.getPropertyValue('--nyx-star').trim()) || '#c8d6ff';
+            pal = [a, mix(a, st, 0.4), nb, mix(nb, a, 0.5), mix(a, '#7be0ff', 0.5)];
+        }
+        function mkOrb(spread) {
+            return {
+                x: Math.random() * W, y: spread ? Math.random() * H : H + Math.random() * 60,
+                r: 2.0 + Math.random() * 3.4, sway: Math.random() * 6.28,
+                swaySp: 0.4 + Math.random() * 0.9, rise: 0.55 + Math.random() * 0.95,
+                hue: (Math.random() * pal.length) | 0, tw: Math.random() * 6.28,
+                tws: 1.5 + Math.random() * 2.2,
+            };
+        }
+        function resize() {
+            dpr = Math.min(window.devicePixelRatio || 1, 2);
+            W = innerWidth; H = innerHeight;
+            cv.width = Math.max(2, (W * dpr) | 0); cv.height = Math.max(2, (H * dpr) | 0);
+            cv.style.width = W + 'px'; cv.style.height = H + 'px';
+            ctx.setTransform(dpr, 0, 0, dpr, 0, 0); seed();
+        }
+        function seed() {
+            n = Math.max(34, Math.min(CFG.orbCount, ((W * H) / 26000) | 0));
+            orbs = new Array(n);
+            for (let i = 0; i < n; i++) orbs[i] = mkOrb(true);
+        }
+        function update(dt) {
+            const k = Math.min(2.4, dt / 16.67);
+            for (const o of orbs) {
+                o.y -= o.rise * CFG.rise * k;           // remontée
+                o.sway += o.swaySp * 0.012 * k;
+                o.x += Math.sin(o.sway) * CFG.sway * k;
+                const dx = o.x - mx, dy = o.y - my, d2 = dx * dx + dy * dy, R = CFG.mouseRadius;
+                if (d2 < R * R && d2 > 1) { const d = Math.sqrt(d2), f = (1 - d / R) * 1.7 * k; o.x += dx / d * f; o.y += dy / d * f; }
+                for (const p of PULSES) {
+                    if (p.age >= CFG.pulseLife) continue;
+                    const px = o.x - p.x, py = o.y - p.y, pd = Math.hypot(px, py) || 1;
+                    const ring = (p.age / CFG.pulseLife) * 320, near = Math.abs(pd - ring);
+                    if (near < 60) { const f = (1 - p.age / CFG.pulseLife) * (1 - near / 60) * 3.0 * k; o.x += px / pd * f; o.y += py / pd * f; }
+                }
+                if (o.y < -50) { const nw = mkOrb(false); for (const key in nw) o[key] = nw[key]; }
+                if (o.x < -50) o.x = W + 50; else if (o.x > W + 50) o.x = -50;
+            }
+            for (const p of PULSES) p.age += dt;
+        }
+        function render(now) {
+            const g = ctx.createLinearGradient(0, 0, 0, H);
+            g.addColorStop(0, '#070a14'); g.addColorStop(1, '#05070b');
+            ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+            ctx.globalCompositeOperation = 'lighter';
+            const CD = CFG.connectDist, CD2 = CD * CD, R = CFG.mouseRadius;
+            // Filaments de proximité (O(n²), n petit) — s'avivent près du curseur.
+            for (let i = 0; i < n; i++) {
+                const a = orbs[i];
+                for (let j = i + 1; j < n; j++) {
+                    const b = orbs[j];
+                    const dx = a.x - b.x, dy = a.y - b.y, d2 = dx * dx + dy * dy;
+                    if (d2 >= CD2) continue;
+                    const d = Math.sqrt(d2), al = 1 - d / CD;
+                    const midx = (a.x + b.x) * 0.5, midy = (a.y + b.y) * 0.5;
+                    const near = Math.max(0, 1 - Math.hypot(midx - mx, midy - my) / R);
+                    ctx.strokeStyle = rgba(pal[a.hue], al * al * CFG.lineOpacity * (0.55 + near * 1.0));
+                    ctx.lineWidth = 0.6 + al * 1.3;
+                    ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+                }
+            }
+            // Orbes : halo diffus + coeur lumineux, scintillement.
+            for (const o of orbs) {
+                const tw = 0.6 + 0.4 * Math.sin(o.tw + now * 0.001 * o.tws);
+                const rad = o.r * (3.4 + tw * 1.3) * CFG.glow;
+                const col = pal[o.hue];
+                const grd = ctx.createRadialGradient(o.x, o.y, 0, o.x, o.y, rad * 3.6);
+                grd.addColorStop(0, rgba(col, 0.85 * tw));
+                grd.addColorStop(0.28, rgba(col, 0.22 * tw));
+                grd.addColorStop(1, rgba(col, 0));
+                ctx.fillStyle = grd;
+                ctx.beginPath(); ctx.arc(o.x, o.y, rad * 3.6, 0, 6.2832); ctx.fill();
+                ctx.fillStyle = rgba('#ffffff', 0.5 * tw);
+                ctx.beginPath(); ctx.arc(o.x, o.y, o.r * 0.55, 0, 6.2832); ctx.fill();
+            }
+            ctx.globalCompositeOperation = 'source-over';
+        }
+        function tick(now) {
+            if (!running) return;
+            if (!lastT) lastT = now;
+            const dt = Math.min(60, now - lastT); lastT = now;
+            update(dt || 16); render(now);
+            if (!document.hidden) raf = requestAnimationFrame(tick);
+            else raf = setTimeout(() => requestAnimationFrame(tick), 250);
+        }
+        function spawnPulse(cx, cy) {
+            let pick = 0, max = -1;
+            for (let i = 0; i < PULSES.length; i++) if (PULSES[i].age > max) { max = PULSES[i].age; pick = i; }
+            PULSES[pick].x = cx; PULSES[pick].y = cy; PULSES[pick].age = 0;
+        }
+        function init() {
+            if (inited) return;
+            readPalette();
+            onResize = () => resize();
+            onMove = (e) => { mx = e.clientX; my = e.clientY; };
+            onLeave = () => { mx = my = -1e4; };
+            onDown = (e) => spawnPulse(e.clientX, e.clientY);
+            addEventListener('resize', onResize);
+            cv.addEventListener('pointermove', onMove);
+            cv.addEventListener('pointerleave', onLeave);
+            cv.addEventListener('pointerdown', onDown);
+            resize();
+            inited = true;
+        }
+        function start() {
+            init();
+            if (running) return;
+            running = true; lastT = 0;
+            if (reduce) { update(16); render(performance.now()); running = false; return; }
+            raf = requestAnimationFrame(tick);
+        }
+        function stop() {
+            running = false;
+            if (raf) { cancelAnimationFrame(raf); clearTimeout(raf); raf = 0; }
+        }
+        function dispose() {
+            stop();
+            if (onResize) removeEventListener('resize', onResize);
+            if (cv) { cv.removeEventListener('pointermove', onMove); cv.removeEventListener('pointerleave', onLeave); cv.removeEventListener('pointerdown', onDown); }
+            onResize = onMove = onLeave = onDown = null; inited = false;
+        }
+        return { init, start, stop, dispose, CFG };
     })();
 })();
 </script>
