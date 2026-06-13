@@ -125,27 +125,16 @@ main * { pointer-events: auto; }
     // ── Constantes d'interaction — réglage du sillage Kelvin + ripples.
     // Pousse ces valeurs pour ajuster la sensation sans toucher au shader.
     const TUNING = {
-        // ── ADVECTION : le pattern DU FLUIDE suit le curseur ──
-        // Pas de V dessiné, pas de light, pas de darkening. À l'intérieur
-        // du cône en V derrière le curseur, le pattern de la nébuleuse
-        // est DRAG ARRIÈRE (advection pure). À l'extérieur, intact.
-        // Le V apparaît AUTOMATIQUEMENT à la frontière entre les deux
-        // zones — c'est le pattern qui forme le V, pas un dessin.
-        // Exactement comme un doigt qui glisse sur l'eau : l'eau dans
-        // son sillage suit, l'eau autour est immobile.
-        wakeStrength:        1.5,   // amplitude globale
-        wakeLength:          0.70,  // longueur du fade longitudinal
-        wakeWidth:           0.055, // douceur frontière cône (+ petit = + net)
-        wakeAngleTan:        0.36,  // tan(angle V)
-        wakeUndulation:      0.012, // ondulation organique de la frontière
-        wakeWarp:            0.220, // AMPLITUDE DU DRAG ARRIÈRE — c'est ÇA
-                                    // qui crée la perturbation physique
-
-        // ── Click : caillou tombe dans l'eau ──
-        clickRippleStrength: 0.028,
-        clickRippleSpeed:    0.32,
-        clickRippleDecay:    5.0,
+        // ── CHAMP FLUIDE (simulé côté CPU, advecté & dissipé) ──
+        // La souris injecte de la vélocité qui PERSISTE, tourbillonne
+        // (vorticité) et se dissipe — comme remuer un vrai liquide.
+        // Plus de cône en V analytique : le sillage émerge de la physique.
+        fieldScale: 1.8,   // plage de décodage de la vélocité (warp)
+        fieldWarp:  0.95,  // amplitude du drag du motif par le fluide
+        force:      0.85,  // force d'injection souris (cellules/frame)
+        inkInject:  9.0,   // encre injectée ∝ vitesse souris
     };
+    const FORCE = TUNING.force, INK_INJECT = TUNING.inkInject;
     // Helper : format un float en littéral GLSL valide (toFixed garantit le `.`).
     const F = n => n.toFixed(4);
 
@@ -217,13 +206,8 @@ main * { pointer-events: auto; }
     // Mouse : position brute + lerpée. Vélocité lerpée pour moduler la force du "doigt".
     let rawMx = .5, rawMy = .5, mx = .5, my = .5;
     let prevRawMx = .5, prevRawMy = .5, mvel = 0, mvdx = 0, mvdy = 0;
-    // Sillage : 4 échantillons récents (anneau circulaire) — perturbent le fluide derrière.
-    const TRAIL = [{x:.5,y:.5,age:9},{x:.5,y:.5,age:9},{x:.5,y:.5,age:9},{x:.5,y:.5,age:9}];
-    let trailHead = 0, trailAccum = 0, lastTrailX = .5, lastTrailY = .5;
-    // Click ripples : POOL de 16 — chacun vit son cycle complet (~4s), ils coexistent.
-    // Pas de reset : un nouveau clic prend le slot le plus VIEUX, jamais un vivant.
-    const RIPPLES = Array.from({length:16}, () => ({x:.5,y:.5,age:99}));
-    const _rBuf = new Float32Array(48);
+    // Champ fluide : instance + texture GPU + position souris frame précédente.
+    let fluid = null, ftex = null, injPrevX = .5, injPrevY = .5;
     // Wordmark shine : 0..1, lerpé sur la distance souris ↔ centre du mot.
     let shine = 0, wordCx = 0, wordCy = 0, wordReach = 360;
     function measureWord() {
@@ -241,15 +225,8 @@ main * { pointer-events: auto; }
 
     addEventListener('pointermove', e => { rawMx = e.clientX / innerWidth; rawMy = 1 - e.clientY / innerHeight; });
     canvas.addEventListener('pointerdown', e => {
-        // Choisir le slot avec l'âge le plus élevé (le plus mort) — jamais d'interruption d'un ripple vivant.
-        let pick = 0, maxAge = -1;
-        for (let i = 0; i < 16; i++) {
-            if (RIPPLES[i].age > maxAge) { maxAge = RIPPLES[i].age; pick = i; }
-        }
-        const r = RIPPLES[pick];
-        r.x = e.clientX / innerWidth;
-        r.y = 1 - e.clientY / innerHeight;
-        r.age = 0;
+        // Clic = impulsion radiale sortante dans le fluide (caillou dans l'eau).
+        if (fluid) fluid.clickSplat(e.clientX / innerWidth, 1 - e.clientY / innerHeight);
     });
 
     // ── Tente WebGL ; sinon fallback Canvas-2D ─────────────────────────────
@@ -267,25 +244,96 @@ main * { pointer-events: auto; }
     }
 
     // ══════════════════════════ WebGL (fluide premium) ════════════════════
+
+    // ══════════════════ Simulation fluide (champ de vélocité CPU) ══════════
+    // Grille basse résolution advectée chaque frame (semi-Lagrangien) +
+    // vorticité (tourbillons) + dissipation. Encodée en texture RGBA8
+    // (RG=vélocité, B=encre) → échantillonnée par le shader pour traîner le
+    // motif. Léger (~128x72), aucune extension float requise.
+    function makeFluid(aspect) {
+        const GH = 72;
+        let GW = Math.min(140, Math.max(8, Math.round(GH * aspect)));
+        const N = GW * GH;
+        const vx = new Float32Array(N), vy = new Float32Array(N), ink = new Float32Array(N);
+        const vx2 = new Float32Array(N), vy2 = new Float32Array(N), ink2 = new Float32Array(N);
+        const curl = new Float32Array(N);
+        const tex = new Uint8Array(N * 4);
+        for (let i = 0; i < N; i++) tex[i * 4 + 3] = 255;
+        const VMAX = 3.0, VISC = 0.984, INK_DECAY = 0.962, EPS = 0.32;
+        const idx = (x, y) => y * GW + x;
+        const cl = (v, a, b) => (v < a ? a : v > b ? b : v);
+        function sample(f, fx, fy) {
+            fx = cl(fx, 0, GW - 1); fy = cl(fy, 0, GH - 1);
+            const x0 = fx | 0, y0 = fy | 0;
+            const x1 = x0 < GW - 1 ? x0 + 1 : x0, y1 = y0 < GH - 1 ? y0 + 1 : y0;
+            const sx = fx - x0, sy = fy - y0;
+            const a = f[idx(x0, y0)], b = f[idx(x1, y0)], c = f[idx(x0, y1)], d = f[idx(x1, y1)];
+            return a * (1 - sx) * (1 - sy) + b * sx * (1 - sy) + c * (1 - sx) * sy + d * sx * sy;
+        }
+        function splat(nx, ny, fvx, fvy, fink, rad) {
+            const cx = nx * (GW - 1), cy = ny * (GH - 1), r2 = rad * rad;
+            const x0 = cl(Math.floor(cx - rad), 0, GW - 1), x1 = cl(Math.ceil(cx + rad), 0, GW - 1);
+            const y0 = cl(Math.floor(cy - rad), 0, GH - 1), y1 = cl(Math.ceil(cy + rad), 0, GH - 1);
+            for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+                const dx = x - cx, dy = y - cy, d2 = dx * dx + dy * dy;
+                if (d2 > r2) continue;
+                const g = Math.exp(-d2 / (r2 * 0.5 + 1e-3)), i = idx(x, y);
+                vx[i] += fvx * g; vy[i] += fvy * g; ink[i] = Math.min(1.6, ink[i] + fink * g);
+            }
+        }
+        function clickSplat(nx, ny) {
+            const cx = nx * (GW - 1), cy = ny * (GH - 1), rad = 7, r2 = rad * rad;
+            const x0 = cl(Math.floor(cx - rad), 0, GW - 1), x1 = cl(Math.ceil(cx + rad), 0, GW - 1);
+            const y0 = cl(Math.floor(cy - rad), 0, GH - 1), y1 = cl(Math.ceil(cy + rad), 0, GH - 1);
+            for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+                const dx = x - cx, dy = y - cy, d2 = dx * dx + dy * dy;
+                if (d2 > r2 || d2 < 1e-3) continue;
+                const d = Math.sqrt(d2), g = 1 - d / rad, i = idx(x, y);
+                vx[i] += (dx / d) * g * 2.2; vy[i] += (dy / d) * g * 2.2;
+                ink[i] = Math.min(1.6, ink[i] + g * 0.9);
+            }
+        }
+        function step(dt) {
+            dt = cl(dt, 0.2, 2.0);
+            for (let y = 1; y < GH - 1; y++) for (let x = 1; x < GW - 1; x++)
+                curl[idx(x, y)] = (vy[idx(x + 1, y)] - vy[idx(x - 1, y)]) - (vx[idx(x, y + 1)] - vx[idx(x, y - 1)]);
+            for (let y = 1; y < GH - 1; y++) for (let x = 1; x < GW - 1; x++) {
+                const i = idx(x, y);
+                let gx = Math.abs(curl[idx(x + 1, y)]) - Math.abs(curl[idx(x - 1, y)]);
+                let gy = Math.abs(curl[idx(x, y + 1)]) - Math.abs(curl[idx(x, y - 1)]);
+                const len = Math.hypot(gx, gy) + 1e-5; gx /= len; gy /= len;
+                const c = curl[i];
+                vx[i] += EPS * dt * gy * c; vy[i] += EPS * dt * -gx * c;
+            }
+            for (let y = 0; y < GH; y++) for (let x = 0; x < GW; x++) {
+                const i = idx(x, y);
+                const px = x - dt * vx[i], py = y - dt * vy[i];
+                vx2[i] = sample(vx, px, py) * VISC;
+                vy2[i] = sample(vy, px, py) * VISC;
+                ink2[i] = sample(ink, px, py) * INK_DECAY;
+            }
+            vx.set(vx2); vy.set(vy2); ink.set(ink2);
+        }
+        function encode() {
+            for (let i = 0; i < N; i++) {
+                tex[i * 4]     = ((cl(vx[i] / VMAX, -1, 1) * 0.5 + 0.5) * 255) | 0;
+                tex[i * 4 + 1] = ((cl(vy[i] / VMAX, -1, 1) * 0.5 + 0.5) * 255) | 0;
+                tex[i * 4 + 2] = (cl(ink[i], 0, 1) * 255) | 0;
+            }
+            return tex;
+        }
+        return { GW, GH, splat, clickSplat, step, encode };
+    }
+
     function initGL() {
         try {
             const vs = 'attribute vec2 a;void main(){gl_Position=vec4(a,0.,1.);}';
             const fs = `precision highp float;
-uniform vec2 u_res;uniform float u_time;uniform vec2 u_mouse;uniform float u_mvel;uniform vec2 u_mdir;
-uniform vec3 u_trail0,u_trail1,u_trail2,u_trail3;
-uniform vec3 u_ripples[16];
+uniform vec2 u_res;uniform float u_time;
+uniform sampler2D u_field;
 uniform vec3 u_p0,u_p1,u_p2,u_p3,u_glow;uniform float u_warp,u_vbias,u_speed;
-// Constantes interaction (injectées depuis TUNING côté JS).
-const float WAKE_STRENGTH         = ${F(TUNING.wakeStrength)};
-const float WAKE_LENGTH           = ${F(TUNING.wakeLength)};
-const float WAKE_WIDTH            = ${F(TUNING.wakeWidth)};
-const float WAKE_UNDULATION       = ${F(TUNING.wakeUndulation)};
-const float WAKE_WARP             = ${F(TUNING.wakeWarp)};
-const float CLICK_RIPPLE_STRENGTH = ${F(TUNING.clickRippleStrength)};
-const float CLICK_RIPPLE_SPEED    = ${F(TUNING.clickRippleSpeed)};
-const float CLICK_RIPPLE_DECAY    = ${F(TUNING.clickRippleDecay)};
-// tan(angle V) — 0.3535 = 19.47° (Kelvin théorique), 0.45 ≈ 24°.
-const float KELVIN_TAN = ${F(TUNING.wakeAngleTan)};
+const float FIELD_SCALE = ${F(TUNING.fieldScale)};
+const float FIELD_WARP  = ${F(TUNING.fieldWarp)};
 float hash(vec2 p){p=fract(p*vec2(123.34,456.21));p+=dot(p,p+45.32);return fract(p.x*p.y);}
 float noise(vec2 p){vec2 i=floor(p),f=fract(p);vec2 u=f*f*(3.0-2.0*f);
  return mix(mix(hash(i),hash(i+vec2(1.,0.)),u.x),mix(hash(i+vec2(0.,1.)),hash(i+vec2(1.,1.)),u.x),u.y);}
@@ -296,125 +344,14 @@ void main(){
  vec2 p=uv*vec2(aspect,1.0)*2.4;
  float t=u_time*u_speed;
 
- // ─── INTERACTION LOCALE — doigt qui PRESSE le liquide ───
- vec2 uvA=uv*vec2(aspect,1.0);
- vec2 mA=u_mouse*vec2(aspect,1.0);
- vec2 dM=uvA-mA;
- // ═══════════════════════════════════════════════════════════════════
- //   CORE INTERACTION : LAME — le curseur fend le liquide.
- //   Une seule structure (pas de cercle, pas de halo, pas de dépression).
- //   Outputs : wakePush  (warp du pattern fbm derrière la lame)
- //             wakeTrans (1 sur la ligne du V, 0 au loin — pour la
- //                        lumière de tracé) — réutilisée plus bas.
- //             wakeLong  (fondu longitudinal — réutilisé plus bas).
- //             wakeFront (anti-front gate — idem).
- //   ÉCONOMIE GPU :
- //     - 1 seul sqrt évité (pas de dist radial).
- //     - 1 normalize au lieu de 2 (pas d'outDir radial).
- //     - Pas de smoothstep redondants (depression/rim supprimés).
- //     - Pas de kM/kM2 intermédiaire (warm/halo eux-mêmes virés).
- //     - wakeMag calculé UNE fois, réutilisé pour le warp ET la light.
- //   ATTENTION : pas de backticks dans ce commentaire — ils fermeraient
- //   la template literal JS qui contient ce shader (cf. bug récurrent).
- // ═══════════════════════════════════════════════════════════════════
- // Repère orienté vélocité : D = direction souris, Nperp = transverse.
- vec2 D=u_mdir;
- vec2 Nperp=vec2(-D.y,D.x);
- float para=dot(dM,D);
- float lateral=dot(dM,Nperp);
- float backward=max(0.0,-para);
-
- // ─── ADVECTION DANS LE CÔNE — le pattern DU FLUIDE suit le curseur ──
- // Plus de branches V dessinées. À la place : tout le pattern fbm
- // INSIDE le cône en V derrière le curseur est DRAGUÉ vers l'arrière
- // (direction -D). À l'extérieur du cône, le pattern reste intact.
- // Le V apparaît naturellement à la frontière dragué/intact — c'est
- // le PATTERN qui forme le V, pas un overlay.
-
- // Ondulation longitudinale : sin cheap → frontière vivante, pas droite.
- float undulation=sin(backward*22.0-u_time*4.0)*WAKE_UNDULATION;
-
- // Distance signée à la frontière du cône V :
- //   <0 : INSIDE le cône (zone draguée)
- //   >0 : OUTSIDE le cône (zone intacte)
- float coneBoundary=abs(lateral+undulation*sign(lateral))-KELVIN_TAN*backward;
-
- // Smoothstep inverse : 1 deep inside, transition sur WAKE_WIDTH, 0 outside.
- // C'est ÇA qui définit la frontière du V — la largeur de transition
- // détermine la netteté du sillage. WAKE_WIDTH petit = V net (lame),
- // WAKE_WIDTH grand = V flou (vague large).
- float inCone=smoothstep(0.0,-WAKE_WIDTH,coneBoundary);
-
- // Décroissance longitudinale — smoothstep QUINTIQUE wl³(6wl²-15wl+10).
- // C2-continu, dérivée nulle aux deux bouts → fondu velouté.
- // NOTE : variable 'wl' et PAS 'r' (collision avec vec2 r plus bas →
- // shader fail). ATTENTION : pas de backticks dans ce commentaire.
- float wl=max(0.0,1.0-backward/WAKE_LENGTH);
- float wakeLong=wl*wl*wl*(wl*(wl*6.0-15.0)+10.0);
- // Anti-front : aucun effet devant le curseur, transition douce.
- float wakeFront=smoothstep(0.0,0.025,backward);
-
- // ─── Courbe de réponse à la vélocité — viscosité physique ───
- // velPresence(v) = 1.8v / (0.36 + v²), pic à v=0.6 valeur 1.5.
- // Plus lent = plus de drag (perturbation forte). Plus rapide = la
- // lame fend sans drag (perturbation modérée).
- //   v=0   → 0    | v=0.3 → 1.20 | v=0.6 → 1.50 ← pic
- //   v=1.0 → 1.32 | v=2.0 → 0.82
- float velPresence=u_mvel*1.8/(0.36+u_mvel*u_mvel);
-
- // Magnitude totale du drag à ce pixel.
- float wakeMag=inCone*wakeLong*wakeFront*velPresence*WAKE_STRENGTH;
-
- // DRAG ARRIÈRE : -D = direction opposée au mouvement. Le pattern à
- // ce pixel est sampled à (p + (-D * wakeMag * WARP)) → le motif fbm
- // visible apparaît COMME S'IL VENAIT de derrière, en retard sur la
- // position du curseur. C'est l'advection : le fluide à l'intérieur
- // du cône suit le curseur par viscosité.
- // ATTENTION : pas de backticks dans ce commentaire, ils fermeraient
- // la template literal JS qui contient le shader (cf. bug récurrent).
- vec2 wakePush=-D*wakeMag*WAKE_WARP;
-
- // ─── Click ripples : caillou tombe — dépression + 3 anneaux amortis ───
- vec2 rippleDisp=vec2(0.0);
- float wave=0.0;
- for(int i=0;i<16;i++){
-   vec3 R=u_ripples[i];
-   if(R.z>=CLICK_RIPPLE_DECAY) continue;
-   vec2 rP=R.xy*vec2(aspect,1.0);
-   vec2 rD=uvA-rP;
-   float rDist2=dot(rD,rD);
-   float rDist=sqrt(rDist2+0.00001);
-   vec2 rN=rD/rDist;
-
-   float age=R.z;
-   float lifeT=age/CLICK_RIPPLE_DECAY;
-   float decay=1.0-lifeT;
-   decay*=decay; // amortissement quadratique
-
-   // 1. Dépression initiale au point d'impact (~0.3s).
-   float dropPhase=max(0.0,1.0-age*3.3);
-   float drop=dropPhase*dropPhase/(1.0+rDist2*180.0);
-   rippleDisp-=rN*drop*0.012;
-
-   // 2. Quatre anneaux concentriques espacés dans le temps — capillary waves.
-   for(int k=0;k<4;k++){
-     float kk=float(k);
-     float radius=(age-kk*0.20)*CLICK_RIPPLE_SPEED;
-     if(radius<0.0) continue;
-     float dr=rDist-radius;
-     // Anneaux plus larges pour rendu soft, plus de gradient.
-     float ringW=0.028+kk*0.012;
-     float intensity=(ringW*ringW)/(ringW*ringW+dr*dr);
-     intensity*=decay/(1.0+kk*0.55);
-     wave+=intensity*0.65;
-     rippleDisp+=rN*intensity*CLICK_RIPPLE_STRENGTH;
-   }
- }
-
- // Warp LOCAL — seulement la lame (V) + ripples des clics. Rien autour
- // du curseur lui-même : la lame est invisible AU POINT du curseur, son
- // existence ne se révèle que par la traîne derrière.
- p+=wakePush+rippleDisp*1.5;
+ // ─── CHAMP FLUIDE : la vélocité advectée (simulée côté CPU, persistante)
+ //     décale l'échantillonnage du motif → le motif EST traîné et
+ //     tourbillonné par le liquide. Réaliste car le champ persiste,
+ //     diffuse et se dissipe ; aucun V analytique plaqué.
+ vec4 fld=texture2D(u_field,uv);
+ vec2 vel=(fld.rg-0.5)*FIELD_SCALE;
+ float ink=fld.b;
+ p+=vel*FIELD_WARP;
 
  vec2 q=vec2(fbm(p+vec2(0.,t)),fbm(p+vec2(5.2,1.3)-vec2(0.,t*(1.0+u_vbias))));
  vec2 r=vec2(fbm(p+u_warp*q+vec2(1.7,9.2)+t*0.5),fbm(p+u_warp*q+vec2(8.3,2.8)-t*0.5));
@@ -425,19 +362,11 @@ void main(){
  col=mix(col,u_p3,smoothstep(0.55,1.0,q.y)*0.5);
  col+=u_glow*pow(max(f,0.0),3.0)*0.07;
 
- // Pas de torche, pas de halo, pas de cercle autour du curseur : ce sont
- // EUX qui créaient le 'rond' indésirable. La lame est invisible au
- // point du curseur ; on ne voit QUE le V derrière.
+ // Encre du fluide : lueur là où on a remué + coeur saturé sur les fortes
+ // perturbations. C'est la trace VISIBLE du liquide déplacé.
+ col+=u_glow*ink*0.55;
+ col+=u_p3*ink*ink*0.35;
 
- // PAS D'OVERLAY COULEUR pour le wake. Le V est ENTIÈREMENT formé par
- // la déformation du pattern fbm via p += wakePush appliqué plus haut.
- // Aucune light, aucun darkening — uniquement la physique de
- // l'advection. La perturbation est REELLE, pas peinte par-dessus.
-
- // Ondulations lumineuses des ripples (en plus du displacement).
- col+=u_glow*wave*0.12;
-
- // Vignette + grain.
  float d=distance(uv,vec2(0.5));
  col*=mix(0.80,1.12,smoothstep(0.0,0.85,d));
  col*=1.0-0.32*d*d;
@@ -455,18 +384,23 @@ void main(){
             gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
             GLU = {
                 res: gl.getUniformLocation(prog, 'u_res'), time: gl.getUniformLocation(prog, 'u_time'),
-                mouse: gl.getUniformLocation(prog, 'u_mouse'), mvel: gl.getUniformLocation(prog, 'u_mvel'), mdir: gl.getUniformLocation(prog, 'u_mdir'),
-                trail0: gl.getUniformLocation(prog, 'u_trail0'),
-                trail1: gl.getUniformLocation(prog, 'u_trail1'),
-                trail2: gl.getUniformLocation(prog, 'u_trail2'),
-                trail3: gl.getUniformLocation(prog, 'u_trail3'),
-                ripples: gl.getUniformLocation(prog, 'u_ripples[0]'),
+                field: gl.getUniformLocation(prog, 'u_field'),
                 p0: gl.getUniformLocation(prog, 'u_p0'), p1: gl.getUniformLocation(prog, 'u_p1'),
                 p2: gl.getUniformLocation(prog, 'u_p2'), p3: gl.getUniformLocation(prog, 'u_p3'),
                 glow: gl.getUniformLocation(prog, 'u_glow'),
                 warp: gl.getUniformLocation(prog, 'u_warp'), vbias: gl.getUniformLocation(prog, 'u_vbias'),
                 speed: gl.getUniformLocation(prog, 'u_speed'),
             };
+            // Champ fluide → texture RGBA8 (LINEAR pour un upscale doux).
+            fluid = makeFluid(innerWidth / Math.max(1, innerHeight));
+            ftex = gl.createTexture();
+            gl.bindTexture(gl.TEXTURE_2D, ftex);
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, fluid.GW, fluid.GH, 0, gl.RGBA, gl.UNSIGNED_BYTE, fluid.encode());
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+            gl.uniform1i(GLU.field, 0);
             return true;
         } catch (e) { return false; }
     }
@@ -498,48 +432,36 @@ void main(){
     }
 
     function pushUniforms(now, dt) {
-        // Lerp position — mouvement organique, jamais sec.
+        // Lerp position douce (sert au shine du wordmark).
         const lerp = Math.min(1, dt * 0.004);
         mx += (rawMx - mx) * lerp;
         my += (rawMy - my) * lerp;
 
-        // Vélocité + direction lerpées → bow wave dans le shader.
-        const dx = rawMx - prevRawMx, dy = rawMy - prevRawMy;
-        const invSec = 1 / Math.max(0.001, dt * 0.001);
-        const instantV = Math.min(2.0, Math.hypot(dx, dy) * invSec);
-        mvel += (instantV - mvel) * Math.min(1, dt * 0.018);
-        // Direction normalisée, lerpée pour rester smooth quand on ralentit.
-        const spd = Math.hypot(dx, dy);
-        if (spd > 0.0005) { const inv = 1 / spd; mvdx += (dx * inv - mvdx) * 0.25; mvdy += (dy * inv - mvdy) * 0.25; }
-        else { mvdx *= 0.92; mvdy *= 0.92; }
-        prevRawMx = rawMx; prevRawMy = rawMy;
-
-        // Sillage : nouvel échantillon seulement si la souris a vraiment bougé.
-        trailAccum += dt;
-        const moved = Math.hypot(rawMx - lastTrailX, rawMy - lastTrailY) > 0.003;
-        if (trailAccum >= 90 && moved) {
-            trailHead = (trailHead - 1 + 4) & 3;
-            TRAIL[trailHead].x = mx;
-            TRAIL[trailHead].y = my;
-            TRAIL[trailHead].age = 0;
-            lastTrailX = rawMx; lastTrailY = rawMy;
-            trailAccum = 0;
+        // ── Champ fluide : le déplacement réel de la souris cette frame
+        //    devient une force (en cellules). Le champ advecte/dissipe seul →
+        //    sillage persistant et tourbillons, plus de V plaqué.
+        if (fluid) {
+            const idx_ = rawMx - injPrevX, idy_ = rawMy - injPrevY;
+            const sp = Math.hypot(idx_, idy_);
+            if (sp > 0.0008) {
+                fluid.splat(rawMx, rawMy,
+                    idx_ * fluid.GW * FORCE, idy_ * fluid.GH * FORCE,
+                    Math.min(0.9, sp * INK_INJECT), 5.0);
+            }
+            injPrevX = rawMx; injPrevY = rawMy;
+            fluid.step(Math.max(0.2, Math.min(2.0, dt / 16.67)));
+            gl.bindTexture(gl.TEXTURE_2D, ftex);
+            gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, fluid.GW, fluid.GH, gl.RGBA, gl.UNSIGNED_BYTE, fluid.encode());
+            gl.uniform1i(GLU.field, 0);
         }
-        const ageInc = dt * 0.0009; // ~1.1s pour atteindre 1 (invisible)
-        for (let i = 0; i < 4; i++) TRAIL[i].age += ageInc;
 
-        // Vieillir tous les ripples (ils meurent à age >= 4.0 — voir shader rwave).
-        const rippleAgeInc = dt * 0.001;
-        for (let i = 0; i < 16; i++) RIPPLES[i].age += rippleAgeInc;
-
-        // Shine du wordmark : distance souris → centre du mot, smoothstep falloff.
-        // Respiration de base subtile, halo intense quand on s'approche.
+        // ── Wordmark shine (inchangé) ──
         const csx = rawMx * innerWidth, csy = (1 - rawMy) * innerHeight;
         const wdist = Math.hypot(csx - wordCx, csy - wordCy);
         const tIn = wordReach * 0.20, tOut = wordReach * 1.00;
         let st = (wdist - tIn) / (tOut - tIn);
         st = st < 0 ? 0 : st > 1 ? 1 : st;
-        const distShine = 1 - st * st * (3 - 2 * st);  // smoothstep inversé
+        const distShine = 1 - st * st * (3 - 2 * st);
         const breathe = 0.08 + 0.06 * Math.sin(now * 0.0009);
         const target = Math.max(breathe, distShine);
         shine += (target - shine) * Math.min(1, dt * 0.006);
@@ -547,19 +469,6 @@ void main(){
 
         gl.uniform2f(GLU.res, canvas.width, canvas.height);
         gl.uniform1f(GLU.time, now * 0.001);
-        gl.uniform2f(GLU.mouse, rawMx, rawMy);
-        gl.uniform1f(GLU.mvel, mvel);
-        gl.uniform2f(GLU.mdir, mvdx, mvdy);
-        // Trail : du plus récent au plus ancien (lecture circulaire).
-        const t0 = TRAIL[trailHead], t1 = TRAIL[(trailHead + 1) & 3];
-        const t2 = TRAIL[(trailHead + 2) & 3], t3 = TRAIL[(trailHead + 3) & 3];
-        gl.uniform3f(GLU.trail0, t0.x, t0.y, t0.age);
-        gl.uniform3f(GLU.trail1, t1.x, t1.y, t1.age);
-        gl.uniform3f(GLU.trail2, t2.x, t2.y, t2.age);
-        gl.uniform3f(GLU.trail3, t3.x, t3.y, t3.age);
-        // Ripples : 16 slots, poussés en un seul appel via Float32Array pré-alloué.
-        for (let i = 0; i < 16; i++) { _rBuf[i*3] = RIPPLES[i].x; _rBuf[i*3+1] = RIPPLES[i].y; _rBuf[i*3+2] = RIPPLES[i].age; }
-        gl.uniform3fv(GLU.ripples, _rBuf);
         gl.uniform3fv(GLU.p0, A.pal[0]); gl.uniform3fv(GLU.p1, A.pal[1]);
         gl.uniform3fv(GLU.p2, A.pal[2]); gl.uniform3fv(GLU.p3, A.pal[3]);
         gl.uniform3fv(GLU.glow, A.glow);
