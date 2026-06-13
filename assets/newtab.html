@@ -997,8 +997,9 @@ void main(){
 
         let W = 0, H = 0, dpr = 1, orbs = null, n = 0;
         let raf = 0, running = false, lastT = 0, mx = -1e4, my = -1e4;
-        let onResize = null, onDown = null, onMove = null, onLeave = null, inited = false;
-        const PULSES = Array.from({ length: 5 }, () => ({ x: 0, y: 0, age: 9999 }));
+        let onResize = null, onDown = null, onMove = null, onLeave = null, onUp = null, inited = false;
+        const PULSES = Array.from({ length: 6 }, () => ({ x: 0, y: 0, age: 9999, str: 1 }));
+        let charge = null;   // etoile en formation pendant l'appui maintenu
         let pal = ['#4af2c8', '#46d6a0', '#8a7bff', '#9d6ef7', '#7be0ff'];
 
         const hex = h => { const x = h.trim(); const v = x[0] === '#' ? x.slice(1) : x;
@@ -1021,7 +1022,7 @@ void main(){
                 r: 2.0 + Math.random() * 3.4, sway: Math.random() * 6.28,
                 swaySp: 0.4 + Math.random() * 0.9, rise: 0.55 + Math.random() * 0.95,
                 hue: (Math.random() * pal.length) | 0, tw: Math.random() * 6.28,
-                tws: 1.5 + Math.random() * 2.2,
+                tws: 1.5 + Math.random() * 2.2, born: 0,
             };
         }
         function resize() {
@@ -1036,19 +1037,31 @@ void main(){
             orbs = new Array(n);
             for (let i = 0; i < n; i++) orbs[i] = mkOrb(true);
         }
-        function update(dt) {
+        const PLIFE = 1150, PSPEED = 0.72;   // onde de clic : durée (ms) + vitesse (px/ms)
+        function update(dt, now) {
             const k = Math.min(2.4, dt / 16.67);
+            // Etoile en formation : grossit tant qu'on maintient, aspire les voisins.
+            if (charge && mx > -1e4) { charge.lx = mx; charge.ly = my; }
+            if (charge) {
+                charge.r = Math.min(64, (now - charge.t0) * 0.05);
+                const pull = charge.r / 64, AR = 200 + charge.r * 3;
+                for (const o of orbs) {
+                    const dx = charge.lx - o.x, dy = charge.ly - o.y, d2 = dx * dx + dy * dy;
+                    if (d2 < AR * AR && d2 > 4) { const d = Math.sqrt(d2), f = pull * (1 - d / AR) * 2.4 * k; o.x += dx / d * f; o.y += dy / d * f; }
+                }
+            }
             for (const o of orbs) {
-                o.y -= o.rise * CFG.rise * k;           // remontée
+                o.y -= o.rise * CFG.rise * k;
                 o.sway += o.swaySp * 0.012 * k;
                 o.x += Math.sin(o.sway) * CFG.sway * k;
+                o.born *= Math.pow(0.95, k);
                 const dx = o.x - mx, dy = o.y - my, d2 = dx * dx + dy * dy, R = CFG.mouseRadius;
-                if (d2 < R * R && d2 > 1) { const d = Math.sqrt(d2), f = (1 - d / R) * 1.7 * k; o.x += dx / d * f; o.y += dy / d * f; }
+                if (!charge && d2 < R * R && d2 > 1) { const d = Math.sqrt(d2), f = (1 - d / R) * 1.7 * k; o.x += dx / d * f; o.y += dy / d * f; }
                 for (const p of PULSES) {
-                    if (p.age >= CFG.pulseLife) continue;
+                    if (p.age >= PLIFE) continue;
                     const px = o.x - p.x, py = o.y - p.y, pd = Math.hypot(px, py) || 1;
-                    const ring = (p.age / CFG.pulseLife) * 320, near = Math.abs(pd - ring);
-                    if (near < 60) { const f = (1 - p.age / CFG.pulseLife) * (1 - near / 60) * 3.0 * k; o.x += px / pd * f; o.y += py / pd * f; }
+                    const ring = p.age * PSPEED, near = Math.abs(pd - ring);
+                    if (near < 64) { const f = (1 - p.age / PLIFE) * (1 - near / 64) * 3.2 * p.str * k; o.x += px / pd * f; o.y += py / pd * f; }
                 }
                 if (o.y < -50) { const nw = mkOrb(false); for (const key in nw) o[key] = nw[key]; }
                 if (o.x < -50) o.x = W + 50; else if (o.x > W + 50) o.x = -50;
@@ -1061,7 +1074,8 @@ void main(){
             ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
             ctx.globalCompositeOperation = 'lighter';
             const CD = CFG.connectDist, CD2 = CD * CD, R = CFG.mouseRadius;
-            // Filaments de proximité (O(n²), n petit) — s'avivent près du curseur.
+            // Filaments : proximité + ONDE DE LUMIERE des clics qui parcourt le
+            // réseau (chaque filament traversé par le front s'illumine en blanc).
             for (let i = 0; i < n; i++) {
                 const a = orbs[i];
                 for (let j = i + 1; j < n; j++) {
@@ -1071,24 +1085,78 @@ void main(){
                     const d = Math.sqrt(d2), al = 1 - d / CD;
                     const midx = (a.x + b.x) * 0.5, midy = (a.y + b.y) * 0.5;
                     const near = Math.max(0, 1 - Math.hypot(midx - mx, midy - my) / R);
-                    ctx.strokeStyle = rgba(pal[a.hue], al * al * CFG.lineOpacity * (0.55 + near * 1.0));
-                    ctx.lineWidth = 0.6 + al * 1.3;
+                    let wave = 0;
+                    for (const p of PULSES) {
+                        if (p.age >= PLIFE) continue;
+                        const ring = p.age * PSPEED, dr = Math.abs(Math.hypot(midx - p.x, midy - p.y) - ring);
+                        if (dr < 80) wave += (1 - dr / 80) * (1 - p.age / PLIFE) * p.str * 1.35;
+                    }
+                    wave = Math.min(1.5, wave);
+                    const bright = al * al * CFG.lineOpacity * (0.55 + near) + wave * 0.9 * al;
+                    ctx.strokeStyle = wave > 0.05
+                        ? rgba(mix(pal[a.hue], '#ffffff', Math.min(0.75, wave)), Math.min(1, bright))
+                        : rgba(pal[a.hue], bright);
+                    ctx.lineWidth = 0.6 + al * 1.3 + wave * 1.7;
                     ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
                 }
             }
-            // Orbes : halo diffus + coeur lumineux, scintillement.
+            // Orbes (boost 'born' à la naissance) : halo diffus + coeur lumineux.
             for (const o of orbs) {
                 const tw = 0.6 + 0.4 * Math.sin(o.tw + now * 0.001 * o.tws);
-                const rad = o.r * (3.4 + tw * 1.3) * CFG.glow;
+                const bb = 1 + o.born * 1.7;
+                const rad = o.r * (3.4 + tw * 1.3) * CFG.glow * bb;
                 const col = pal[o.hue];
                 const grd = ctx.createRadialGradient(o.x, o.y, 0, o.x, o.y, rad * 3.6);
-                grd.addColorStop(0, rgba(col, 0.85 * tw));
+                grd.addColorStop(0, rgba(col, Math.min(1, 0.85 * tw * bb)));
                 grd.addColorStop(0.28, rgba(col, 0.22 * tw));
                 grd.addColorStop(1, rgba(col, 0));
                 ctx.fillStyle = grd;
                 ctx.beginPath(); ctx.arc(o.x, o.y, rad * 3.6, 0, 6.2832); ctx.fill();
-                ctx.fillStyle = rgba('#ffffff', 0.5 * tw);
-                ctx.beginPath(); ctx.arc(o.x, o.y, o.r * 0.55, 0, 6.2832); ctx.fill();
+                ctx.fillStyle = rgba('#ffffff', Math.min(1, 0.5 * tw * bb));
+                ctx.beginPath(); ctx.arc(o.x, o.y, o.r * 0.55 * bb, 0, 6.2832); ctx.fill();
+            }
+            // Etoile en formation (appui maintenu) : coeur éclatant + filaments
+            // tissés vers les 7 orbes proches, intensité croissante avec la charge.
+            if (charge) {
+                const cx = charge.lx, cy = charge.ly, cr = charge.r, p01 = cr / 64;
+                const near = orbs.map(o => ({ o, d: Math.hypot(o.x - cx, o.y - cy) }))
+                                 .sort((u, v) => u.d - v.d).slice(0, 7);
+                for (const it of near) {
+                    if (it.d > 270) continue;
+                    ctx.strokeStyle = rgba('#dffaff', (0.22 + p01 * 0.62) * (1 - it.d / 270));
+                    ctx.lineWidth = 0.8 + p01 * 1.7;
+                    ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(it.o.x, it.o.y); ctx.stroke();
+                }
+                const puls = 0.82 + 0.18 * Math.sin(now * 0.012);
+                const R2 = (12 + cr) * puls;
+                const grd = ctx.createRadialGradient(cx, cy, 0, cx, cy, R2 * 2.6);
+                grd.addColorStop(0, rgba('#ffffff', 0.98));
+                grd.addColorStop(0.22, rgba(mix(pal[2], '#ffffff', 0.45), 0.7));
+                grd.addColorStop(1, rgba(pal[2], 0));
+                ctx.fillStyle = grd;
+                ctx.beginPath(); ctx.arc(cx, cy, R2 * 2.6, 0, 6.2832); ctx.fill();
+                // Sparks en orbite : nombre et rayon croissent avec la charge.
+                const ns = 3 + (p01 * 4 | 0), orad = 14 + cr * 0.9;
+                for (let k = 0; k < ns; k++) {
+                    const ang = now * 0.004 + k * (6.2832 / ns);
+                    const sxp = cx + Math.cos(ang) * orad, syp = cy + Math.sin(ang) * orad;
+                    const sg = ctx.createRadialGradient(sxp, syp, 0, sxp, syp, 7);
+                    sg.addColorStop(0, rgba('#eafcff', 0.9)); sg.addColorStop(1, rgba(pal[0], 0));
+                    ctx.fillStyle = sg; ctx.beginPath(); ctx.arc(sxp, syp, 7, 0, 6.2832); ctx.fill();
+                }
+            }
+            // Flash des ondes de clic : double anneau lumineux qui s'étend.
+            for (const p of PULSES) {
+                if (p.age >= PLIFE) continue;
+                const ring = p.age * PSPEED, a = 1 - p.age / PLIFE, st = Math.min(1.4, p.str);
+                ctx.strokeStyle = rgba('#eafcff', a * a * 0.6 * st);
+                ctx.lineWidth = 1.4 + p.str * 2.0;
+                ctx.beginPath(); ctx.arc(p.x, p.y, ring, 0, 6.2832); ctx.stroke();
+                if (ring > 26) {
+                    ctx.strokeStyle = rgba(mix(pal[0], '#ffffff', 0.5), a * a * 0.3 * st);
+                    ctx.lineWidth = 0.8 + p.str;
+                    ctx.beginPath(); ctx.arc(p.x, p.y, ring - 22, 0, 6.2832); ctx.stroke();
+                }
             }
             ctx.globalCompositeOperation = 'source-over';
         }
@@ -1096,14 +1164,14 @@ void main(){
             if (!running) return;
             if (!lastT) lastT = now;
             const dt = Math.min(60, now - lastT); lastT = now;
-            update(dt || 16); render(now);
+            update(dt || 16, now); render(now);
             if (!document.hidden) raf = requestAnimationFrame(tick);
             else raf = setTimeout(() => requestAnimationFrame(tick), 250);
         }
-        function spawnPulse(cx, cy) {
+        function spawnPulse(cx, cy, str) {
             let pick = 0, max = -1;
             for (let i = 0; i < PULSES.length; i++) if (PULSES[i].age > max) { max = PULSES[i].age; pick = i; }
-            PULSES[pick].x = cx; PULSES[pick].y = cy; PULSES[pick].age = 0;
+            PULSES[pick].x = cx; PULSES[pick].y = cy; PULSES[pick].age = 0; PULSES[pick].str = str;
         }
         function init() {
             if (inited) return;
@@ -1111,11 +1179,28 @@ void main(){
             onResize = () => resize();
             onMove = (e) => { mx = e.clientX; my = e.clientY; };
             onLeave = () => { mx = my = -1e4; };
-            onDown = (e) => spawnPulse(e.clientX, e.clientY);
+            // Appui = une étoile commence à se former au curseur (charge).
+            onDown = (e) => { mx = e.clientX; my = e.clientY; charge = { t0: performance.now(), r: 0, lx: e.clientX, ly: e.clientY }; };
+            // Relâcher = naissance de l'orbe (taille ∝ durée) + onde de lumière
+            // dans le réseau (force ∝ durée). Tap court = étincelle ; appui
+            // long = grosse étoile + onde puissante. pointerup global : marche
+            // même si le curseur a quitté le canvas pendant l'appui.
+            onUp = () => {
+                if (!charge) return;
+                const cx = charge.lx, cy = charge.ly, cr = charge.r;
+                const nb = mkOrb(false);
+                nb.x = cx; nb.y = cy; nb.r = 2.6 + Math.min(9, cr * 0.13);
+                nb.born = 1; nb.rise = 0.5 + Math.random() * 0.6;
+                let hi = 0; for (let i = 1; i < n; i++) if (orbs[i].y < orbs[hi].y) hi = i;
+                for (const key in nb) orbs[hi][key] = nb[key];
+                spawnPulse(cx, cy, 0.45 + Math.min(1.7, cr / 28));
+                charge = null;
+            };
             addEventListener('resize', onResize);
             cv.addEventListener('pointermove', onMove);
             cv.addEventListener('pointerleave', onLeave);
             cv.addEventListener('pointerdown', onDown);
+            addEventListener('pointerup', onUp);
             resize();
             inited = true;
         }
@@ -1123,7 +1208,7 @@ void main(){
             init();
             if (running) return;
             running = true; lastT = 0;
-            if (reduce) { update(16); render(performance.now()); running = false; return; }
+            if (reduce) { update(16, performance.now()); render(performance.now()); running = false; return; }
             raf = requestAnimationFrame(tick);
         }
         function stop() {
@@ -1134,7 +1219,8 @@ void main(){
             stop();
             if (onResize) removeEventListener('resize', onResize);
             if (cv) { cv.removeEventListener('pointermove', onMove); cv.removeEventListener('pointerleave', onLeave); cv.removeEventListener('pointerdown', onDown); }
-            onResize = onMove = onLeave = onDown = null; inited = false;
+            if (onUp) removeEventListener('pointerup', onUp);
+            onResize = onMove = onLeave = onDown = onUp = null; charge = null; inited = false;
         }
         return { init, start, stop, dispose, CFG };
     })();
