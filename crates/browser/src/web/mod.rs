@@ -3,7 +3,6 @@
 //! (sécurité, URL, NyxGuard) vit dans `nyx-core`.
 
 pub mod adfilter;
-pub mod content_filter;
 pub mod cookies;
 pub mod darkmode;
 pub mod downloads;
@@ -41,9 +40,6 @@ pub fn configure(
     perms: nyx_core::permissions::PermissionStore, vault: Rc<Vault>,
 ) {
     apply_privacy_settings(webview);
-    if let Some(ucm) = webview.user_content_manager() {
-        content_filter::apply_to(&ucm);
-    }
     wire_history_autosave(webview, vault.clone());
     password_capture::wire(webview, vault.clone());
     if prefs.borrow().reject_cookies {
@@ -113,8 +109,6 @@ fn wire_policy_filter(
             Verdict::ApplySettings => {
                 decision.ignore();
                 settings::apply_from_url(&url, &prefs, &blocker);
-                // Le content filter (sous-ressources) suit le toggle adblock.
-                content_filter::set_enabled(prefs.borrow().adblock_enabled);
                 // Réglages persistés dans le vault — survivent au redémarrage.
                 let _ = vault.set_setting("app_settings", &settings::to_query(&prefs.borrow()));
                 true

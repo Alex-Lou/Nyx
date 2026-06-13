@@ -7,7 +7,8 @@
 //! (rapide, sûre, multi-thread) dans nyx-core, et ce moteur lourd vit sur le
 //! thread GTK uniquement, consulté EN COMPLÉMENT à la frontière decide-policy.
 //! Les sous-ressources (img/script/xhr) sont bloquées par le content filter
-//! WebKit compilé des mêmes listes (web/content_filter.rs).
+//! au niveau navigation/iframes (decide-policy). Le filtrage des sous-
+//! ressources via FFI a été retiré (segfault selon la version WebKitGTK).
 
 use std::cell::OnceCell;
 use std::io::Read;
@@ -30,25 +31,15 @@ thread_local! {
 /// AppSettings / NyxGuard, pas ici).
 pub fn should_block(url: &str) -> bool {
     ENGINE.with(|cell| {
-        let engine = cell.get_or_init(|| Engine::from_filter_set(bundled_filter_set(false), true));
+        let engine = cell.get_or_init(|| Engine::from_filter_set(bundled_filter_set(), true));
         Request::new(url, url, "document")
             .map(|r| engine.check_network_request(&r).matched)
             .unwrap_or(false)
     })
 }
 
-/// JSON content-blocker WebKit généré depuis les listes bundlées.
-/// Coûteux (re-parse en mode debug, requis par la conversion) : appelé une
-/// seule fois, à la première compilation du filtre (cache disque ensuite).
-pub fn content_blocking_json() -> String {
-    match bundled_filter_set(true).into_content_blocking() {
-        Ok((rules, _unsupported)) => serde_json::to_string(&rules).unwrap_or_else(|_| "[]".into()),
-        Err(_) => "[]".into(),
-    }
-}
-
-fn bundled_filter_set(debug: bool) -> FilterSet {
-    let mut set = FilterSet::new(debug);
+fn bundled_filter_set() -> FilterSet {
+    let mut set = FilterSet::new(false);
     for gz in [EASYLIST_GZ, EASYPRIVACY_GZ] {
         set.add_filters(gunzip(gz).lines(), ParseOptions::default());
     }

@@ -52,10 +52,6 @@ fn main() {
         ui::theme::load();
         ui::icon::set_default();
 
-        // Content filter pubs/trackers (sous-ressources) — compilé au
-        // premier lancement (asynchrone), chargé du cache ensuite.
-        web::content_filter::init();
-
         // Déverrouillage du vault (Sprint 2) — abandon = pas de fenêtre,
         // l'application se termine d'elle-même.
         let Some(vault) = ui::unlock::unlock_vault() else { return };
@@ -70,7 +66,6 @@ fn main() {
         // Réglages + favoris persistés dans le vault → rechargés au boot.
         if let Ok(Some(q)) = vault.setting("app_settings") {
             state::settings::apply_from_url(&format!("nyx://apply?{q}"), &prefs, &blocker);
-            web::content_filter::set_enabled(prefs.borrow().adblock_enabled);
         }
         state::vault_sync::load_bookmarks(&bm, &vault);
 
