@@ -11,7 +11,6 @@ pub mod inspector;
 pub mod password_capture;
 pub mod permissions;
 pub mod site_data;
-pub mod youtube;
 
 pub use nyx_core::nyxguard;
 pub use nyx_core::security;
@@ -47,7 +46,6 @@ pub fn configure(
     }
     wire_history_autosave(webview, vault.clone());
     password_capture::wire(webview, vault.clone());
-    youtube::wire(webview); // anti-pub YouTube (skip in-stream + masque display)
     if prefs.borrow().reject_cookies {
         cookies::wire(webview); // refus auto des bannières de consentement
     }
