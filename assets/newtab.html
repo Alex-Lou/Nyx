@@ -123,7 +123,7 @@ main * { pointer-events: auto; }
 <script>
 (function () {
     'use strict';
-    const canvas = document.getElementById('fx');
+    let canvas = document.getElementById('fx');
     const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
     // ── Constantes d'interaction — réglage du sillage Kelvin + ripples.
@@ -217,7 +217,7 @@ main * { pointer-events: auto; }
     // Champ fluide : instance + texture GPU + position souris frame précédente.
     let fluid = null, ftex = null, injPrevX = .5, injPrevY = .5;
     // Wordmark shine : 0..1, lerpé sur la distance souris ↔ centre du mot.
-    let shine = 0, wordCx = 0, wordCy = 0, wordReach = 360;
+    let shine = 0, lastShine = -1, wordCx = 0, wordCy = 0, wordReach = 360;
     function measureWord() {
         const el = document.querySelector('.wordmark');
         if (!el) return;
@@ -232,9 +232,19 @@ main * { pointer-events: auto; }
     queueMicrotask(measureWord);
 
     addEventListener('pointermove', e => { rawMx = e.clientX / innerWidth; rawMy = 1 - e.clientY / innerHeight; });
-    canvas.addEventListener('pointerdown', e => {
-        // Clic = impulsion radiale sortante dans le fluide (caillou dans l'eau).
-        if (fluid) fluid.clickSplat(e.clientX / innerWidth, 1 - e.clientY / innerHeight);
+    // Clic = impulsion radiale sortante dans le fluide (caillou dans l'eau).
+    // No-op sauf si le moteur fluide est actif.
+    function onCanvasDown(e) {
+        if (fluid && activeTheme === 'fluid' && !document.hidden)
+            fluid.clickSplat(e.clientX / innerWidth, 1 - e.clientY / innerHeight);
+    }
+
+    // Un SEUL visibilitychange : relance le moteur actif (les boucles ne se
+    // replanifient pas tant que l'onglet est caché).
+    document.addEventListener('visibilitychange', () => {
+        if (document.hidden) return;
+        if (activeTheme === 'fluid') { if (fluidCtl) fluidCtl.kick(); }
+        else if (active2D) active2D.kick();
     });
 
     // ── Tente WebGL ; sinon fallback Canvas-2D ─────────────────────────────
@@ -244,12 +254,23 @@ main * { pointer-events: auto; }
     let GLU = null;
     if (gl && initGL()) {
         console.info('[Nyx] WebGL fluide actif');
+        canvas.addEventListener('webglcontextlost', e => { e.preventDefault(); if (fluidCtl) fluidCtl.pause(); });
         fluidCtl = runGL();
     } else {
         console.warn('[Nyx] WebGL indisponible → fallback Canvas-2D (animation appauvrie). '
             + 'Cause = WebGL context creation OR shader compile/link. Voir errors plus haut.');
+        if (gl) {
+            // Un contexte WebGL a été créé : getContext('2d') renverrait null.
+            // On remplace #fx par un canvas neuf (mêmes id/attributs).
+            const fresh = document.createElement('canvas');
+            for (const at of Array.from(canvas.attributes)) fresh.setAttribute(at.name, at.value);
+            canvas.replaceWith(fresh);
+            canvas = fresh;
+            fluid = null; ftex = null; GLU = null;
+        }
         fluidCtl = runCanvas2D();
     }
+    canvas.addEventListener('pointerdown', onCanvasDown);
 
     // ══════════════════════════ WebGL (fluide premium) ════════════════════
 
@@ -268,6 +289,9 @@ main * { pointer-events: auto; }
         const tex = new Uint8Array(N * 4);
         for (let i = 0; i < N; i++) tex[i * 4 + 3] = 255;
         const VMAX = 3.0, VISC = 0.984, INK_DECAY = 0.962, EPS = 0.32;
+        // Activité : max(|v|, ink/0.6) ; > IDLE_EPS = visible après quantification.
+        const IDLE_EPS = 0.006;
+        let energy = 0;
         const idx = (x, y) => y * GW + x;
         const cl = (v, a, b) => (v < a ? a : v > b ? b : v);
         function sample(f, fx, fy) {
@@ -288,6 +312,7 @@ main * { pointer-events: auto; }
                 const g = Math.exp(-d2 / (r2 * 0.5 + 1e-3)), i = idx(x, y);
                 vx[i] += fvx * g; vy[i] += fvy * g; ink[i] = Math.min(1.6, ink[i] + fink * g);
             }
+            energy = 1;
         }
         function clickSplat(nx, ny) {
             const cx = nx * (GW - 1), cy = ny * (GH - 1), rad = 7, r2 = rad * rad;
@@ -300,6 +325,7 @@ main * { pointer-events: auto; }
                 vx[i] += (dx / d) * g * 2.2; vy[i] += (dy / d) * g * 2.2;
                 ink[i] = Math.min(1.6, ink[i] + g * 0.9);
             }
+            energy = 1;
         }
         function step(dt) {
             dt = cl(dt, 0.2, 2.0);
@@ -313,14 +339,20 @@ main * { pointer-events: auto; }
                 const c = curl[i];
                 vx[i] += EPS * dt * gy * c; vy[i] += EPS * dt * -gx * c;
             }
+            let e = 0;
             for (let y = 0; y < GH; y++) for (let x = 0; x < GW; x++) {
                 const i = idx(x, y);
                 const px = x - dt * vx[i], py = y - dt * vy[i];
-                vx2[i] = sample(vx, px, py) * VISC;
-                vy2[i] = sample(vy, px, py) * VISC;
-                ink2[i] = sample(ink, px, py) * INK_DECAY;
+                const a = sample(vx, px, py) * VISC, b = sample(vy, px, py) * VISC, c = sample(ink, px, py) * INK_DECAY;
+                vx2[i] = a; vy2[i] = b; ink2[i] = c;
+                const m = Math.max(a < 0 ? -a : a, b < 0 ? -b : b, c / 0.6);
+                if (m > e) e = m;
             }
             vx.set(vx2); vy.set(vy2); ink.set(ink2);
+            // Sous le seuil de quantification RGBA8 : champ au repos → on le
+            // remet à zéro (cette dernière frame est encore encodée/uploadée).
+            if (e < IDLE_EPS) { vx.fill(0); vy.fill(0); ink.fill(0); e = 0; }
+            energy = e;
         }
         function encode() {
             for (let i = 0; i < N; i++) {
@@ -330,7 +362,7 @@ main * { pointer-events: auto; }
             }
             return tex;
         }
-        return { GW, GH, splat, clickSplat, step, encode };
+        return { GW, GH, splat, clickSplat, step, encode, get active() { return energy > 0; } };
     }
 
     function initGL() {
@@ -410,7 +442,7 @@ void main(){
             gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
             gl.uniform1i(GLU.field, 0);
             return true;
-        } catch (e) { return false; }
+        } catch (e) { fluid = null; return false; }
     }
 
     function link(vsrc, fsrc) {
@@ -457,10 +489,13 @@ void main(){
                     Math.min(0.9, sp * INK_INJECT), 5.0);
             }
             injPrevX = rawMx; injPrevY = rawMy;
-            fluid.step(Math.max(0.2, Math.min(2.0, dt / 16.67)));
-            gl.bindTexture(gl.TEXTURE_2D, ftex);
-            gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, fluid.GW, fluid.GH, gl.RGBA, gl.UNSIGNED_BYTE, fluid.encode());
-            gl.uniform1i(GLU.field, 0);
+            // Champ au repos (ni vélocité ni encre, aucun splat) : on saute
+            // step + encode + upload — la texture GPU reste valide.
+            if (fluid.active) {
+                fluid.step(Math.max(0.2, Math.min(2.0, dt / 16.67)));
+                gl.bindTexture(gl.TEXTURE_2D, ftex);
+                gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, fluid.GW, fluid.GH, gl.RGBA, gl.UNSIGNED_BYTE, fluid.encode());
+            }
         }
 
         // ── Wordmark shine (inchangé) ──
@@ -473,7 +508,10 @@ void main(){
         const breathe = 0.08 + 0.06 * Math.sin(now * 0.0009);
         const target = Math.max(breathe, distShine);
         shine += (target - shine) * Math.min(1, dt * 0.006);
-        document.documentElement.style.setProperty('--nyx-shine', shine.toFixed(3));
+        if (Math.abs(shine - lastShine) > 0.003) {
+            lastShine = shine;
+            document.documentElement.style.setProperty('--nyx-shine', shine.toFixed(3));
+        }
 
         gl.uniform2f(GLU.res, canvas.width, canvas.height);
         gl.uniform1f(GLU.time, now * 0.001);
@@ -494,6 +532,7 @@ void main(){
             if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; gl.viewport(0, 0, w, h); }
         }
         function frame(now) {
+            _raf = 0;
             if (!running) return;
             if (!last) last = now;
             const dt = now - last; last = now;
@@ -505,24 +544,31 @@ void main(){
             sizeFor();
             pushUniforms(now, dt || 16);
             gl.drawArrays(gl.TRIANGLES, 0, 3);
-            if (!document.hidden) _raf = requestAnimationFrame(frame); else _raf = setTimeout(() => requestAnimationFrame(frame), 250);
+            if (!document.hidden) _raf = requestAnimationFrame(frame);
         }
-        document.addEventListener('visibilitychange', () => { if (!document.hidden) last = 0; });
-        if (reduce) { sizeFor(); pushUniforms(12000, 16); gl.drawArrays(gl.TRIANGLES, 0, 3); running = false; }
-        else _raf = requestAnimationFrame(frame);
+        // Boucle UNIQUE, idempotente. Onglet caché → on ne planifie rien ;
+        // le visibilitychange global appelle kick().
+        function schedule() {
+            if (_raf || !running || document.hidden) return;
+            last = 0; fpsFrames = 0; fpsTimer = 0;
+            injPrevX = rawMx; injPrevY = rawMy;   // pas de splat parasite au retour
+            _raf = requestAnimationFrame(frame);
+        }
+        function drawStatic() { sizeFor(); pushUniforms(12000, 16); gl.drawArrays(gl.TRIANGLES, 0, 3); }
+        if (reduce) { drawStatic(); running = false; }
+        else schedule();
         return {
             pause() {
-                if (!running) return;
                 running = false;
-                if (_raf) { cancelAnimationFrame(_raf); clearTimeout(_raf); _raf = 0; }
+                if (_raf) { cancelAnimationFrame(_raf); _raf = 0; }
             },
             resume() {
                 if (running) return;
                 running = true;
-                last = 0;
-                if (reduce) { sizeFor(); pushUniforms(12000, 16); gl.drawArrays(gl.TRIANGLES, 0, 3); running = false; }
-                else _raf = requestAnimationFrame(frame);
+                if (reduce) { drawStatic(); running = false; }
+                else schedule();
             },
+            kick() { schedule(); },
         };
     }
 
@@ -530,15 +576,26 @@ void main(){
     function runCanvas2D() {
         const ctx = canvas.getContext('2d');
         let W, H, parts = [];
-        let running = true, _raf = 0;
+        let running = true, _raf = 0, _rz = 0, listening = false;
         function resize() { W = canvas.width = innerWidth; H = canvas.height = innerHeight; }
         function seed() { parts = []; const n = Math.min(90, (innerWidth * innerHeight / 18000) | 0);
             for (let i = 0; i < n; i++) parts.push({ x: Math.random() * W, y: Math.random() * H,
                 z: .4 + Math.random() * .6, r: 1 + Math.random() * 2, tw: Math.random() * 6.28 }); }
-        addEventListener('resize', () => { resize(); seed(); });
+        // Resize nommé, retiré à la pause, débouncé par rAF.
+        function onResize() {
+            if (_rz) return;
+            _rz = requestAnimationFrame(() => { _rz = 0; resize(); seed(); });
+        }
+        function listen(on) {
+            if (on === listening) return;
+            listening = on;
+            if (on) addEventListener('resize', onResize);
+            else { removeEventListener('resize', onResize); if (_rz) { cancelAnimationFrame(_rz); _rz = 0; } }
+        }
         resize(); seed();
         let t = 0;
         function frame() {
+            _raf = 0;
             if (!running) return;
             t += 0.005;
             const g = ctx.createLinearGradient(0, 0, 0, H);
@@ -556,27 +613,34 @@ void main(){
                 ctx.beginPath(); ctx.arc(p.x, p.y, p.r * p.z * 2, 0, 6.28); ctx.fill();
             }
             ctx.globalCompositeOperation = 'source-over';
-            if (!document.hidden) _raf = requestAnimationFrame(frame); else _raf = setTimeout(() => requestAnimationFrame(frame), 250);
+            if (!document.hidden) _raf = requestAnimationFrame(frame);
         }
-        // Helper : draw une seule frame puis annule le rAF que frame() a programmé.
-        // Utilisé en reduce-motion pour avoir un rendu statique sans boucle.
+        function schedule() {
+            if (_raf || !running || document.hidden) return;
+            _raf = requestAnimationFrame(frame);
+        }
+        // Rendu statique reduce-motion : une frame, aucune boucle.
         function drawOnceStatic() {
             running = true; frame(); running = false;
-            if (_raf) { cancelAnimationFrame(_raf); clearTimeout(_raf); _raf = 0; }
+            if (_raf) { cancelAnimationFrame(_raf); _raf = 0; }
         }
         if (reduce) drawOnceStatic();
-        else _raf = requestAnimationFrame(frame);
+        else { listen(true); schedule(); }
         return {
             pause() {
-                if (!running) return;
                 running = false;
-                if (_raf) { cancelAnimationFrame(_raf); clearTimeout(_raf); _raf = 0; }
+                if (_raf) { cancelAnimationFrame(_raf); _raf = 0; }
+                listen(false);
             },
             resume() {
                 if (running) return;
-                if (reduce) drawOnceStatic();
-                else { running = true; _raf = requestAnimationFrame(frame); }
+                if (reduce) { drawOnceStatic(); return; }
+                running = true;
+                resize(); seed();   // taille éventuellement changée pendant la pause
+                listen(true);
+                schedule();
             },
+            kick() { schedule(); },
         };
     }
 
@@ -614,7 +678,7 @@ void main(){
         const loomCanvas = document.getElementById('loom-fx');
         if (!loomCanvas) {
             console.warn('[Nyx][loom] #loom-fx absent — engine désactivé');
-            return { start() {}, stop() {}, dispose() {}, LOOM };
+            return { start() {}, stop() {}, kick() {}, dispose() {}, LOOM };
         }
         const lctx = loomCanvas.getContext('2d');
 
@@ -637,7 +701,7 @@ void main(){
 
         let raf = 0, running = false, lastT = 0;
         let onResize = null, onDown = null;
-        let inited = false;
+        let inited = false, listening = false;
 
         function resize() {
             dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -915,6 +979,7 @@ void main(){
         }
 
         function tick(now) {
+            raf = 0;
             if (!running) return;
             if (!lastT) lastT = now;
             const dt = Math.min(64, now - lastT);
@@ -923,7 +988,12 @@ void main(){
             rebuildCells();
             render(now);
             if (!document.hidden) raf = requestAnimationFrame(tick);
-            else raf = setTimeout(() => requestAnimationFrame(tick), 250);
+        }
+        // Boucle UNIQUE, idempotente. Onglet caché → rien (visibilitychange global → kick()).
+        function schedule() {
+            if (raf || !running || document.hidden) return;
+            lastT = 0;
+            raf = requestAnimationFrame(tick);
         }
 
         function spawnPulse(px, py) {
@@ -940,12 +1010,18 @@ void main(){
 
         function init() {
             if (inited) return;
-            onResize = () => { resize(); };
+            onResize = () => { if (running) resize(); };
             onDown   = (e) => { spawnPulse(e.clientX, e.clientY); };
-            addEventListener('resize', onResize);
-            loomCanvas.addEventListener('pointerdown', onDown);
             resize();
             inited = true;
+        }
+
+        // Listeners attachés uniquement quand le moteur tourne.
+        function listen(on) {
+            if (on === listening) return;
+            listening = on;
+            if (on) { addEventListener('resize', onResize); loomCanvas.addEventListener('pointerdown', onDown); }
+            else    { removeEventListener('resize', onResize); loomCanvas.removeEventListener('pointerdown', onDown); }
         }
 
         function start() {
@@ -953,6 +1029,8 @@ void main(){
             if (running) return;
             running = true;
             lastT = 0;
+            // resize manqué pendant l'arrêt : rattrapage ici.
+            if (W !== innerWidth || H !== innerHeight) resize();
             if (reduce) {
                 // Mode réduit : une image statique, pas de RAF.
                 update(16, performance.now());
@@ -961,24 +1039,25 @@ void main(){
                 running = false;
                 return;
             }
-            raf = requestAnimationFrame(tick);
+            listen(true);
+            schedule();
         }
 
         function stop() {
             running = false;
-            if (raf) { cancelAnimationFrame(raf); clearTimeout(raf); raf = 0; }
+            if (raf) { cancelAnimationFrame(raf); raf = 0; }
+            listen(false);
         }
+
+        function kick() { schedule(); }
 
         function dispose() {
             stop();
-            if (onResize)               removeEventListener('resize', onResize);
-            if (onDown && loomCanvas)   loomCanvas.removeEventListener('pointerdown', onDown);
-            onResize = onDown = null;
             cells.clear();
             inited = false;
         }
 
-        return { init, start, stop, dispose, LOOM };
+        return { init, start, stop, kick, dispose, LOOM };
     })();
 
     // ══════════════════ Aurore : orbes néon remontants + filaments ════════
@@ -992,50 +1071,77 @@ void main(){
             rise: 0.85, sway: 0.5, glow: 1.0, lineOpacity: 0.55, pulseLife: 1300,
         };
         const cv = document.getElementById('aurora-fx');
-        if (!cv) return { init() {}, start() {}, stop() {}, dispose() {} };
+        if (!cv) return { init() {}, start() {}, stop() {}, kick() {}, dispose() {} };
         const ctx = cv.getContext('2d');
 
         let W = 0, H = 0, dpr = 1, orbs = null, n = 0;
         let raf = 0, running = false, lastT = 0, mx = -1e4, my = -1e4;
-        let onResize = null, onDown = null, onMove = null, onLeave = null, onUp = null, inited = false;
+        let onResize = null, onDown = null, onMove = null, onLeave = null, onUp = null;
+        let listening = false, inited = false, bgGrad = null;
         const PULSES = Array.from({ length: 6 }, () => ({ x: 0, y: 0, age: 9999, str: 1 }));
+        let pulseAlive = 0;  // nb de pulses vivants (évite les boucles inutiles)
         let charge = null;   // etoile en formation pendant l'appui maintenu
-        let pal = ['#4af2c8', '#46d6a0', '#8a7bff', '#9d6ef7', '#7be0ff'];
 
-        const hex = h => { const x = h.trim(); const v = x[0] === '#' ? x.slice(1) : x;
+        // Palette pré-parsée UNE fois (readPalette) : RGB, couleurs de filaments
+        // (4 niveaux de mélange vers le blanc) et sprites de halo pré-rendus.
+        const WHITE = [255, 255, 255];
+        const hexRGB = h => { const x = h.trim(); const v = x[0] === '#' ? x.slice(1) : x;
             const k = v.length === 3 ? v.split('').map(c => c + c).join('') : v;
-            const num = parseInt(k, 16); return [(num >> 16) & 255, (num >> 8) & 255, num & 255]; };
-        const mix = (a, b, t) => { const A = hex(a), B = hex(b);
-            return `rgb(${(A[0]+(B[0]-A[0])*t)|0},${(A[1]+(B[1]-A[1])*t)|0},${(A[2]+(B[2]-A[2])*t)|0})`; };
-        const rgba = (c, al) => { const A = hex(c); return `rgba(${A[0]},${A[1]},${A[2]},${al})`; };
+            const num = parseInt(k, 16) || 0; return [(num >> 16) & 255, (num >> 8) & 255, num & 255]; };
+        const mixA = (A, B, t) => [A[0] + (B[0] - A[0]) * t, A[1] + (B[1] - A[1]) * t, A[2] + (B[2] - A[2]) * t];
+        const rgbaA = (A, al) => 'rgba(' + (A[0] | 0) + ',' + (A[1] | 0) + ',' + (A[2] | 0) + ',' + al + ')';
+        const rgbS = A => 'rgb(' + (A[0] | 0) + ',' + (A[1] | 0) + ',' + (A[2] | 0) + ')';
+        const LV = [0, 0.25, 0.5, 0.75];
+        let palRGB = [[74, 242, 200], [70, 214, 160], [138, 123, 255], [157, 110, 247], [123, 224, 255]];
+        let palFil = [], sprites = [];
+        const clamp01 = v => (v < 0 ? 0 : v > 1 ? 1 : v);
 
+        function buildSprite(c) {
+            const S = 128, cvs = document.createElement('canvas');
+            cvs.width = cvs.height = S;
+            const g = cvs.getContext('2d');
+            const gr = g.createRadialGradient(S / 2, S / 2, 0, S / 2, S / 2, S / 2);
+            gr.addColorStop(0, rgbaA(c, 1));
+            gr.addColorStop(0.28, rgbaA(c, 0.26));
+            gr.addColorStop(1, rgbaA(c, 0));
+            g.fillStyle = gr; g.fillRect(0, 0, S, S);
+            return cvs;
+        }
         function readPalette() {
             const cs = getComputedStyle(document.documentElement);
-            const a = (cs.getPropertyValue('--nyx-aurora').trim()) || '#4af2c8';
-            const nb = (cs.getPropertyValue('--nyx-nebula').trim()) || '#9d6ef7';
-            const st = (cs.getPropertyValue('--nyx-star').trim()) || '#c8d6ff';
-            pal = [a, mix(a, st, 0.4), nb, mix(nb, a, 0.5), mix(a, '#7be0ff', 0.5)];
+            const a = hexRGB((cs.getPropertyValue('--nyx-aurora').trim()) || '#4af2c8');
+            const nb = hexRGB((cs.getPropertyValue('--nyx-nebula').trim()) || '#9d6ef7');
+            const st = hexRGB((cs.getPropertyValue('--nyx-star').trim()) || '#c8d6ff');
+            palRGB = [a, mixA(a, st, 0.4), nb, mixA(nb, a, 0.5), mixA(a, hexRGB('#7be0ff'), 0.5)];
+            palFil = palRGB.map(c => LV.map(t => rgbS(mixA(c, WHITE, t))));
+            sprites = palRGB.map(buildSprite);
         }
-        function mkOrb(spread) {
-            return {
-                x: Math.random() * W, y: spread ? Math.random() * H : H + Math.random() * 60,
-                r: 2.0 + Math.random() * 3.4, sway: Math.random() * 6.28,
-                swaySp: 0.4 + Math.random() * 0.9, rise: 0.55 + Math.random() * 0.95,
-                hue: (Math.random() * pal.length) | 0, tw: Math.random() * 6.28,
-                tws: 1.5 + Math.random() * 2.2, born: 0,
-            };
+        // Respawn EN PLACE (aucune allocation).
+        function resetOrb(o, spread) {
+            o.x = Math.random() * W; o.y = spread ? Math.random() * H : H + Math.random() * 60;
+            o.r = 2.0 + Math.random() * 3.4; o.sway = Math.random() * 6.28;
+            o.swaySp = 0.4 + Math.random() * 0.9; o.rise = 0.55 + Math.random() * 0.95;
+            o.hue = (Math.random() * palRGB.length) | 0; o.tw = Math.random() * 6.28;
+            o.tws = 1.5 + Math.random() * 2.2; o.born = 0;
+            return o;
         }
         function resize() {
             dpr = Math.min(window.devicePixelRatio || 1, 2);
             W = innerWidth; H = innerHeight;
             cv.width = Math.max(2, (W * dpr) | 0); cv.height = Math.max(2, (H * dpr) | 0);
             cv.style.width = W + 'px'; cv.style.height = H + 'px';
-            ctx.setTransform(dpr, 0, 0, dpr, 0, 0); seed();
+            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+            bgGrad = ctx.createLinearGradient(0, 0, 0, H);
+            bgGrad.addColorStop(0, '#070a14'); bgGrad.addColorStop(1, '#05070b');
+            seed();
         }
         function seed() {
             n = Math.max(34, Math.min(CFG.orbCount, ((W * H) / 26000) | 0));
-            orbs = new Array(n);
-            for (let i = 0; i < n; i++) orbs[i] = mkOrb(true);
+            if (!orbs || orbs.length !== n) {
+                orbs = new Array(n);
+                for (let i = 0; i < n; i++) orbs[i] = {};
+            }
+            for (let i = 0; i < n; i++) resetOrb(orbs[i], true);
         }
         const PLIFE = 1150, PSPEED = 0.72;   // onde de clic : durée (ms) + vitesse (px/ms)
         function update(dt, now) {
@@ -1045,33 +1151,39 @@ void main(){
             if (charge) {
                 charge.r = Math.min(64, (now - charge.t0) * 0.05);
                 const pull = charge.r / 64, AR = 200 + charge.r * 3;
-                for (const o of orbs) {
+                for (let i = 0; i < n; i++) {
+                    const o = orbs[i];
                     const dx = charge.lx - o.x, dy = charge.ly - o.y, d2 = dx * dx + dy * dy;
                     if (d2 < AR * AR && d2 > 4) { const d = Math.sqrt(d2), f = pull * (1 - d / AR) * 2.4 * k; o.x += dx / d * f; o.y += dy / d * f; }
                 }
             }
-            for (const o of orbs) {
+            const R = CFG.mouseRadius;
+            for (let i = 0; i < n; i++) {
+                const o = orbs[i];
                 o.y -= o.rise * CFG.rise * k;
                 o.sway += o.swaySp * 0.012 * k;
                 o.x += Math.sin(o.sway) * CFG.sway * k;
                 o.born *= Math.pow(0.95, k);
-                const dx = o.x - mx, dy = o.y - my, d2 = dx * dx + dy * dy, R = CFG.mouseRadius;
+                const dx = o.x - mx, dy = o.y - my, d2 = dx * dx + dy * dy;
                 if (!charge && d2 < R * R && d2 > 1) { const d = Math.sqrt(d2), f = (1 - d / R) * 1.7 * k; o.x += dx / d * f; o.y += dy / d * f; }
-                for (const p of PULSES) {
+                if (pulseAlive) for (let q = 0; q < PULSES.length; q++) {
+                    const p = PULSES[q];
                     if (p.age >= PLIFE) continue;
-                    const px = o.x - p.x, py = o.y - p.y, pd = Math.hypot(px, py) || 1;
+                    const px = o.x - p.x, py = o.y - p.y, pd = Math.sqrt(px * px + py * py) || 1;
                     const ring = p.age * PSPEED, near = Math.abs(pd - ring);
                     if (near < 64) { const f = (1 - p.age / PLIFE) * (1 - near / 64) * 3.2 * p.str * k; o.x += px / pd * f; o.y += py / pd * f; }
                 }
-                if (o.y < -50) { const nw = mkOrb(false); for (const key in nw) o[key] = nw[key]; }
+                if (o.y < -50) resetOrb(o, false);
                 if (o.x < -50) o.x = W + 50; else if (o.x > W + 50) o.x = -50;
             }
-            for (const p of PULSES) p.age += dt;
+            pulseAlive = 0;
+            for (let q = 0; q < PULSES.length; q++) { const p = PULSES[q]; p.age += dt; if (p.age < PLIFE) pulseAlive++; }
         }
+        // Top-7 préalloué (insertion) pour l'étoile en formation.
+        const TOPK = 7, topO = new Int32Array(TOPK), topD = new Float32Array(TOPK);
         function render(now) {
-            const g = ctx.createLinearGradient(0, 0, 0, H);
-            g.addColorStop(0, '#070a14'); g.addColorStop(1, '#05070b');
-            ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+            ctx.globalAlpha = 1;
+            ctx.fillStyle = bgGrad; ctx.fillRect(0, 0, W, H);
             ctx.globalCompositeOperation = 'lighter';
             const CD = CFG.connectDist, CD2 = CD * CD, R = CFG.mouseRadius;
             // Filaments : proximité + ONDE DE LUMIERE des clics qui parcourt le
@@ -1080,103 +1192,129 @@ void main(){
                 const a = orbs[i];
                 for (let j = i + 1; j < n; j++) {
                     const b = orbs[j];
-                    const dx = a.x - b.x, dy = a.y - b.y, d2 = dx * dx + dy * dy;
+                    const dx = a.x - b.x;
+                    if (dx > CD || dx < -CD) continue;
+                    const dy = a.y - b.y, d2 = dx * dx + dy * dy;
                     if (d2 >= CD2) continue;
                     const d = Math.sqrt(d2), al = 1 - d / CD;
                     const midx = (a.x + b.x) * 0.5, midy = (a.y + b.y) * 0.5;
-                    const near = Math.max(0, 1 - Math.hypot(midx - mx, midy - my) / R);
+                    const mdx = midx - mx, mdy = midy - my;
+                    const near = Math.max(0, 1 - Math.sqrt(mdx * mdx + mdy * mdy) / R);
                     let wave = 0;
-                    for (const p of PULSES) {
+                    if (pulseAlive) for (let q = 0; q < PULSES.length; q++) {
+                        const p = PULSES[q];
                         if (p.age >= PLIFE) continue;
-                        const ring = p.age * PSPEED, dr = Math.abs(Math.hypot(midx - p.x, midy - p.y) - ring);
+                        const pdx = midx - p.x, pdy = midy - p.y;
+                        const ring = p.age * PSPEED, dr = Math.abs(Math.sqrt(pdx * pdx + pdy * pdy) - ring);
                         if (dr < 80) wave += (1 - dr / 80) * (1 - p.age / PLIFE) * p.str * 1.35;
                     }
                     wave = Math.min(1.5, wave);
                     const bright = al * al * CFG.lineOpacity * (0.55 + near) + wave * 0.9 * al;
-                    ctx.strokeStyle = wave > 0.05
-                        ? rgba(mix(pal[a.hue], '#ffffff', Math.min(0.75, wave)), Math.min(1, bright))
-                        : rgba(pal[a.hue], bright);
+                    ctx.strokeStyle = palFil[a.hue][wave > 0.05 ? Math.round(Math.min(0.75, wave) * 4) : 0];
+                    ctx.globalAlpha = clamp01(bright);
                     ctx.lineWidth = 0.6 + al * 1.3 + wave * 1.7;
                     ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
                 }
             }
-            // Orbes (boost 'born' à la naissance) : halo diffus + coeur lumineux.
-            for (const o of orbs) {
+            // Orbes (boost 'born' à la naissance) : halo (sprite pré-rendu) + coeur.
+            ctx.fillStyle = '#ffffff';
+            for (let i = 0; i < n; i++) {
+                const o = orbs[i];
                 const tw = 0.6 + 0.4 * Math.sin(o.tw + now * 0.001 * o.tws);
                 const bb = 1 + o.born * 1.7;
-                const rad = o.r * (3.4 + tw * 1.3) * CFG.glow * bb;
-                const col = pal[o.hue];
-                const grd = ctx.createRadialGradient(o.x, o.y, 0, o.x, o.y, rad * 3.6);
-                grd.addColorStop(0, rgba(col, Math.min(1, 0.85 * tw * bb)));
-                grd.addColorStop(0.28, rgba(col, 0.22 * tw));
-                grd.addColorStop(1, rgba(col, 0));
-                ctx.fillStyle = grd;
-                ctx.beginPath(); ctx.arc(o.x, o.y, rad * 3.6, 0, 6.2832); ctx.fill();
-                ctx.fillStyle = rgba('#ffffff', Math.min(1, 0.5 * tw * bb));
+                const rad = o.r * (3.4 + tw * 1.3) * CFG.glow * bb, R3 = rad * 3.6;
+                ctx.globalAlpha = Math.min(1, 0.85 * tw * bb);
+                ctx.drawImage(sprites[o.hue], o.x - R3, o.y - R3, R3 * 2, R3 * 2);
+                ctx.globalAlpha = Math.min(1, 0.5 * tw * bb);
                 ctx.beginPath(); ctx.arc(o.x, o.y, o.r * 0.55 * bb, 0, 6.2832); ctx.fill();
             }
             // Etoile en formation (appui maintenu) : coeur éclatant + filaments
             // tissés vers les 7 orbes proches, intensité croissante avec la charge.
             if (charge) {
                 const cx = charge.lx, cy = charge.ly, cr = charge.r, p01 = cr / 64;
-                const near = orbs.map(o => ({ o, d: Math.hypot(o.x - cx, o.y - cy) }))
-                                 .sort((u, v) => u.d - v.d).slice(0, 7);
-                for (const it of near) {
-                    if (it.d > 270) continue;
-                    ctx.strokeStyle = rgba('#dffaff', (0.22 + p01 * 0.62) * (1 - it.d / 270));
-                    ctx.lineWidth = 0.8 + p01 * 1.7;
-                    ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(it.o.x, it.o.y); ctx.stroke();
+                for (let t = 0; t < TOPK; t++) { topO[t] = -1; topD[t] = 1e18; }
+                for (let i = 0; i < n; i++) {
+                    const dx = orbs[i].x - cx, dy = orbs[i].y - cy, d2 = dx * dx + dy * dy;
+                    if (d2 < topD[TOPK - 1]) {
+                        let pos = TOPK - 1;
+                        while (pos > 0 && topD[pos - 1] > d2) { topD[pos] = topD[pos - 1]; topO[pos] = topO[pos - 1]; pos--; }
+                        topD[pos] = d2; topO[pos] = i;
+                    }
                 }
+                ctx.strokeStyle = '#dffaff';
+                for (let t = 0; t < TOPK; t++) {
+                    if (topO[t] < 0) break;
+                    const d = Math.sqrt(topD[t]);
+                    if (d > 270) continue;
+                    ctx.globalAlpha = clamp01((0.22 + p01 * 0.62) * (1 - d / 270));
+                    ctx.lineWidth = 0.8 + p01 * 1.7;
+                    ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(orbs[topO[t]].x, orbs[topO[t]].y); ctx.stroke();
+                }
+                ctx.globalAlpha = 1;
                 const puls = 0.82 + 0.18 * Math.sin(now * 0.012);
                 const R2 = (12 + cr) * puls;
                 const grd = ctx.createRadialGradient(cx, cy, 0, cx, cy, R2 * 2.6);
-                grd.addColorStop(0, rgba('#ffffff', 0.98));
-                grd.addColorStop(0.22, rgba(mix(pal[2], '#ffffff', 0.45), 0.7));
-                grd.addColorStop(1, rgba(pal[2], 0));
+                grd.addColorStop(0, 'rgba(255,255,255,0.98)');
+                grd.addColorStop(0.22, rgbaA(mixA(palRGB[2], WHITE, 0.45), 0.7));
+                grd.addColorStop(1, rgbaA(palRGB[2], 0));
                 ctx.fillStyle = grd;
                 ctx.beginPath(); ctx.arc(cx, cy, R2 * 2.6, 0, 6.2832); ctx.fill();
                 // Sparks en orbite : nombre et rayon croissent avec la charge.
                 const ns = 3 + (p01 * 4 | 0), orad = 14 + cr * 0.9;
+                const spC0 = 'rgba(234,252,255,0.9)', spC1 = rgbaA(palRGB[0], 0);
                 for (let k = 0; k < ns; k++) {
                     const ang = now * 0.004 + k * (6.2832 / ns);
                     const sxp = cx + Math.cos(ang) * orad, syp = cy + Math.sin(ang) * orad;
                     const sg = ctx.createRadialGradient(sxp, syp, 0, sxp, syp, 7);
-                    sg.addColorStop(0, rgba('#eafcff', 0.9)); sg.addColorStop(1, rgba(pal[0], 0));
+                    sg.addColorStop(0, spC0); sg.addColorStop(1, spC1);
                     ctx.fillStyle = sg; ctx.beginPath(); ctx.arc(sxp, syp, 7, 0, 6.2832); ctx.fill();
                 }
             }
             // Flash des ondes de clic : double anneau lumineux qui s'étend.
-            for (const p of PULSES) {
+            if (pulseAlive) for (let q = 0; q < PULSES.length; q++) {
+                const p = PULSES[q];
                 if (p.age >= PLIFE) continue;
                 const ring = p.age * PSPEED, a = 1 - p.age / PLIFE, st = Math.min(1.4, p.str);
-                ctx.strokeStyle = rgba('#eafcff', a * a * 0.6 * st);
+                ctx.strokeStyle = '#eafcff';
+                ctx.globalAlpha = clamp01(a * a * 0.6 * st);
                 ctx.lineWidth = 1.4 + p.str * 2.0;
                 ctx.beginPath(); ctx.arc(p.x, p.y, ring, 0, 6.2832); ctx.stroke();
                 if (ring > 26) {
-                    ctx.strokeStyle = rgba(mix(pal[0], '#ffffff', 0.5), a * a * 0.3 * st);
+                    ctx.strokeStyle = palFil[0][2];
+                    ctx.globalAlpha = clamp01(a * a * 0.3 * st);
                     ctx.lineWidth = 0.8 + p.str;
                     ctx.beginPath(); ctx.arc(p.x, p.y, ring - 22, 0, 6.2832); ctx.stroke();
                 }
             }
+            ctx.globalAlpha = 1;
             ctx.globalCompositeOperation = 'source-over';
         }
         function tick(now) {
+            raf = 0;
             if (!running) return;
             if (!lastT) lastT = now;
             const dt = Math.min(60, now - lastT); lastT = now;
             update(dt || 16, now); render(now);
             if (!document.hidden) raf = requestAnimationFrame(tick);
-            else raf = setTimeout(() => requestAnimationFrame(tick), 250);
+        }
+        // Planifie la boucle UNIQUE (idempotent). Onglet caché → rien (le
+        // visibilitychange global rappelle kick()).
+        function schedule() {
+            if (raf || !running || document.hidden) return;
+            lastT = 0;
+            raf = requestAnimationFrame(tick);
         }
         function spawnPulse(cx, cy, str) {
             let pick = 0, max = -1;
             for (let i = 0; i < PULSES.length; i++) if (PULSES[i].age > max) { max = PULSES[i].age; pick = i; }
             PULSES[pick].x = cx; PULSES[pick].y = cy; PULSES[pick].age = 0; PULSES[pick].str = str;
+            pulseAlive = 0;
+            for (let q = 0; q < PULSES.length; q++) if (PULSES[q].age < PLIFE) pulseAlive++;
         }
         function init() {
             if (inited) return;
             readPalette();
-            onResize = () => resize();
+            onResize = () => { if (running) resize(); };
             onMove = (e) => { mx = e.clientX; my = e.clientY; };
             onLeave = () => { mx = my = -1e4; };
             // Appui = une étoile commence à se former au curseur (charge).
@@ -1188,41 +1326,45 @@ void main(){
             onUp = () => {
                 if (!charge) return;
                 const cx = charge.lx, cy = charge.ly, cr = charge.r;
-                const nb = mkOrb(false);
+                let hi = 0; for (let i = 1; i < n; i++) if (orbs[i].y < orbs[hi].y) hi = i;
+                const nb = resetOrb(orbs[hi], false);
                 nb.x = cx; nb.y = cy; nb.r = 2.6 + Math.min(9, cr * 0.13);
                 nb.born = 1; nb.rise = 0.5 + Math.random() * 0.6;
-                let hi = 0; for (let i = 1; i < n; i++) if (orbs[i].y < orbs[hi].y) hi = i;
-                for (const key in nb) orbs[hi][key] = nb[key];
                 spawnPulse(cx, cy, 0.45 + Math.min(1.7, cr / 28));
                 charge = null;
             };
-            addEventListener('resize', onResize);
-            cv.addEventListener('pointermove', onMove);
-            cv.addEventListener('pointerleave', onLeave);
-            cv.addEventListener('pointerdown', onDown);
-            addEventListener('pointerup', onUp);
             resize();
             inited = true;
+        }
+        function listen(on) {
+            if (on === listening) return;
+            listening = on;
+            const f = on ? 'addEventListener' : 'removeEventListener';
+            window[f]('resize', onResize);
+            cv[f]('pointermove', onMove);
+            cv[f]('pointerleave', onLeave);
+            cv[f]('pointerdown', onDown);
+            window[f]('pointerup', onUp);
         }
         function start() {
             init();
             if (running) return;
             running = true; lastT = 0;
+            // resize ignoré pendant l'arrêt (listener retiré) : on rattrape ici.
+            if (W !== innerWidth || H !== innerHeight) resize();
             if (reduce) { update(16, performance.now()); render(performance.now()); running = false; return; }
-            raf = requestAnimationFrame(tick);
+            listen(true);
+            schedule();
         }
         function stop() {
             running = false;
-            if (raf) { cancelAnimationFrame(raf); clearTimeout(raf); raf = 0; }
+            if (raf) { cancelAnimationFrame(raf); raf = 0; }
+            listen(false);
+            charge = null;
         }
-        function dispose() {
-            stop();
-            if (onResize) removeEventListener('resize', onResize);
-            if (cv) { cv.removeEventListener('pointermove', onMove); cv.removeEventListener('pointerleave', onLeave); cv.removeEventListener('pointerdown', onDown); }
-            if (onUp) removeEventListener('pointerup', onUp);
-            onResize = onMove = onLeave = onDown = onUp = null; charge = null; inited = false;
-        }
-        return { init, start, stop, dispose, CFG };
+        function kick() { schedule(); }
+        function dispose() { stop(); inited = false; }
+        return { init, start, stop, kick, dispose, CFG };
     })();
 })();
 </script>
