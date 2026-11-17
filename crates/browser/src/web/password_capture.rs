@@ -4,6 +4,9 @@
 
 use std::rc::Rc;
 
+use gtk::glib::ObjectExt;
+use gtk::prelude::WidgetExt;
+
 use javascriptcore::ValueExt;
 use webkit2gtk::{
     UserContentInjectedFrames, UserContentManagerExt, UserScript,
@@ -44,10 +47,18 @@ pub fn wire(webview: &WebView, vault: Rc<Vault>) {
         &[],
     ));
 
-    let wv = webview.clone();
-    ucm.connect_script_message_received(Some("nyx_password"), move |_, result| {
-        if let Some(value) = result.js_value() {
-            handle(&wv, &vault, &value.to_str());
+    // WeakRef : le UCM (détenu par la vue) ne doit pas retenir la vue.
+    let weak = webview.downgrade();
+    let id = ucm.connect_script_message_received(Some("nyx_password"), move |_, result| {
+        let (Some(wv), Some(value)) = (weak.upgrade(), result.js_value()) else { return };
+        handle(&wv, &vault, &value.to_str());
+    });
+    // À la destruction de la vue : on débranche le handler et on le désenregistre.
+    let ucm_cell = std::cell::RefCell::new(Some((ucm, id)));
+    webview.connect_destroy(move |_| {
+        if let Some((ucm, id)) = ucm_cell.borrow_mut().take() {
+            ucm.disconnect(id);
+            ucm.unregister_script_message_handler("nyx_password");
         }
     });
 }
@@ -78,21 +89,24 @@ fn handle(wv: &WebView, vault: &Rc<Vault>, json: &str) {
         Some(known) => {
             let msg = format!("Mettre à jour le mot de passe de {who} sur {host} ?");
             if let Some(id) = known.id {
-                if ask(wv, &msg) {
-                    let _ = vault.update_password(id, &cred.password);
-                }
+                let (vault, pwd) = (vault.clone(), cred.password);
+                ask(wv, &msg, move || {
+                    let _ = vault.update_password(id, &pwd);
+                });
             }
         }
         None => {
             let msg = format!("Enregistrer le mot de passe de {who} sur {host} ?");
-            if ask(wv, &msg) {
-                let _ = vault.add_password(&Password::new(host, cred.username, cred.password));
-            }
+            let (vault, host) = (vault.clone(), host.to_string());
+            ask(wv, &msg, move || {
+                let _ = vault.add_password(&Password::new(&host, cred.username, cred.password));
+            });
         }
     }
 }
 
-fn ask(wv: &WebView, message: &str) -> bool {
+/// Question non bloquante : `on_yes` est appelé si l'utilisateur répond Oui.
+fn ask(wv: &WebView, message: &str, on_yes: impl FnOnce() + 'static) {
     use gtk::prelude::*;
     use gtk::{ButtonsType, MessageDialog, MessageType, ResponseType};
 
@@ -105,8 +119,12 @@ fn ask(wv: &WebView, message: &str) -> bool {
     if let Some(parent) = wv.toplevel().and_then(|w| w.downcast::<gtk::Window>().ok()) {
         dialog.set_transient_for(Some(&parent));
     }
-    let response = dialog.run();
-    dialog.close();
-    response == ResponseType::Yes
+    let on_yes = std::cell::RefCell::new(Some(on_yes));
+    dialog.connect_response(move |d, response| {
+        d.close();
+        if let (ResponseType::Yes, Some(f)) = (response, on_yes.borrow_mut().take()) {
+            f();
+        }
+    });
+    dialog.show();
 }
-

@@ -21,8 +21,8 @@ use crate::state::downloads::DownloadsHandle;
 use crate::state::settings::Settings;
 use crate::ui::toast::ToastHandle;
 
-/// Câble le bridge sur un `WebContext`. Idempotent par contexte (chaque
-/// nouvel onglet créant son propre contexte appelle install une fois).
+/// Câble le bridge sur un `WebContext`. À appeler une seule fois par contexte
+/// (le contexte est partagé par tous les onglets d'un même mode).
 ///
 /// Effet de bord : crée `temp_root` si absent (mode 0700 Unix) et lance
 /// un boot scan qui purge tout fichier > 24h du run précédent.
