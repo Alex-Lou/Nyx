@@ -5,7 +5,6 @@
 use std::rc::Rc;
 
 use gtk::glib::ObjectExt;
-use gtk::prelude::WidgetExt;
 
 use javascriptcore::ValueExt;
 use webkit2gtk::{
@@ -27,7 +26,8 @@ const CAPTURE_JS: &str = r#"
         var user = form.querySelector('input[type="email"], input[type="text"], input[type="tel"]');
         window.webkit.messageHandlers.nyx_password.postMessage(JSON.stringify({
             username: user ? user.value : '',
-            password: pwd.value
+            password: pwd.value,
+            host: location.hostname
         }));
     }, true);
 })();
@@ -49,18 +49,13 @@ pub fn wire(webview: &WebView, vault: Rc<Vault>) {
 
     // WeakRef : le UCM (détenu par la vue) ne doit pas retenir la vue.
     let weak = webview.downgrade();
-    let id = ucm.connect_script_message_received(Some("nyx_password"), move |_, result| {
+    ucm.connect_script_message_received(Some("nyx_password"), move |_, result| {
         let (Some(wv), Some(value)) = (weak.upgrade(), result.js_value()) else { return };
         handle(&wv, &vault, &value.to_str());
     });
-    // À la destruction de la vue : on débranche le handler et on le désenregistre.
-    let ucm_cell = std::cell::RefCell::new(Some((ucm, id)));
-    webview.connect_destroy(move |_| {
-        if let Some((ucm, id)) = ucm_cell.borrow_mut().take() {
-            ucm.disconnect(id);
-            ucm.unregister_script_message_handler("nyx_password");
-        }
-    });
+    // Pas de désenregistrement à la destruction : les vues liées
+    // (`window.open`) partagent ce UCM, qui meurt avec la dernière d'entre
+    // elles. La closure ne tient qu'une WeakRef → aucun cycle.
 }
 
 fn handle(wv: &WebView, vault: &Rc<Vault>, json: &str) {
@@ -68,6 +63,8 @@ fn handle(wv: &WebView, vault: &Rc<Vault>, json: &str) {
     struct Cred {
         username: String,
         password: String,
+        #[serde(default)]
+        host: String,
     }
 
     let Ok(cred) = serde_json::from_str::<Cred>(json) else { return };
@@ -80,6 +77,12 @@ fn handle(wv: &WebView, vault: &Rc<Vault>, json: &str) {
     }
     let Some(host) = host_of(&uri) else { return };
     let host = host.as_ref();
+    // UCM partagé avec les vues liées : le message peut venir d'un autre
+    // onglet que `wv`. Host différent → on ignore plutôt que d'enregistrer
+    // l'identifiant sous le mauvais domaine.
+    if !cred.host.eq_ignore_ascii_case(host) {
+        return;
+    }
 
     let existing = vault.passwords_for(host).unwrap_or_default();
     let who = if cred.username.is_empty() { "ce compte" } else { &cred.username };
