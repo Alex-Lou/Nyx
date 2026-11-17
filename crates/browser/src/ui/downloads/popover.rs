@@ -14,11 +14,11 @@
 //! par défaut (zoom-scale sur popdown). `refresh()` est appelé à chaque
 //! show + après chaque mutation locale (clear / remove).
 
-use std::cell::Cell;
+use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::Duration;
 
-use gtk::glib::ControlFlow;
+use gtk::glib::{ControlFlow, SourceId};
 use gtk::prelude::*;
 use gtk::{
     Box as GtkBox, Label, ListBox, Orientation, Popover, PositionType, Revealer,
@@ -112,8 +112,9 @@ pub fn build(
 fn wire_show_close(
     pop: &Popover, revealer: &Revealer, root: &GtkBox, refresh: Refresh,
 ) {
-    // Flag d'activité du timer (cellule pour pouvoir mutate depuis show/close).
-    let timer_alive = Rc::new(Cell::new(false));
+    // Source du timer de polling (None = inactif) ; stockée pour pouvoir la
+    // retirer proprement à la fermeture et éviter tout doublon.
+    let timer: Rc<RefCell<Option<SourceId>>> = Rc::new(RefCell::new(None));
 
     // Fondu doux complémentaire au Revealer.
     {
@@ -124,7 +125,7 @@ fn wire_show_close(
     {
         let r = revealer.clone();
         let refresh = refresh.clone();
-        let timer_alive = timer_alive.clone();
+        let timer = timer.clone();
         pop.connect_show(move |_| {
             r.set_reveal_child(false);
             refresh();
@@ -132,23 +133,21 @@ fn wire_show_close(
             gtk::glib::idle_add_local_once(move || r2.set_reveal_child(true));
 
             // Démarre le polling si pas déjà actif.
-            if !timer_alive.get() {
-                timer_alive.set(true);
-                let ta = timer_alive.clone();
+            let mut slot = timer.borrow_mut();
+            if slot.is_none() {
                 let rf = refresh.clone();
-                gtk::glib::timeout_add_local(Duration::from_millis(400), move || {
-                    if ta.get() { rf(); ControlFlow::Continue }
-                    else        { ControlFlow::Break }
-                });
+                *slot = Some(gtk::glib::timeout_add_local(
+                    Duration::from_millis(400),
+                    move || { rf(); ControlFlow::Continue },
+                ));
             }
         });
     }
     // Close : stoppe le polling + reset le revealer.
     {
         let r = revealer.clone();
-        let timer_alive = timer_alive;
         pop.connect_closed(move |_| {
-            timer_alive.set(false);
+            if let Some(id) = timer.borrow_mut().take() { id.remove(); }
             r.set_reveal_child(false);
         });
     }

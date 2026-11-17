@@ -9,6 +9,7 @@ use crate::state::bookmarks::{self, Bookmarks};
 use crate::state::downloads::DownloadsHandle;
 use crate::state::settings::Settings;
 use crate::ui::tabs::TabBar;
+use crate::ui::widgets::{nav_button, popover_shell};
 use crate::ui::toast::ToastHandle;
 use crate::ui::{bookmarks_popover, downloads as downloads_ui, passwords_popover};
 use std::rc::Rc;
@@ -140,14 +141,8 @@ pub fn bookmark_current(tabs: &TabBar, bm: &Bookmarks, url_bar: &Entry) {
 /// L'exécution passe par `web::site_data::execute` ; la politique est dans
 /// `nyx-core::site_data_policy`.
 fn build_forget_popover(anchor: &Button, tabs: &TabBar, url_bar: &Entry) -> gtk::Popover {
-    use gtk::{Label, Orientation, Popover, PositionType};
-    let pop = Popover::new(Some(anchor));
-    pop.set_position(PositionType::Bottom);
-    pop.style_context().add_class("nyx-bm-pop");
-
-    let root = GtkBox::new(Orientation::Vertical, 8);
-    root.set_margin_top(10); root.set_margin_bottom(10);
-    root.set_margin_start(12); root.set_margin_end(12);
+    use gtk::{Label, Popover};
+    let (pop, root) = popover_shell(anchor);
 
     let title = Label::new(Some("Oublier ce site"));
     title.set_xalign(0.0);
@@ -197,14 +192,6 @@ fn flash(url_bar: &Entry, msg: &str) {
         std::time::Duration::from_millis(1400),
         move || ub.set_text(&prev),
     );
-}
-
-fn nav_button(label: &str, tooltip: &str) -> Button {
-    let btn = Button::with_label(label);
-    btn.style_context().add_class("nyx-nav-btn");
-    btn.set_relief(gtk::ReliefStyle::None);
-    btn.set_tooltip_text(Some(tooltip));
-    btn
 }
 
 /// Variante icône : pour les actions où aucun glyph Unicode ne rend bien

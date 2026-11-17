@@ -46,7 +46,7 @@ pub fn build(
     let clear_btn  = widgets::icon_text("user-trash-symbolic",   "Effacer",    "Tout effacer");
     let folder_btn = widgets::icon_text("folder-open-symbolic",  "Dossier",    "Ouvrir le dossier");
     let dest_btn   = widgets::icon_text("folder-new-symbolic",   "Destination","Choisir le dossier de destination");
-    let menu_btn   = menu::build(parent.clone(), settings.clone(), close_shelf.clone(), toaster.clone());
+    let menu_btn   = menu::build(settings.clone());
 
     bar.pack_start(&title, true, true, 0);
     bar.pack_end(&menu_btn,   false, false, 0);

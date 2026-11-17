@@ -1,34 +1,27 @@
 use gtk::prelude::*;
 use gtk::{
     Box as GtkBox, Button, FileChooserAction, FileChooserNative, Label, ListBox,
-    Orientation, Popover, PositionType, ResponseType, ScrolledWindow, Window,
+    Orientation, Popover, ResponseType, ScrolledWindow,
 };
 
 use crate::state::bookmarks::{self, Bookmarks};
 use crate::ui::tabs::TabBar;
+use crate::ui::widgets::{nav_button, popover_shell, toplevel_window, truncate};
 
 /// Petit gestionnaire de favoris ancré sur le bouton ☆ : liste (ouvrir /
 /// supprimer) + import / export au format Netscape (universel).
 /// Dossiers + drag-and-drop : itération suivante.
 pub fn build(anchor: &Button, tabs: &TabBar, bm: &Bookmarks) -> Popover {
-    let pop = Popover::new(Some(anchor));
-    pop.set_position(PositionType::Bottom);
-    pop.style_context().add_class("nyx-bm-pop");
-
-    let root = GtkBox::new(Orientation::Vertical, 8);
+    let (pop, root) = popover_shell(anchor);
     root.set_size_request(300, -1);
-    root.set_margin_top(10);
-    root.set_margin_bottom(10);
-    root.set_margin_start(10);
-    root.set_margin_end(10);
 
     // En-tête : titre + import / export.
     let header = GtkBox::new(Orientation::Horizontal, 6);
     let title = Label::new(Some("Favoris"));
     title.set_xalign(0.0);
     title.style_context().add_class("nyx-bm-title");
-    let import = flat_button("⤓", "Importer (HTML navigateur)");
-    let export = flat_button("⤒", "Exporter (HTML navigateur)");
+    let import = nav_button("⤓", "Importer (HTML navigateur)");
+    let export = nav_button("⤒", "Exporter (HTML navigateur)");
     header.pack_start(&title, true, true, 0);
     header.pack_end(&export, false, false, 0);
     header.pack_end(&import, false, false, 0);
@@ -107,7 +100,7 @@ fn add_row(list: &ListBox, tabs: &TabBar, bm: &Bookmarks, pop: &Popover, i: usiz
     if let Some(lbl) = open.child().and_then(|c| c.downcast::<Label>().ok()) {
         lbl.set_xalign(0.0);
     }
-    let del = flat_button("×", "Supprimer");
+    let del = nav_button("×", "Supprimer");
     row.pack_start(&open, true, true, 0);
     row.pack_end(&del, false, false, 0);
     list.add(&row);
@@ -157,26 +150,5 @@ fn import_dialog(anchor: &Button, bm: &Bookmarks) {
                 }
             }
         }
-    }
-}
-
-fn toplevel_window(w: &Button) -> Option<Window> {
-    w.toplevel().and_then(|t| t.downcast::<Window>().ok())
-}
-
-fn flat_button(label: &str, tooltip: &str) -> Button {
-    let btn = Button::with_label(label);
-    btn.set_relief(gtk::ReliefStyle::None);
-    btn.set_tooltip_text(Some(tooltip));
-    btn.style_context().add_class("nyx-nav-btn");
-    btn
-}
-
-fn truncate(s: &str, max: usize) -> String {
-    if s.chars().count() <= max {
-        s.to_string()
-    } else {
-        let cut: String = s.chars().take(max - 1).collect();
-        format!("{cut}…")
     }
 }

@@ -1,6 +1,7 @@
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
+use gtk::glib::WeakRef;
 use gtk::pango::EllipsizeMode;
 use gtk::prelude::*;
 use gtk::{
@@ -43,8 +44,9 @@ pub fn build(tabs: &TabBar, wv: &WebView, nb: &Notebook, initial: &str) -> Event
     let pinned = Rc::new(Cell::new(false));
 
     // Titre dynamique
-    let lbl = label.clone();
+    let lbl = label.downgrade();
     wv.connect_title_notify(move |wv| {
+        let Some(lbl) = lbl.upgrade() else { return };
         let t = wv.title().map(|s| s.to_string())
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| "Nouvel onglet".into());
@@ -54,25 +56,34 @@ pub fn build(tabs: &TabBar, wv: &WebView, nb: &Notebook, initial: &str) -> Event
 
     // Bouton ×
     {
-        let (nb, wv) = (nb.clone(), wv.clone());
-        close.connect_clicked(move |_| {
-            if let Some(i) = nb.page_num(&wv) { nb.remove_page(Some(i)); }
-        });
+        let (nb, wv) = (nb.downgrade(), wv.downgrade());
+        close.connect_clicked(move |_| close_weak(&nb, &wv));
     }
 
     // Souris : clic milieu = fermer · clic droit = menu contextuel.
     {
-        let (tabs, nb, wv) = (tabs.clone(), nb.clone(), wv.clone());
+        let (tabs, nb, wv) = (tabs.clone(), nb.downgrade(), wv.downgrade());
         let (label, close, pinned) = (label.clone(), close.clone(), pinned.clone());
+        let menu_slot: Rc<RefCell<Option<(Menu, MenuItem)>>> = Rc::new(RefCell::new(None));
         host.connect_button_press_event(move |_, ev| {
             match ev.button() {
                 2 => {
-                    if let Some(i) = nb.page_num(&wv) { nb.remove_page(Some(i)); }
+                    close_weak(&nb, &wv);
                     gtk::glib::Propagation::Stop
                 }
                 3 => {
-                    context_menu(&tabs, &nb, &wv, &label, &close, &pinned)
-                        .popup_at_pointer(Some(ev));
+                    let (Some(nb), Some(wv)) = (nb.upgrade(), wv.upgrade()) else {
+                        return gtk::glib::Propagation::Stop;
+                    };
+                    // Un seul menu par onglet, construit à la demande puis réutilisé
+                    // (aucune fuite ; libéré avec l'onglet).
+                    let mut slot = menu_slot.borrow_mut();
+                    let (menu, pin) = slot.get_or_insert_with(|| {
+                        let (m, pin) = context_menu(&tabs, &nb, &wv, &label, &close, &pinned);
+                        (m, pin)
+                    });
+                    pin.set_label(if pinned.get() { "Détacher" } else { "Épingler" });
+                    menu.popup_at_pointer(Some(ev));
                     gtk::glib::Propagation::Stop
                 }
                 _ => gtk::glib::Propagation::Proceed, // gauche → bascule d'onglet
@@ -87,14 +98,15 @@ pub fn build(tabs: &TabBar, wv: &WebView, nb: &Notebook, initial: &str) -> Event
 fn context_menu(
     tabs: &TabBar, nb: &Notebook, wv: &WebView,
     label: &Label, close: &Button, pinned: &Rc<Cell<bool>>,
-) -> Menu {
+) -> (Menu, MenuItem) {
     let menu = Menu::new();
 
     let pin = MenuItem::with_label(if pinned.get() { "Détacher" } else { "Épingler" });
     {
-        let (nb, wv, label, close, pinned) =
-            (nb.clone(), wv.clone(), label.clone(), close.clone(), pinned.clone());
+        let (nb, wv) = (nb.downgrade(), wv.downgrade());
+        let (label, close, pinned) = (label.clone(), close.clone(), pinned.clone());
         pin.connect_activate(move |_| {
+            let (Some(nb), Some(wv)) = (nb.upgrade(), wv.upgrade()) else { return };
             let now = !pinned.get();
             pinned.set(now);
             set_pinned(&nb, &wv, &label, &close, now);
@@ -103,8 +115,9 @@ fn context_menu(
 
     let dup = MenuItem::with_label("Dupliquer");
     {
-        let (tabs, wv) = (tabs.clone(), wv.clone());
+        let (tabs, wv) = (tabs.clone(), wv.downgrade());
         dup.connect_activate(move |_| {
+            let Some(wv) = wv.upgrade() else { return };
             if let Some(uri) = wv.uri() {
                 if !uri.is_empty() { tabs.open_url(&uri); }
             }
@@ -112,25 +125,26 @@ fn context_menu(
     }
 
     let reload = MenuItem::with_label("Recharger");
-    { let wv = wv.clone(); reload.connect_activate(move |_| wv.reload()); }
+    {
+        let wv = wv.downgrade();
+        reload.connect_activate(move |_| { if let Some(wv) = wv.upgrade() { wv.reload(); } });
+    }
 
     let close_it = MenuItem::with_label("Fermer");
     {
-        let (nb, wv) = (nb.clone(), wv.clone());
-        close_it.connect_activate(move |_| {
-            if let Some(i) = nb.page_num(&wv) { nb.remove_page(Some(i)); }
-        });
+        let (nb, wv) = (nb.downgrade(), wv.downgrade());
+        close_it.connect_activate(move |_| close_weak(&nb, &wv));
     }
 
     let close_others = MenuItem::with_label("Fermer les autres");
     {
-        let (nb, wv) = (nb.clone(), wv.clone());
+        let (nb, wv) = (nb.downgrade(), wv.downgrade());
         close_others.connect_activate(move |_| {
+            let (Some(nb), Some(wv)) = (nb.upgrade(), wv.upgrade()) else { return };
             for i in (0..nb.n_pages()).rev() {
-                if let Some(page) = nb.nth_page(Some(i)) {
-                    let keep = page.downcast_ref::<WebView>().map(|p| p == &wv).unwrap_or(false);
-                    if !keep { nb.remove_page(Some(i)); }
-                }
+                let Some(page) = nb.nth_page(Some(i)) else { continue };
+                let Some(p) = page.downcast_ref::<WebView>() else { continue };
+                if p != &wv && !is_pinned(&nb, p) { nb.remove_page(Some(i)); }
             }
         });
     }
@@ -142,7 +156,23 @@ fn context_menu(
     menu.append(&close_it);
     menu.append(&close_others);
     menu.show_all();
-    menu
+    (menu, pin)
+}
+
+/// Ferme l'onglet portant `wv` (no-op s'il n'est plus dans le notebook).
+pub(super) fn close_tab(nb: &Notebook, wv: &WebView) {
+    if let Some(i) = nb.page_num(wv) { nb.remove_page(Some(i)); }
+}
+
+fn close_weak(nb: &WeakRef<Notebook>, wv: &WeakRef<WebView>) {
+    if let (Some(nb), Some(wv)) = (nb.upgrade(), wv.upgrade()) { close_tab(&nb, &wv); }
+}
+
+/// L'onglet de `wv` est-il épinglé ? (classe CSS posée par `set_pinned`)
+pub(super) fn is_pinned(nb: &Notebook, wv: &WebView) -> bool {
+    nb.tab_label(wv)
+        .map(|t| t.style_context().has_class("nyx-tab-pinned"))
+        .unwrap_or(false)
 }
 
 /// Épingle/détache : onglet compact (favicon seul) déplacé en tête, non

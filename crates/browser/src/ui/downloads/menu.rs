@@ -8,30 +8,18 @@
 //!   - CheckButton « Re-vérifier avant ouverture » → toggle
 //!     `settings.recheck_on_run`.
 
-use std::rc::Rc;
-
 use gtk::prelude::*;
 use gtk::{
     Box as GtkBox, CheckButton, IconSize, Image, MenuButton, Orientation,
-    Popover, PositionType, Window,
+    Popover, PositionType,
 };
 
 use crate::state::settings::Settings;
-use crate::ui::toast::ToastHandle;
 
 const POP_WIDTH: i32 = 240;
 
 /// Construit le `MenuButton` ⋮ avec un Popover ancré + auto-flip.
-/// `close_shelf` et `toaster` sont réservés pour de futures actions ;
-/// signature stable pour ne pas casser l'appelant si on ajoute des items.
-pub fn build(
-    parent: Option<Window>,
-    settings: Settings,
-    close_shelf: Rc<dyn Fn()>,
-    toaster: ToastHandle,
-) -> MenuButton {
-    let _ = (parent, close_shelf, toaster); // réservés pour usage futur
-
+pub fn build(settings: Settings) -> MenuButton {
     let btn = MenuButton::new();
     btn.set_image(Some(&Image::from_icon_name(
         Some("view-more-symbolic"), IconSize::Button,

@@ -3,8 +3,10 @@ use std::rc::Rc;
 use gtk::prelude::*;
 use gtk::{
     Box as GtkBox, Button, Entry, InputPurpose, Label, ListBox, Orientation,
-    Popover, PositionType, ScrolledWindow,
+    Popover, ScrolledWindow,
 };
+
+use crate::ui::widgets::{nav_button, popover_shell};
 use vault::{Password, Vault};
 
 /// Gestionnaire de mots de passe ancré sur le bouton ⚿ (Sprint 2.7) :
@@ -12,16 +14,8 @@ use vault::{Password, Vault};
 /// copie dans le presse-papier, suppression. Les secrets ne quittent jamais
 /// le vault sauf via le bouton copier.
 pub fn build(anchor: &Button, vault: &Rc<Vault>) -> Popover {
-    let pop = Popover::new(Some(anchor));
-    pop.set_position(PositionType::Bottom);
-    pop.style_context().add_class("nyx-bm-pop");
-
-    let root = GtkBox::new(Orientation::Vertical, 8);
+    let (pop, root) = popover_shell(anchor);
     root.set_size_request(340, -1);
-    root.set_margin_top(10);
-    root.set_margin_bottom(10);
-    root.set_margin_start(10);
-    root.set_margin_end(10);
 
     let title = Label::new(Some("Mots de passe"));
     title.set_xalign(0.0);
@@ -132,8 +126,8 @@ fn repopulate(list: &ListBox, vault: &Rc<Vault>) {
             text.pack_start(&user_lbl, false, false, 0);
             text.pack_start(&dom_lbl, false, false, 0);
 
-            let copy = flat_button("⧉", "Copier le mot de passe");
-            let del  = flat_button("×", "Supprimer");
+            let copy = nav_button("⧉", "Copier le mot de passe");
+            let del  = nav_button("×", "Supprimer");
 
             row.pack_start(&text, true, true, 0);
             row.pack_end(&del, false, false, 0);
@@ -158,12 +152,4 @@ fn repopulate(list: &ListBox, vault: &Rc<Vault>) {
         }
     }
     list.show_all();
-}
-
-fn flat_button(label: &str, tooltip: &str) -> Button {
-    let btn = Button::with_label(label);
-    btn.set_relief(gtk::ReliefStyle::None);
-    btn.set_tooltip_text(Some(tooltip));
-    btn.style_context().add_class("nyx-nav-btn");
-    btn
 }

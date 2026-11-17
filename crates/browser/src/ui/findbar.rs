@@ -5,6 +5,7 @@ use gtk::{
 use webkit2gtk::{FindController, FindControllerExt, FindOptions, WebViewExt};
 
 use crate::ui::tabs::TabBar;
+use crate::ui::widgets::nav_button;
 
 /// Barre de recherche dans la page (Sprint 4.2, Ctrl+F).
 #[derive(Clone)]
@@ -20,9 +21,9 @@ impl FindBar {
         entry.set_placeholder_text(Some("Rechercher dans la page…"));
         entry.set_width_chars(32);
 
-        let prev_btn  = small_button("▲", "Précédent");
-        let next_btn  = small_button("▼", "Suivant");
-        let close_btn = small_button("×", "Fermer (Échap)");
+        let prev_btn  = nav_button("▲", "Précédent");
+        let next_btn  = nav_button("▼", "Suivant");
+        let close_btn = nav_button("×", "Fermer (Échap)");
 
         let bar = GtkBox::new(Orientation::Horizontal, 4);
         bar.style_context().add_class("nyx-findbar");
@@ -97,12 +98,4 @@ impl FindBar {
     fn controller(&self) -> Option<FindController> {
         self.tabs.current_webview()?.find_controller()
     }
-}
-
-fn small_button(label: &str, tooltip: &str) -> Button {
-    let btn = Button::with_label(label);
-    btn.style_context().add_class("nyx-nav-btn");
-    btn.set_relief(gtk::ReliefStyle::None);
-    btn.set_tooltip_text(Some(tooltip));
-    btn
 }
