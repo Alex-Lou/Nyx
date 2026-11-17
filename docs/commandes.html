@@ -74,7 +74,8 @@ td:first-child { font-family: var(--mono); font-size: 13px; white-space: nowrap 
   </header>
 
   <nav aria-label="Sommaire">
-    <a href="#installer">Installer</a>
+    <a href="#windows">Windows</a>
+    <a href="#installer">Installer (Linux)</a>
     <a href="#maj">Mettre à jour</a>
     <a href="#lancer">Compiler et lancer</a>
     <a href="#verifier">Vérifier</a>
@@ -86,8 +87,20 @@ td:first-child { font-family: var(--mono); font-size: 13px; white-space: nowrap 
   </nav>
 
   <main>
+    <section id="windows">
+      <h2>Utiliser Nyx sous Windows <small>Nyx Capsule</small></h2>
+      <p>Nyx tourne dans une mini-distribution Linux dédiée, <code class="i">NyxCapsule</code>, gérée pour toi. Sa fenêtre s'affiche comme une appli Windows et ses téléchargements arrivent dans ton dossier Téléchargements Windows. Depuis Git Bash, dans le dossier du projet :</p>
+      <div class="cmd"><pre><span class="p">$ </span>powershell -ExecutionPolicy Bypass -File windows/nyx.ps1 install   <span class="c"># une fois : capsule + compilation + raccourci Bureau</span>
+<span class="p">$ </span>powershell -ExecutionPolicy Bypass -File windows/nyx.ps1 start     <span class="c"># ou double-clic sur le raccourci Nyx</span>
+<span class="p">$ </span>powershell -ExecutionPolicy Bypass -File windows/nyx.ps1 build     <span class="c"># après un git pull</span>
+<span class="p">$ </span>powershell -ExecutionPolicy Bypass -File windows/nyx.ps1 shell     <span class="c"># terminal dans la capsule</span>
+<span class="p">$ </span>powershell -ExecutionPolicy Bypass -File windows/nyx.ps1 uninstall <span class="c"># supprime la capsule</span></pre></div>
+      <p>Il faut WSL. S'il manque, ouvre PowerShell en administrateur, lance <code class="i">wsl --install --no-distribution</code>, puis redémarre.</p>
+      <p class="note"><strong>Attention :</strong> le coffre (mots de passe, favoris, historique) vit dans la capsule. <code class="i">uninstall</code> le supprime aussi.</p>
+    </section>
+
     <section id="installer">
-      <h2>Installer <small>une seule fois</small></h2>
+      <h2>Installer sous Linux ou WSL <small>une seule fois</small></h2>
       <p>Les bibliothèques système dont Nyx a besoin (Ubuntu / WSL), puis la récupération du projet.</p>
       <div class="cmd"><pre><span class="p">$ </span>sudo apt install libwebkit2gtk-4.1-dev libgtk-3-dev libsqlcipher-dev pkg-config
 <span class="p">$ </span>git clone https://github.com/Alex-Lou/Nyx.git
@@ -171,6 +184,7 @@ td:first-child { font-family: var(--mono); font-size: 13px; white-space: nowrap 
       <div class="tw"><table>
         <thead><tr><th>Symptôme</th><th>Solution</th></tr></thead>
         <tbody>
+          <tr><td>pkg-config could not be found</td><td>Tu compiles dans Git Bash : Nyx a besoin de Linux. Utilise <code class="i">windows/nyx.ps1</code>.</td></tr>
           <tr><td>Un changement n'apparaît pas</td><td>Relance <code class="i">cargo run --bin nyx</code>. <code class="i">cargo clippy</code> seul ne recompile pas le binaire.</td></tr>
           <tr><td>package `browser` not found</td><td>Le paquet s'appelle <code class="i">nyx</code> : <code class="i">-p nyx</code> ou <code class="i">--workspace</code>.</td></tr>
           <tr><td>webkit2gtk-4.1 not found</td><td>Installe les bibliothèques de la section Installer.</td></tr>
