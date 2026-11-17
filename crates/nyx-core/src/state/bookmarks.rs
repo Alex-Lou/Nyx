@@ -1,6 +1,8 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use crate::url::html_escape as escape;
+
 /// Store en mémoire des favoris. Modèle **path-based** : chaque favori connaît
 /// son dossier ("" = racine, "Travail/Outils" = sous-chemin). Évite la refonte
 /// arbre tout en supportant dossiers + DnD (le déplacement = changer le path).
@@ -195,10 +197,6 @@ fn find_ci(haystack: &str, needle_lower: &str) -> Option<usize> {
     }
     (0..=h.len() - n.len())
         .find(|&start| (0..n.len()).all(|k| h[start + k].to_ascii_lowercase() == n[k]))
-}
-
-fn escape(s: &str) -> String {
-    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
 }
 
 fn unescape(s: &str) -> String {

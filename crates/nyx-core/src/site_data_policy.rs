@@ -4,6 +4,8 @@
 //! Sprint suivant : intégration avec le vault (oublier le site = retirer aussi
 //! ses credentials) et les permissions stockées.
 
+use crate::url::{host_of, origin_of};
+
 /// Granularité de l'oubli demandée par l'utilisateur.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum Scope {
@@ -32,7 +34,7 @@ pub struct Plan {
 pub fn plan_for(url: &str, scope: Scope) -> Option<Plan> {
     let target = match scope {
         Scope::Origin => origin_of(url)?,
-        Scope::Domain => etld_plus_one(host_of(url)?)?,
+        Scope::Domain => etld_plus_one(&host_of(url)?)?,
     };
     Some(Plan {
         scope,
@@ -43,41 +45,6 @@ pub fn plan_for(url: &str, scope: Scope) -> Option<Plan> {
         clear_workers:     true,
         clear_permissions: true,
     })
-}
-
-/// `https://sub.example.com:443/path?q=1` → `https://sub.example.com`.
-/// Le port par défaut du scheme est retiré (origine canonique RFC 6454).
-fn origin_of(url: &str) -> Option<String> {
-    let s = url.trim();
-    let (scheme, default_port) = if s.starts_with("https://") {
-        ("https", "443")
-    } else if s.starts_with("http://") {
-        ("http", "80")
-    } else {
-        return None;
-    };
-    let after_scheme = s.find("://").map(|i| i + 3)?;
-    let rest = &s[after_scheme..];
-    let end = rest.find('/').unwrap_or(rest.len());
-    let mut authority = &rest[..end];
-    authority = authority.split('@').next_back().unwrap_or(authority);
-    if authority.is_empty() { return None; }
-    // Retire ":port" si c'est le port par défaut.
-    let canonical = match authority.rsplit_once(':') {
-        Some((host, port)) if port == default_port => host,
-        _ => authority,
-    };
-    Some(format!("{scheme}://{canonical}"))
-}
-
-/// Extrait l'host (sans port).
-fn host_of(url: &str) -> Option<&str> {
-    let after = url.find("://").map(|i| &url[i + 3..])?;
-    let end = after.find(['/', '?', '#']).unwrap_or(after.len());
-    let host = &after[..end];
-    let host = host.split('@').next_back().unwrap_or(host); // userinfo@host
-    let host = host.split(':').next().unwrap_or(host);      // host:port
-    if host.is_empty() { None } else { Some(host) }
 }
 
 /// Heuristique eTLD+1 pragmatique (sans Public Suffix List).

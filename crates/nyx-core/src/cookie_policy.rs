@@ -21,6 +21,7 @@
 
 use crate::mode::Mode;
 use crate::nyxguard;
+use crate::url;
 use crate::sec_log::{self, Level};
 
 // ─── Modèle ─────────────────────────────────────────────────────────────────
@@ -126,10 +127,10 @@ pub fn evaluate(attrs: &CookieAttrs, ctx: &Context) -> Report {
         reasons.push(Reason::EmptyName);
     }
 
-    let scheme = scheme_of(ctx.page_url);
+    let scheme = url::scheme_of(ctx.page_url).unwrap_or_default();
     let is_https = scheme == "https";
     let is_http  = scheme == "http";
-    let local    = is_localhost(ctx.page_url);
+    let local    = url::host_of(ctx.page_url).is_some_and(|h| url::is_loopback_host(&h));
 
     // ─ Scheme / Secure cohérence ─
     if is_http && attrs.secure {
@@ -168,8 +169,8 @@ pub fn evaluate(attrs: &CookieAttrs, ctx: &Context) -> Report {
 
     // ─ 3rd-party tracker ─
     if ctx.is_third_party {
-        let host = host_of(ctx.request_url);
-        if !host.is_empty() && nyxguard::is_tracker_host(host) {
+        let host = url::host_of(ctx.request_url).unwrap_or_default();
+        if !host.is_empty() && nyxguard::is_tracker_host(&host) {
             reasons.push(Reason::ThirdPartyTracker);
         }
     }
@@ -236,23 +237,6 @@ fn rank(d: Decision) -> u8 {
 }
 
 // ─── Helpers URL (locaux : on ne dépend pas d'`url::Url`) ──────────────────
-
-fn scheme_of(url: &str) -> &str {
-    let url = url.trim();
-    url.find("://").map(|i| &url[..i]).unwrap_or("")
-}
-
-fn host_of(url: &str) -> &str {
-    let url = url.trim();
-    let after = url.find("://").map(|i| &url[i + 3..]).unwrap_or("");
-    let end = after.find(['/', ':', '?', '#']).unwrap_or(after.len());
-    &after[..end]
-}
-
-fn is_localhost(url: &str) -> bool {
-    let h = host_of(url);
-    h == "localhost" || h == "127.0.0.1" || h == "[::1]" || h.starts_with("127.")
-}
 
 /// `true` si `domain` (avec ou sans point de tête) est un suffixe public
 /// (`.com`, `.co.uk`, …). Sert à bloquer `Domain=.com` qui ferait fuiter

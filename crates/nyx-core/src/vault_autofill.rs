@@ -12,6 +12,7 @@
 
 use crate::domain_risk::{analyze_url, Risk};
 use crate::sec_log::{self, Level};
+use crate::url;
 
 /// Mode global du navigateur — partagé via [`crate::mode`]. Ré-exporté pour
 /// préserver la voie d'import `vault_autofill::Mode` historique.
@@ -102,11 +103,11 @@ pub enum Reason {
 pub fn decide(req: &Request) -> Report {
     let mut reasons = Vec::new();
 
-    let page_origin = canonical_origin(req.page_url);
+    let page_origin = url::origin_of(req.page_url).unwrap_or_default();
     let form_origin = if req.form_action_url.is_empty() {
         page_origin.clone()
     } else {
-        canonical_origin(req.form_action_url)
+        url::origin_of(req.form_action_url).unwrap_or_default()
     };
 
     collect_origin_risks(req, &page_origin, &form_origin, &mut reasons);
@@ -125,12 +126,12 @@ pub fn decide(req: &Request) -> Report {
 fn collect_origin_risks(
     req: &Request, page_origin: &str, form_origin: &str, out: &mut Vec<Reason>,
 ) {
-    if req.page_url.starts_with("http://") && !is_localhost(page_origin) {
+    if url::is_http(req.page_url) && !url::is_loopback_url(page_origin) {
         out.push(Reason::HttpPage);
     }
     if !req.form_action_url.is_empty()
-        && req.form_action_url.starts_with("http://")
-        && !is_localhost(form_origin)
+        && url::is_http(req.form_action_url)
+        && !url::is_loopback_url(form_origin)
     {
         out.push(Reason::HttpFormAction);
     }
@@ -224,27 +225,6 @@ fn rank(d: Decision) -> u8 {
 
 // ─── Helpers origine (mêmes règles que site_data_policy, sans dupliquer
 // la fonction au prix d'un coupling : on reste local et explicite). ────────
-
-/// `https://user:pw@host:443/p?q` → `https://host`.
-fn canonical_origin(url: &str) -> String {
-    let s = url.trim();
-    let (scheme, default_port) = if s.starts_with("https://") { ("https", "443") }
-        else if s.starts_with("http://") { ("http", "80") }
-        else { return String::new() };
-    let after = &s[scheme.len() + 3..];
-    let end = after.find('/').unwrap_or(after.len());
-    let authority = after[..end].rsplit('@').next().unwrap_or(&after[..end]);
-    let host = match authority.rsplit_once(':') {
-        Some((h, p)) if p == default_port => h,
-        _ => authority,
-    };
-    if host.is_empty() { String::new() } else { format!("{scheme}://{host}") }
-}
-
-fn is_localhost(origin: &str) -> bool {
-    origin.contains("//localhost") || origin.contains("//127.")
-        || origin.contains("//[::1]")
-}
 
 /// `https://sub.example.com` est un sous-domaine de `https://example.com` (même scheme).
 fn is_subdomain_of(child: &str, parent: &str) -> bool {

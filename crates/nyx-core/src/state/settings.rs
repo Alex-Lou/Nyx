@@ -2,6 +2,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use crate::nyxguard::NyxGuard;
+use crate::url::{form_decode, form_encode};
 
 pub type Settings = Rc<RefCell<AppSettings>>;
 
@@ -56,7 +57,7 @@ pub enum SearchEngine { DuckDuckGo, Brave, Ecosia }
 
 impl SearchEngine {
     pub fn search_url(&self, query: &str) -> String {
-        let q = urlencode(query);
+        let q = form_encode(query);
         match self {
             Self::DuckDuckGo => format!("https://duckduckgo.com/?q={q}"),
             Self::Brave      => format!("https://search.brave.com/search?q={q}"),
@@ -127,11 +128,11 @@ pub fn apply_from_url(url: &str, settings: &Settings, blocker: &NyxGuard) -> boo
 
     let mut s = settings.borrow_mut();
     if let Some(e) = params.get("engine") { s.search_engine = SearchEngine::from_id(e); }
-    if let Some(h) = params.get("home")   { s.home_url = urldecode(h); }
+    if let Some(h) = params.get("home")   { s.home_url = form_decode(h); }
     if let Some(l) = params.get("lang")   { s.language = Language::from_id(l); }
     if let Some(c) = params.get("lasttab"){ s.on_last_tab = LastTab::from_id(c); }
     if let Some(d) = params.get("dldir")  {
-        let decoded = urldecode(d);
+        let decoded = form_decode(d);
         s.downloads_dir = if decoded.is_empty() { None } else { Some(decoded) };
     }
 
@@ -161,8 +162,8 @@ pub fn to_query(s: &AppSettings) -> String {
         s.search_engine.id(),
         s.language.id(),
         s.on_last_tab.id(),
-        urlencode(&s.home_url),
-        urlencode(s.downloads_dir.as_deref().unwrap_or("")),
+        form_encode(&s.home_url),
+        form_encode(s.downloads_dir.as_deref().unwrap_or("")),
     );
     // recheckrun n'est appliqué que si présent → toujours l'émettre.
     q.push_str(&format!("&recheckrun={}", s.recheck_on_run));
@@ -179,16 +180,6 @@ pub fn to_query(s: &AppSettings) -> String {
         }
     }
     q
-}
-
-fn urlencode(s: &str) -> String {
-    s.replace('&', "%26").replace('#', "%23").replace(' ', "+")
-}
-
-fn urldecode(s: &str) -> String {
-    s.replace('+', " ")
-     .replace("%26", "&").replace("%23", "#")
-     .replace("%3A", ":").replace("%2F", "/").replace("%3F", "?")
 }
 
 #[cfg(test)]

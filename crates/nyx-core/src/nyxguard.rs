@@ -1,6 +1,8 @@
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use crate::url::{host_matches, host_of};
+
 /// NyxGuard — le bouclier de Nyx : pub / trackers / connexions tierces.
 /// (Sprint 3 : passage prévu sur la crate `adblock` de Brave + EasyList.)
 ///
@@ -37,7 +39,8 @@ impl NyxGuard {
     pub fn set_block_accounts(&self, v: bool) { self.accounts_on.store(v, Ordering::Relaxed); }
 
     pub fn should_block(&self, url: &str) -> bool {
-        let host = extract_host(url);
+        let host = host_of(url).unwrap_or_default();
+        let host = host.as_ref();
         if self.ads_on.load(Ordering::Relaxed) {
             let ad = self.ad_domains.iter().any(|d| host_matches(host, d))
                 || self.ad_paths.iter().any(|p| url_contains_path(url, p));
@@ -54,18 +57,6 @@ impl NyxGuard {
 
 impl Default for NyxGuard {
     fn default() -> Self { Self::new() }
-}
-
-/// `host == d` ou sous-domaine de `d` (`.d`). Évite l'injection `d.evil.com`.
-fn host_matches(host: &str, d: &str) -> bool {
-    host == d || host.ends_with(&format!(".{d}"))
-}
-
-/// `"https://ads.x.com/img"` → `"ads.x.com"`.
-fn extract_host(url: &str) -> &str {
-    let after = url.find("://").map(|i| &url[i + 3..]).unwrap_or(url);
-    let end   = after.find(['/', ':', '?', '#']).unwrap_or(after.len());
-    &after[..end]
 }
 
 /// Règle suivie d'un délimiteur : évite que `facebook.com/tr` matche

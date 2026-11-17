@@ -15,6 +15,7 @@
 use std::collections::HashMap;
 
 use crate::sec_log::{self, Level};
+use crate::url;
 
 mod preload;
 
@@ -80,20 +81,18 @@ impl HstsStore {
 
     /// Décide pour une URL. `now` est l'epoch unix courant.
     pub fn decide(&self, url: &str, now: i64) -> Decision {
-        let (scheme, host) = parse_url(url);
-        if scheme != "http" { return Decision::Pass; } // https/file/nyx/data → no-op
-        if host.is_empty() { return Decision::Pass; }
-        let host = host.to_ascii_lowercase();
+        if !url::is_http(url) { return Decision::Pass; } // https/file/nyx/data → no-op
+        let Some(host) = url::host_of(url) else { return Decision::Pass; };
 
         // 1. Match exact non-expiré.
-        if let Some(e) = self.entries.get(host.as_str()) {
+        if let Some(e) = self.entries.get(host.as_ref()) {
             if e.expires_at_unix > now {
                 sec_log::emit(Level::Allow, &format!("hsts upgrade http://{host}"));
                 return Decision::UpgradeToHttps;
             }
         }
         // 2. Match parent avec includeSubdomains.
-        for parent in parents(host.as_str()) {
+        for parent in parents(host.as_ref()) {
             if let Some(e) = self.entries.get(parent) {
                 if e.include_subdomains && e.expires_at_unix > now {
                     sec_log::emit(Level::Allow,
@@ -103,7 +102,7 @@ impl HstsStore {
             }
         }
         // 3. Preload list (toujours includeSubdomains côté politique).
-        if preload::is_preloaded(host.as_str()) {
+        if preload::is_preloaded(host.as_ref()) {
             sec_log::emit(Level::Allow,
                 &format!("hsts upgrade http://{host} (preload)"));
             return Decision::UpgradeToHttps;
@@ -150,25 +149,6 @@ pub(crate) fn parse_sts_header(h: &str) -> Option<(u64, bool)> {
 }
 
 // ─── URL / host helpers ────────────────────────────────────────────────────
-
-fn parse_url(url: &str) -> (&str, &str) {
-    let s = url.trim();
-    let Some(idx) = s.find("://") else { return ("", ""); };
-    let scheme = &s[..idx];
-    let after = &s[idx + 3..];
-    let end = after.find(['/', '?', '#']).unwrap_or(after.len());
-    let authority = &after[..end];
-    // Strip userinfo
-    let authority = authority.rsplit('@').next().unwrap_or(authority);
-    // Strip port — IPv6 brackets keep the host
-    let host = if let Some(stripped) = authority.strip_prefix('[') {
-        // [::1]:8080 → ::1 (on retire les brackets)
-        if let Some(end) = stripped.find(']') { &stripped[..end] } else { stripped }
-    } else {
-        authority.split(':').next().unwrap_or(authority)
-    };
-    (scheme, host)
-}
 
 fn normalize_host(host: &str) -> String {
     host.trim()

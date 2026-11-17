@@ -15,6 +15,7 @@ use std::rc::Rc;
 
 use crate::mode::Mode;
 use crate::sec_log::{self, Level};
+use crate::url;
 
 /// Surface à laquelle un site demande accès.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -76,7 +77,7 @@ impl Store {
     /// si la décision était `Ask` et que l'utilisateur a répondu.
     pub fn decide(&self, origin: &str, perm: Permission) -> Decision {
         // Origine vide ou non-HTTPS → refus sec, jamais d'accès périphérique.
-        if !is_trustworthy(origin) {
+        if !url::is_potentially_trustworthy(origin) {
             sec_log::emit(Level::Deny,
                 &format!("{} on non-secure origin: {origin}", perm.name()));
             return Decision::Deny;
@@ -123,20 +124,6 @@ impl Store {
 
     pub fn len(&self) -> usize { self.saved.len() }
     pub fn is_empty(&self) -> bool { self.saved.is_empty() }
-}
-
-/// HTTPS ou origine locale (localhost / 127.0.0.1) → trustworthy.
-/// Tout le reste → refus dur. Aligné sur le W3C Secure Contexts spec.
-fn is_trustworthy(origin: &str) -> bool {
-    if let Some(rest) = origin.strip_prefix("https://") {
-        return !rest.is_empty();
-    }
-    if let Some(rest) = origin.strip_prefix("http://") {
-        return rest.starts_with("localhost")
-            || rest.starts_with("127.")
-            || rest.starts_with("[::1]");
-    }
-    false
 }
 
 #[cfg(test)]

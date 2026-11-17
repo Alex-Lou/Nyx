@@ -8,6 +8,7 @@
 use std::collections::HashSet;
 
 use crate::sec_log::{self, Level};
+use crate::url;
 
 /// Niveau de risque global d'un domaine.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -34,21 +35,26 @@ pub struct Analysis {
 
 /// Extrait l'host d'une URL puis analyse. Retourne `None` pour les URLs
 /// internes (`nyx://`, `file://`, `data:`…) qui n'ont pas d'host à juger.
-pub fn analyze_url(url: &str) -> Option<Analysis> {
-    let s = url.trim();
-    let after = s.find("://").map(|i| &s[i + 3..])?;
-    let after = after.strip_prefix("www.").unwrap_or(after);
-    let end = after.find(['/', ':', '?', '#']).unwrap_or(after.len());
-    let host = &after[..end];
-    if host.is_empty() || !s.starts_with("http") {
+pub fn analyze_url(u: &str) -> Option<Analysis> {
+    if !matches!(url::scheme_of(u).as_deref(), Some("http" | "https")) {
         return None;
     }
-    Some(analyze(host))
+    let host = url::host_of(u)?;
+    Some(analyze(host.strip_prefix("www.").unwrap_or(&host)))
 }
 
 /// Analyse un host. Idempotent, déterministe, sans I/O — pure logic.
 pub fn analyze(host: &str) -> Analysis {
     let host = host.trim().trim_end_matches('.');
+
+    // Punycode (`xn--…`) : WebKit nous donne l'URL en ASCII — on la décode
+    // pour juger l'homographe sur sa forme Unicode réelle.
+    if host.is_ascii() && host.split('.').any(|l| l.starts_with("xn--")) {
+        let (unicode, _) = idna::domain_to_unicode(host);
+        if !unicode.is_ascii() {
+            return analyze(&unicode);
+        }
+    }
 
     // ASCII direct / IP / localhost → pas d'IDN.
     if host.is_ascii() {
@@ -177,11 +183,21 @@ mod tests {
     }
 
     #[test]
-    fn punycode_ascii_is_suspicious() {
-        // ASCII brut avec xn-- → on signale (utilisateur peut vouloir voir l'unicode).
+    fn punycode_ascii_is_decoded_then_judged() {
+        // WebKit livre les hosts en punycode : on juge la forme Unicode.
+        // bücher.de (IDN légitime) → Suspicious, plus jamais Safe par défaut.
         let a = analyze("xn--bcher-kva.de");
-        assert!(a.has_punycode);
-        assert_eq!(a.risk, Risk::Safe); // ASCII pur → Safe, l'UI peut afficher Unicode si elle veut
+        assert_eq!(a.risk, Risk::Suspicious);
+        assert_eq!(a.unicode_host, "bücher.de");
+    }
+
+    #[test]
+    fn punycode_homograph_is_dangerous() {
+        // pаypal.com (а cyrillique) arrive en xn--… : doit être Dangerous.
+        let ascii = idna::domain_to_ascii("pаypal.com").unwrap();
+        assert!(ascii.starts_with("xn--"));
+        assert_eq!(analyze(&ascii).risk, Risk::Dangerous);
+        assert_eq!(analyze_url(&format!("https://u:p@{ascii}/login")).unwrap().risk, Risk::Dangerous);
     }
 
     #[test]

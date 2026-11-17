@@ -10,6 +10,7 @@
 
 use crate::domain_risk::{analyze_url, Risk};
 use crate::sec_log::{self, Level};
+use crate::url;
 
 /// Mode global du navigateur — partagé via [`crate::mode`]. Ré-exporté pour
 /// préserver la voie d'import `download_policy::Mode` historique.
@@ -155,8 +156,8 @@ pub fn analyze(req: &Request) -> Report {
     }
 
     // 4. Origines initiator + final.
-    let initiator_origin = origin_of(req.initiator_url);
-    let final_origin     = origin_of(req.final_url);
+    let initiator_origin = url::origin_of(req.initiator_url).unwrap_or_default();
+    let final_origin     = url::origin_of(req.final_url).unwrap_or_default();
     if !initiator_origin.is_empty() && !final_origin.is_empty()
         && initiator_origin != final_origin
     {
@@ -170,7 +171,7 @@ pub fn analyze(req: &Request) -> Report {
         Some(Risk::Suspicious) => reasons.push(Reason::SuspiciousOrigin),
         _ => {}
     }
-    if req.final_url.starts_with("http://") && !is_localhost(&final_origin) {
+    if url::is_http(req.final_url) && !url::is_loopback_url(&final_origin) {
         reasons.push(Reason::HttpDownload);
     }
 
@@ -306,6 +307,10 @@ fn sanitize_filename(raw: &str) -> (String, Vec<Reason>) {
         cleaned.clear();
     }
 
+    // Points/espaces de fin : Windows les retire à l'écriture, donc
+    // `evil.exe.` deviendrait `evil.exe` APRÈS notre classification.
+    cleaned.truncate(cleaned.trim_end_matches(['.', ' ']).len());
+
     if cleaned.is_empty() {
         reasons.push(Reason::EmptyFilename);
         cleaned = "download".to_string();
@@ -313,7 +318,8 @@ fn sanitize_filename(raw: &str) -> (String, Vec<Reason>) {
 
     if cleaned.len() > 255 {
         reasons.push(Reason::TooLongFilename);
-        cleaned.truncate(200);
+        // Coupe sur une frontière de caractère (truncate octet = panic UTF-8).
+        cleaned = cleaned.chars().take(200).collect();
     }
 
     // Noms réservés Windows (CON, PRN, AUX, NUL, COM1-9, LPT1-9) : on préfixe.
@@ -410,26 +416,6 @@ fn classify_mime(mime: &str) -> Kind {
         },
         _ => Kind::Unknown,
     }
-}
-
-fn origin_of(url: &str) -> String {
-    let s = url.trim();
-    let (scheme, default_port) = if s.starts_with("https://") { ("https", "443") }
-        else if s.starts_with("http://") { ("http", "80") }
-        else { return String::new() };
-    let after = &s[scheme.len() + 3..];
-    let end = after.find('/').unwrap_or(after.len());
-    let authority = after[..end].rsplit('@').next().unwrap_or(&after[..end]);
-    let host = match authority.rsplit_once(':') {
-        Some((h, p)) if p == default_port => h,
-        _ => authority,
-    };
-    if host.is_empty() { String::new() } else { format!("{scheme}://{host}") }
-}
-
-fn is_localhost(origin: &str) -> bool {
-    origin.contains("//localhost") || origin.contains("//127.")
-        || origin.contains("//[::1]")
 }
 
 fn log(report: &Report, req: &Request) {
@@ -825,5 +811,22 @@ mod tests {
                                  urls[i % urls.len()]));
         }
     }
+
+#[cfg(test)]
+mod hardening_tests {
+    use super::sanitize_filename;
+
+    #[test]
+    fn long_multibyte_name_does_not_panic() {
+        let (name, _) = sanitize_filename(&"é".repeat(300));
+        assert_eq!(name.chars().count(), 200);
+    }
+
+    #[test]
+    fn trailing_dot_cannot_hide_extension() {
+        let (name, _) = sanitize_filename("evil.exe. . ");
+        assert_eq!(name, "evil.exe");
+    }
+}
 }
 
