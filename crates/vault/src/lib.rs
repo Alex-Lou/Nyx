@@ -214,4 +214,89 @@ mod tests {
         assert_eq!(vault.recent_history(10)?.len(), 1);
         Ok(())
     }
+
+    #[test]
+    fn migration_ancien_schema_sans_folder() -> Result<()> {
+        let tmp = TempVault::new("oldschema");
+        {
+            let conn = Connection::open(&tmp.path)?;
+            conn.pragma_update(None, "key", "secret")?;
+            conn.execute_batch(
+                "CREATE TABLE bookmarks (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    url TEXT NOT NULL, title TEXT NOT NULL,
+                    tags TEXT NOT NULL DEFAULT '[]', created_at TEXT NOT NULL);
+                 INSERT INTO bookmarks (url, title, created_at)
+                    VALUES ('https://old.org', 'Old', '2020-01-01T00:00:00+00:00');
+                 PRAGMA user_version = 1;",
+            )?;
+        }
+        let vault = tmp.open("secret")?;
+        vault.add_bookmark(&Bookmark::new("https://new.org", "New").in_folder("f"))?;
+        let all = vault.list_bookmarks()?;
+        assert_eq!(all.len(), 2);
+        assert!(all.iter().any(|b| b.url == "https://old.org" && b.folder.is_empty()));
+        assert!(all.iter().any(|b| b.url == "https://new.org" && b.folder == "f"));
+        Ok(())
+    }
+
+    #[test]
+    fn replace_all_preserve_created_at() -> Result<()> {
+        let tmp = TempVault::new("replace");
+        let vault = tmp.open("secret")?;
+        let mut first = Bookmark::new("https://a.org", "A");
+        first.created_at = "2021-05-05T10:00:00Z".parse()?;
+        vault.add_bookmark(&first)?;
+
+        let items = vec![Bookmark::new("https://a.org", "A2"), Bookmark::new("https://b.org", "B")];
+        let b_created = items[1].created_at;
+        vault.replace_bookmarks(&items)?;
+
+        let all = vault.list_bookmarks()?;
+        assert_eq!(all.len(), 2);
+        let a = all.iter().find(|b| b.url == "https://a.org").unwrap();
+        assert_eq!(a.title, "A2");
+        assert_eq!(a.created_at, first.created_at);
+        let b = all.iter().find(|b| b.url == "https://b.org").unwrap();
+        assert_eq!(b.created_at, b_created);
+        Ok(())
+    }
+
+    #[test]
+    fn recherche_like_echappee() -> Result<()> {
+        let tmp = TempVault::new("like");
+        let vault = tmp.open("secret")?;
+        vault.add_bookmark(&Bookmark::new("https://a.org", "100% sûr"))?;
+        vault.add_bookmark(&Bookmark::new("https://b.org", "snake_case"))?;
+        vault.add_bookmark(&Bookmark::new("https://c.org", "plain"))?;
+        assert_eq!(vault.search_bookmarks("%")?.len(), 1);
+        assert_eq!(vault.search_bookmarks("_")?.len(), 1);
+        assert_eq!(vault.search_bookmarks("e_c")?.len(), 1);
+        assert_eq!(vault.search_bookmarks("a\\b")?.len(), 0);
+
+        vault.push_history("https://h.org/a_b", "x")?;
+        vault.push_history("https://h.org/axb", "y")?;
+        assert_eq!(vault.search_history("a_b")?.len(), 1);
+        assert_eq!(vault.search_history("%")?.len(), 0);
+        Ok(())
+    }
+
+    #[test]
+    fn historique_borne() -> Result<()> {
+        let tmp = TempVault::new("prune");
+        let vault = tmp.open("secret")?;
+        let cap = history::MAX_ENTRIES as usize;
+        // Insertion en masse directe, puis un push déclenche l'élagage.
+        vault.conn.execute(
+            "WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < ?1 + 10)
+             INSERT INTO history (url, title, visited_at)
+             SELECT 'https://x.org/' || i, 't', '2020-01-01T00:00:00Z' FROM n",
+            [cap as i64],
+        )?;
+        vault.push_history("https://last.org", "last")?;
+        let all = vault.recent_history(cap + 100)?;
+        assert_eq!(all.len(), cap);
+        assert_eq!(all[0].url, "https://last.org");
+        Ok(())
+    }
 }

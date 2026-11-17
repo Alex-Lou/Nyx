@@ -2,14 +2,12 @@ use anyhow::{Context, Result};
 use rusqlite::Connection;
 use std::path::Path;
 
-const SCHEMA: &str = "
-PRAGMA foreign_keys = ON;
-
+/// v1 : schéma de base historique (sans `bookmarks.folder` ni `settings`).
+const V1: &str = "
 CREATE TABLE IF NOT EXISTS bookmarks (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     url        TEXT    NOT NULL,
     title      TEXT    NOT NULL,
-    folder     TEXT    NOT NULL DEFAULT '',    -- '' = racine
     tags       TEXT    NOT NULL DEFAULT '[]',  -- JSON array
     created_at TEXT    NOT NULL
 );
@@ -29,14 +27,55 @@ CREATE TABLE IF NOT EXISTS history (
     visited_at TEXT    NOT NULL
 );
 
+CREATE INDEX IF NOT EXISTS idx_history_visited ON history(visited_at DESC);
+CREATE INDEX IF NOT EXISTS idx_passwords_domain ON passwords(domain);
+";
+
+/// v2 : table `settings` (la colonne `folder` est ajoutée conditionnellement).
+const V2_SETTINGS: &str = "
 CREATE TABLE IF NOT EXISTS settings (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
-
-CREATE INDEX IF NOT EXISTS idx_history_visited ON history(visited_at DESC);
-CREATE INDEX IF NOT EXISTS idx_passwords_domain ON passwords(domain);
 ";
+
+/// Version courante du schéma (valeur de `PRAGMA user_version`).
+const LATEST: i64 = 2;
+
+fn has_column(conn: &Connection, table: &str, column: &str) -> Result<bool> {
+    let n: i64 = conn.query_row(
+        "SELECT count(*) FROM pragma_table_info(?1) WHERE name = ?2",
+        [table, column],
+        |r| r.get(0),
+    )?;
+    Ok(n > 0)
+}
+
+/// Applique les migrations manquantes, chacune dans sa transaction.
+fn migrate(conn: &Connection) -> Result<()> {
+    let mut version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+    while version < LATEST {
+        let next = version + 1;
+        let tx = conn.unchecked_transaction()?;
+        match next {
+            1 => tx.execute_batch(V1)?,
+            2 => {
+                if !has_column(&tx, "bookmarks", "folder")? {
+                    tx.execute(
+                        "ALTER TABLE bookmarks ADD COLUMN folder TEXT NOT NULL DEFAULT ''",
+                        [],
+                    )?;
+                }
+                tx.execute_batch(V2_SETTINGS)?;
+            }
+            _ => unreachable!("migration inconnue"),
+        }
+        tx.pragma_update(None, "user_version", next)?;
+        tx.commit()?;
+        version = next;
+    }
+    Ok(())
+}
 
 pub fn open(path: &Path, passphrase: &str) -> Result<Connection> {
     let conn = Connection::open(path)?;
@@ -56,7 +95,22 @@ pub fn open(path: &Path, passphrase: &str) -> Result<Connection> {
         PRAGMA cache_size   = -8000;  -- 8 MB
     ")?;
 
-    conn.execute_batch(SCHEMA)?;
+    conn.execute_batch("PRAGMA foreign_keys = ON;")?;
+    migrate(&conn)?;
 
     Ok(conn)
+}
+
+/// Motif `LIKE` « contient » avec `%`, `_` et `\` échappés (à utiliser avec `ESCAPE '\'`).
+pub fn like_pattern(q: &str) -> String {
+    let mut out = String::with_capacity(q.len() + 2);
+    out.push('%');
+    for c in q.chars() {
+        if matches!(c, '%' | '_' | '\\') {
+            out.push('\\');
+        }
+        out.push(c);
+    }
+    out.push('%');
+    out
 }
