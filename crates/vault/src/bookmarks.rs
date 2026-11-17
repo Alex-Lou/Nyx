@@ -1,5 +1,6 @@
 use anyhow::Result;
 use chrono::Utc;
+use std::collections::HashMap;
 use rusqlite::{params, Connection, Params, Row};
 
 use crate::models::Bookmark;
@@ -22,11 +23,11 @@ pub fn list(conn: &Connection) -> Result<Vec<Bookmark>> {
 }
 
 pub fn search(conn: &Connection, query_str: &str) -> Result<Vec<Bookmark>> {
-    let pattern = format!("%{}%", query_str);
+    let pattern = crate::db::like_pattern(query_str);
     query(
         conn,
         "SELECT id, url, title, folder, tags, created_at FROM bookmarks
-         WHERE url LIKE ?1 OR title LIKE ?1
+         WHERE url LIKE ?1 ESCAPE '\\' OR title LIKE ?1 ESCAPE '\\'
          ORDER BY created_at DESC",
         params![pattern],
     )
@@ -40,10 +41,31 @@ pub fn delete(conn: &Connection, id: i64) -> Result<()> {
 /// Remplace tout le contenu de la table (sync complète du store mémoire —
 /// les listes de favoris restent petites, la simplicité prime).
 pub fn replace_all(conn: &Connection, items: &[Bookmark]) -> Result<()> {
-    conn.execute("DELETE FROM bookmarks", [])?;
-    for b in items {
-        add(conn, b)?;
+    let tx = conn.unchecked_transaction()?;
+    // url → created_at des lignes existantes (préservé à travers la resync).
+    let mut prior: HashMap<String, String> = HashMap::new();
+    {
+        let mut stmt = tx.prepare("SELECT url, created_at FROM bookmarks ORDER BY id DESC")?;
+        let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
+        for row in rows {
+            let (url, created) = row?;
+            prior.insert(url, created);
+        }
     }
+    tx.execute("DELETE FROM bookmarks", [])?;
+    for b in items {
+        let tags = serde_json::to_string(&b.tags)?;
+        let created = prior
+            .get(&b.url)
+            .cloned()
+            .unwrap_or_else(|| b.created_at.to_rfc3339());
+        tx.execute(
+            "INSERT INTO bookmarks (url, title, folder, tags, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![b.url, b.title, b.folder, tags, created],
+        )?;
+    }
+    tx.commit()?;
     Ok(())
 }
 
