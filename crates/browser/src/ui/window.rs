@@ -165,7 +165,7 @@ fn wire_webview_hooks(tabs: &TabBar, url_bar: &Entry, progress: &ProgressBar) {
         let nb_w = nb.downgrade();
         wv.connect_uri_notify(move |w| {
             if !is_current_page(&nb_w, w) || ub2.has_focus() { return; }
-            let uri = w.uri().map(|u| u.to_string()).unwrap_or_default();
+            let uri = display_uri(w);
             ub2.set_text(&uri);
             apply_risk_indicator(&ub2, &uri);
         });
@@ -188,12 +188,19 @@ fn is_current_page(nb: &gtk::glib::WeakRef<gtk::Notebook>, wv: &webkit2gtk::WebV
         .unwrap_or(false)
 }
 
+/// URI affichée dans la barre : vide pour les pages internes (base
+/// `file://…/assets/` technique), sinon l'URI réelle.
+fn display_uri(wv: &webkit2gtk::WebView) -> String {
+    let uri = wv.uri().map(|u| u.to_string()).unwrap_or_default();
+    if uri.starts_with(crate::pages::assets_base_uri()) { String::new() } else { uri }
+}
+
 fn wire_tab_switch(tabs: &TabBar, url_bar: &Entry, progress: &ProgressBar) {
     let ub   = url_bar.clone();
     let prog = progress.clone();
     tabs.notebook.connect_switch_page(move |_nb, page, _| {
         if let Ok(wv) = page.clone().downcast::<webkit2gtk::WebView>() {
-            let uri = wv.uri().map(|u| u.to_string()).unwrap_or_default();
+            let uri = display_uri(&wv);
             ub.set_text(&uri);
             apply_risk_indicator(&ub, &uri);
             let p = wv.estimated_load_progress();
