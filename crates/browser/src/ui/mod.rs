@@ -15,5 +15,6 @@ pub mod shortcuts;
 pub mod tabs;
 pub mod theme;
 pub mod unlock;
+pub mod widgets;
 pub mod toast;
 pub mod window;

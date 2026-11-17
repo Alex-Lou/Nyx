@@ -24,6 +24,7 @@ use nyx_core::downloads::{DownloadEntry, DownloadStatus};
 use crate::state::downloads::DownloadsHandle;
 use crate::state::settings::Settings;
 
+use crate::ui::widgets::truncate;
 use super::popover::Refresh;
 use super::{actions, widgets};
 
@@ -151,13 +152,4 @@ fn human_size(bytes: u64) -> String {
     while b >= 1024.0 && i < UNITS.len() - 1 { b /= 1024.0; i += 1; }
     if i == 0 { format!("{} {}", bytes, UNITS[0]) }
     else      { format!("{b:.1} {}", UNITS[i]) }
-}
-
-fn truncate(s: &str, max: usize) -> String {
-    if s.chars().count() <= max {
-        s.to_string()
-    } else {
-        let cut: String = s.chars().take(max - 1).collect();
-        format!("{cut}…")
-    }
 }

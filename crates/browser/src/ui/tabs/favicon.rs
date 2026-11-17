@@ -7,8 +7,12 @@ pub const FAVICON_PX: i32 = 16;
 
 /// Branche `connect_favicon_notify` — appelé une fois à la création du label.
 pub fn bind(img: &Image, wv: &WebView) {
-    let i = img.clone();
-    wv.connect_favicon_notify(move |wv| refresh(&i, wv));
+    // Weak : le handler vit sur le WebView, il ne doit pas retenir l'image
+    // (qui appartient au label d'onglet, lui-même lié au notebook).
+    let i = img.downgrade();
+    wv.connect_favicon_notify(move |wv| {
+        if let Some(i) = i.upgrade() { refresh(&i, wv); }
+    });
 }
 
 /// Charge la favicon ; repli sur l'icône générique si absente/non-image.

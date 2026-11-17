@@ -130,9 +130,12 @@ impl TabBar {
         self.notebook.nth_page(Some(p))?.downcast::<WebView>().ok()
     }
 
+    /// Ferme l'onglet courant, sauf s'il est épinglé.
     pub fn close_current(&self) {
-        if let Some(p) = self.notebook.current_page() {
-            self.notebook.remove_page(Some(p));
+        if let Some(wv) = self.current_webview() {
+            if !label::is_pinned(&self.notebook, &wv) {
+                label::close_tab(&self.notebook, &wv);
+            }
         }
     }
 

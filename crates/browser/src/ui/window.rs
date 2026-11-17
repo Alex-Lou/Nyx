@@ -159,20 +159,33 @@ fn wire_double_click(tabs: &TabBar) {
 fn wire_webview_hooks(tabs: &TabBar, url_bar: &Entry, progress: &ProgressBar) {
     let ub   = url_bar.clone();
     let prog = progress.clone();
+    let nb   = tabs.notebook.clone();
     tabs.set_on_new_webview(move |wv| {
         let ub2 = ub.clone();
+        let nb_w = nb.downgrade();
         wv.connect_uri_notify(move |w| {
+            if !is_current_page(&nb_w, w) || ub2.has_focus() { return; }
             let uri = w.uri().map(|u| u.to_string()).unwrap_or_default();
             ub2.set_text(&uri);
             apply_risk_indicator(&ub2, &uri);
         });
         let prog2 = prog.clone();
+        let nb_w = nb.downgrade();
         wv.connect_estimated_load_progress_notify(move |w| {
+            if !is_current_page(&nb_w, w) { return; }
             let p = w.estimated_load_progress();
             prog2.set_fraction(p);
             prog2.set_visible(p > 0.0 && p < 1.0);
         });
     });
+}
+
+/// Vrai si `wv` est la page courante du notebook (les onglets d'arrière-plan
+/// ne doivent pas toucher à la barre d'URL / de progression).
+fn is_current_page(nb: &gtk::glib::WeakRef<gtk::Notebook>, wv: &webkit2gtk::WebView) -> bool {
+    nb.upgrade()
+        .map(|nb| nb.page_num(wv).is_some() && nb.page_num(wv) == nb.current_page())
+        .unwrap_or(false)
 }
 
 fn wire_tab_switch(tabs: &TabBar, url_bar: &Entry, progress: &ProgressBar) {
