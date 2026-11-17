@@ -15,6 +15,7 @@ use webkit2gtk::{
 };
 
 use nyx_core::permissions::{Decision, Permission, PermissionStore};
+use nyx_core::url;
 
 /// Câble la gestion des permissions sur une WebView. Idempotent par WebView.
 pub fn wire(webview: &WebView, store: PermissionStore) {
@@ -54,28 +55,9 @@ fn classify(req: &PermissionRequest) -> Option<Permission> {
 
 /// Origine canonique de la WebView. Vide si non-http(s) → `decide` retourne `Deny`.
 fn origin_of(wv: &WebView) -> String {
-    wv.uri().map(|u| canonical_origin(u.as_str())).unwrap_or_default()
+    wv.uri().and_then(|u| url::origin_of(&u)).unwrap_or_default()
 }
 
-/// `https://user:pass@host:443/path?x` → `https://host`.
-fn canonical_origin(url: &str) -> String {
-    let (scheme, default_port) = if url.starts_with("https://") {
-        ("https", "443")
-    } else if url.starts_with("http://") {
-        ("http", "80")
-    } else {
-        return String::new();
-    };
-    let after = &url[scheme.len() + 3..];
-    let end = after.find('/').unwrap_or(after.len());
-    let authority = &after[..end];
-    let host_part = authority.rsplit('@').next().unwrap_or(authority);
-    let host = match host_part.rsplit_once(':') {
-        Some((h, p)) if p == default_port => h,
-        _ => host_part,
-    };
-    if host.is_empty() { String::new() } else { format!("{scheme}://{host}") }
-}
 
 /// Demande à l'utilisateur via un GtkDialog modal. Sa réponse est persistée
 /// dans le store, puis appliquée à la requête WebKit.

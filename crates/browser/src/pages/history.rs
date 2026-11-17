@@ -1,5 +1,6 @@
 use crate::pages::tokens;
 use vault::HistoryEntry;
+use nyx_core::url::html_escape as escape;
 
 /// Page historique — chargée sur `nyx://history` (données du vault).
 /// Le lien « effacer » passe par `nyx://history/clear`, autorisé uniquement
@@ -41,13 +42,6 @@ font-family:system-ui,-apple-system,sans-serif;min-height:100vh">
 </body></html>"#,
         tokens = tokens::ROOT
     )
-}
-
-fn escape(s: &str) -> String {
-    s.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
 }
 
 #[cfg(test)]

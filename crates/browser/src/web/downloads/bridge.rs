@@ -26,6 +26,7 @@ use nyx_core::downloads::{
 };
 use nyx_core::magic_bytes;
 use nyx_core::sec_log::{self, Level};
+use nyx_core::url::host_of;
 
 use crate::state::downloads::DownloadsHandle;
 use crate::state::settings::Settings;
@@ -277,8 +278,8 @@ fn commit(
         sniffed:          format!("{sniffed:?}"),
         declared_ext:     pre.normalized_extension.clone().unwrap_or_default(),
         declared_mime:    req.mime.clone(),
-        source_host:      host_only(&pre.initiator_origin),
-        final_host:       host_only(&pre.final_origin),
+        source_host:      host_of(&pre.initiator_origin).unwrap_or_default().into_owned(),
+        final_host:       host_of(&pre.final_origin).unwrap_or_default().into_owned(),
         started_at_unix:  started_at,
         finished_at_unix: finished_at,
         verdict:          format!("{:?}", pre.verdict),
@@ -365,10 +366,3 @@ fn now_unix() -> i64 {
         .map(|d| d.as_secs() as i64).unwrap_or(0)
 }
 
-/// Garde uniquement `host` d'une origin canonique `scheme://host`.
-/// Renvoie `""` pour les origins vides ou non-http(s).
-fn host_only(origin: &str) -> String {
-    origin.split_once("://")
-        .map(|(_, host)| host.to_string())
-        .unwrap_or_default()
-}

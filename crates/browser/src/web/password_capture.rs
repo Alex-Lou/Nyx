@@ -11,6 +11,7 @@ use webkit2gtk::{
 };
 
 use vault::{Password, Vault};
+use nyx_core::url::{host_of, scheme_of};
 
 
 const CAPTURE_JS: &str = r#"
@@ -63,10 +64,11 @@ fn handle(wv: &WebView, vault: &Rc<Vault>, json: &str) {
         return;
     }
     let Some(uri) = wv.uri() else { return };
-    let host = extract_host(&uri);
-    if host.is_empty() || uri.starts_with("nyx://") || uri.starts_with("file://") {
+    if !matches!(scheme_of(&uri).as_deref(), Some("http" | "https")) {
         return;
     }
+    let Some(host) = host_of(&uri) else { return };
+    let host = host.as_ref();
 
     let existing = vault.passwords_for(host).unwrap_or_default();
     let who = if cred.username.is_empty() { "ce compte" } else { &cred.username };
@@ -108,10 +110,3 @@ fn ask(wv: &WebView, message: &str) -> bool {
     response == ResponseType::Yes
 }
 
-/// `"https://ads.x.com/img"` → `"ads.x.com"` (host nu, sans port ni auth).
-fn extract_host(url: &str) -> &str {
-    let after = url.find("://").map(|i| &url[i + 3..]).unwrap_or(url);
-    let rest = after.rsplit_once('@').map_or(after, |(_, h)| h);
-    let end = rest.find(['/', ':', '?', '#']).unwrap_or(rest.len());
-    &rest[..end]
-}

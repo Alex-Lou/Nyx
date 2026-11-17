@@ -169,37 +169,13 @@ fn apply_move(url: &str, bm: &Bookmarks) {
         let (k, v) = pair.split_once('=').unwrap_or((pair, ""));
         match k {
             "idx" => idx = v.parse().ok(),
-            "to"  => to = urldecode(v),
+            "to"  => to = nyx_core::url::form_decode(v),
             _ => {}
         }
     }
     if let Some(i) = idx {
         bookmarks::move_to(bm, i, to);
     }
-}
-
-fn urldecode(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    let b = s.as_bytes();
-    let mut i = 0;
-    while i < b.len() {
-        match b[i] {
-            b'+' => { out.push(' '); i += 1; }
-            b'%' if i + 2 < b.len() => {
-                let h = std::str::from_utf8(&b[i + 1..i + 3]).ok()
-                    .and_then(|h| u8::from_str_radix(h, 16).ok());
-                if let Some(byte) = h {
-                    out.push(byte as char);
-                    i += 3;
-                } else {
-                    out.push(b[i] as char);
-                    i += 1;
-                }
-            }
-            c => { out.push(c as char); i += 1; }
-        }
-    }
-    out
 }
 
 fn extract_url(decision: &PolicyDecision) -> String {
