@@ -118,6 +118,13 @@ pub fn is_potentially_trustworthy(url: &str) -> bool {
     }
 }
 
+/// URL qu'on accepte de stocker puis de recharger depuis une page interne
+/// (accueil, favoris) : `http`, `https` ou `nyx` uniquement — jamais
+/// `javascript:`, `data:`, `file:`…
+pub fn is_navigable(url: &str) -> bool {
+    matches!(scheme_of(url).as_deref(), Some("http" | "https" | "nyx"))
+}
+
 /// `host == domain` ou sous-domaine de `domain` (frontière de label :
 /// `notdoubleclick.net` ne matche pas `doubleclick.net`).
 pub fn host_matches(host: &str, domain: &str) -> bool {
@@ -183,6 +190,14 @@ mod tests {
         assert!(host_matches("doubleclick.net", "doubleclick.net"));
         assert!(!host_matches("notdoubleclick.net", "doubleclick.net"));
         assert!(!host_matches("doubleclick.net.evil.com", "doubleclick.net"));
+    }
+
+    #[test]
+    fn navigable_schemes_only() {
+        for ok in ["https://x.com", "HTTP://x", "nyx://newtab"] { assert!(is_navigable(ok), "{ok}"); }
+        for bad in ["javascript:alert(1)", "data:text/html,x", "file:///etc/passwd", "", "x"] {
+            assert!(!is_navigable(bad), "{bad}");
+        }
     }
 
     #[test]

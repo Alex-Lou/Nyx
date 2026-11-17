@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use crate::url::html_escape as escape;
+use crate::url::{html_escape as escape, is_navigable};
 
 /// Store en mémoire des favoris. Modèle **path-based** : chaque favori connaît
 /// son dossier ("" = racine, "Travail/Outils" = sous-chemin). Évite la refonte
@@ -26,7 +26,8 @@ pub fn add(bm: &Bookmarks, url: String, title: String) -> bool {
 
 /// Ajoute un favori dans le dossier `folder` (vide = racine). Dédup par URL.
 pub fn add_in(bm: &Bookmarks, url: String, title: String, folder: String) -> bool {
-    if url.is_empty() {
+    // Rendu cliquable dans une page interne (privilégiée) : schemes sûrs seuls.
+    if !is_navigable(&url) {
         return false;
     }
     let mut list = bm.borrow_mut();

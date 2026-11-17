@@ -36,7 +36,7 @@ pub fn build(
 
     let wv = WebView::new();
     web::configure(&wv, blocker, prefs.clone(), bm, perms, vault);
-    wv.load_html(&settings_page::html(&prefs.borrow()), Some(&pages::assets_base_uri()));
+    wv.load_html(&settings_page::html(&prefs.borrow()), Some(pages::assets_base_uri()));
     win.add(&wv);
 
     win

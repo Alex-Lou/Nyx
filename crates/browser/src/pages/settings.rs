@@ -12,7 +12,7 @@ pub fn html(s: &AppSettings) -> String {
         .replace("{{ENGINE_DDG}}",    chk("ddg",    s.search_engine.id()))
         .replace("{{ENGINE_BRAVE}}",  chk("brave",  s.search_engine.id()))
         .replace("{{ENGINE_ECOSIA}}", chk("ecosia", s.search_engine.id()))
-        .replace("{{HOME_URL}}",      &s.home_url)
+        .replace("{{HOME_URL}}",      &nyx_core::url::html_escape(&s.home_url))
         .replace("{{ADBLOCK}}",       flag(s.adblock_enabled))
         .replace("{{BLOCKAUTH}}",     flag(s.block_third_party))
         .replace("{{REJECTCOOKIES}}", flag(s.reject_cookies))

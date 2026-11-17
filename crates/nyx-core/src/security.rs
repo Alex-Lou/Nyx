@@ -30,6 +30,13 @@ pub enum Verdict {
     Load(Page),
 }
 
+impl Verdict {
+    /// `true` pour les refus purs (aucune action ni chargement).
+    pub fn is_block(&self) -> bool {
+        matches!(self, Verdict::Block | Verdict::BlockFileAccess)
+    }
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum Page { Settings, Bookmarks, History, NewTab }
 
@@ -39,7 +46,9 @@ pub enum Page { Settings, Bookmarks, History, NewTab }
 /// (`file://…/assets/` ou `nyx://`). C'est la frontière de sécurité : une
 /// page web distante ne peut pas muter les réglages via `nyx://apply`.
 pub fn decide(url: &str, page_internal: bool, guard: &NyxGuard) -> Verdict {
-    if let Some(rest) = url.strip_prefix("nyx://") {
+    let scheme = crate::url::scheme_of(url);
+    if scheme.as_deref() == Some("nyx") {
+        let rest = &url.trim()["nyx://".len()..];
         if rest.starts_with("apply") {
             return if page_internal { Verdict::ApplySettings } else {
                 sec_log::emit(Level::Block, &format!("nyx://apply from remote page: {}", sec_log::redact_url(url)));
@@ -66,7 +75,7 @@ pub fn decide(url: &str, page_internal: bool, guard: &NyxGuard) -> Verdict {
     // file:// : autorisé UNIQUEMENT depuis une source interne (notre base_uri
     // `file://…/assets/` au démarrage, ou nyx://). Une page web distante ne
     // peut JAMAIS atteindre file://. Voir docs/security.md §2.
-    if url.starts_with("file://") && !page_internal {
+    if scheme.as_deref() == Some("file") && !page_internal {
         sec_log::emit(Level::Block, &format!("file:// navigation from remote: {}", sec_log::redact_url(url)));
         return Verdict::BlockFileAccess;
     }
@@ -82,6 +91,13 @@ mod tests {
     use super::*;
 
     fn guard() -> NyxGuard { NyxGuard::new() }
+
+    #[test]
+    fn uppercase_schemes_cannot_bypass_boundary() {
+        assert_eq!(decide("FILE:///etc/passwd", false, &guard()), Verdict::BlockFileAccess);
+        assert_eq!(decide("NYX://apply?adblock=false", false, &guard()), Verdict::Block);
+        assert!(decide("Nyx://history/clear", false, &guard()).is_block());
+    }
 
     #[test] fn allows_normal()       { assert_eq!(decide("https://example.com", true, &guard()), Verdict::Allow); }
     #[test] fn blocks_ad()           { assert_eq!(decide("https://doubleclick.net/x", true, &guard()), Verdict::Block); }

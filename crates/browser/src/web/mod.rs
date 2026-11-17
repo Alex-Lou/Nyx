@@ -87,10 +87,22 @@ fn wire_policy_filter(
     webview: &WebView, blocker: Arc<NyxGuard>, prefs: Settings, bm: Bookmarks, vault: Rc<Vault>,
 ) {
     webview.connect_decide_policy(move |wv, decision, dtype| {
-        if dtype != PolicyDecisionType::NavigationAction {
-            return false;
-        }
-        let url = extract_url(decision);
+        let url = match dtype {
+            PolicyDecisionType::NavigationAction => extract_url(decision),
+            // window.open / target=_blank : la vue créée n'a pas encore d'URI,
+            // on juge donc la cible avec la confiance de l'OUVREUR. Seuls les
+            // refus s'appliquent ici ; la navigation réelle est re-jugée dans
+            // la nouvelle vue.
+            PolicyDecisionType::NewWindowAction => {
+                let url = extract_url(decision);
+                if security::decide(&url, page_is_internal(wv), &blocker).is_block() {
+                    decision.ignore();
+                    return true;
+                }
+                return false;
+            }
+            _ => return false,
+        };
 
         match security::decide(&url, page_is_internal(wv), &blocker) {
             Verdict::Allow => {
@@ -137,27 +149,31 @@ fn wire_policy_filter(
 fn load_internal_page(wv: &WebView, page: Page, prefs: &Settings, bm: &Bookmarks, vault: &Rc<Vault>) {
     let (html, base) = match page {
         Page::Settings  => (settings_page::html(&prefs.borrow()), Some(pages::assets_base_uri())),
-        Page::Bookmarks => (bookmarks_page::page_html(&bm.borrow()), None),
+        Page::Bookmarks => (bookmarks_page::page_html(&bm.borrow()), Some(pages::assets_base_uri())),
         Page::History => {
             let entries = vault.recent_history(200).unwrap_or_default();
-            (history_page::html(&entries), None)
+            (history_page::html(&entries), Some(pages::assets_base_uri()))
         }
         Page::NewTab    => (newtab::html(), Some(pages::assets_base_uri())),
     };
     let wv = wv.clone();
     gtk::glib::idle_add_local_once(move || {
-        wv.load_html(&html, base.as_deref());
+        wv.load_html(&html, base);
     });
 }
 
+/// Page interne = `nyx://…` ou notre base `file://…/assets/` EXACTE.
+/// Sans URI (vue tout juste créée, p. ex. par `window.open`) → NON fiable :
+/// sinon une page distante pourrait ouvrir `nyx://apply?…` dans une vue vierge.
 fn page_is_internal(wv: &WebView) -> bool {
-    match wv.uri() {
-        Some(u) => {
-            let u = u.as_str();
-            u.starts_with("nyx://") || (u.starts_with("file://") && u.contains("/assets/"))
+    wv.uri().is_some_and(|u| {
+        let u = u.as_str();
+        match nyx_core::url::scheme_of(u).as_deref() {
+            Some("nyx") => true,
+            Some("file") => u.starts_with(pages::assets_base_uri()),
+            _ => false,
         }
-        None => true,
-    }
+    })
 }
 
 /// Parse `nyx://move?idx=N&to=Folder` et applique le déplacement.

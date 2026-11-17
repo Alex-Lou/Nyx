@@ -2,7 +2,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use crate::nyxguard::NyxGuard;
-use crate::url::{form_decode, form_encode};
+use crate::url::{form_decode, form_encode, is_navigable};
 
 pub type Settings = Rc<RefCell<AppSettings>>;
 
@@ -128,7 +128,13 @@ pub fn apply_from_url(url: &str, settings: &Settings, blocker: &NyxGuard) -> boo
 
     let mut s = settings.borrow_mut();
     if let Some(e) = params.get("engine") { s.search_engine = SearchEngine::from_id(e); }
-    if let Some(h) = params.get("home")   { s.home_url = form_decode(h); }
+    if let Some(h) = params.get("home") {
+        // Rechargé tel quel au démarrage : jamais de `javascript:`/`file:`.
+        // Saisie nue (`exemple.fr`) → https, comme la barre d'adresse.
+        let home = form_decode(h).trim().to_string();
+        let home = if home.is_empty() || home.contains("://") { home } else { format!("https://{home}") };
+        if home.is_empty() || is_navigable(&home) { s.home_url = home; }
+    }
     if let Some(l) = params.get("lang")   { s.language = Language::from_id(l); }
     if let Some(c) = params.get("lasttab"){ s.on_last_tab = LastTab::from_id(c); }
     if let Some(d) = params.get("dldir")  {
@@ -212,6 +218,17 @@ mod tests {
     /// combinaisons variées sur un état partagé. Doit rester cohérent et ne
     /// jamais paniquer (parsing robuste aux entrées mal formées).
     #[test]
+    fn home_url_rejects_dangerous_schemes() {
+        let (s, b) = (new(), NyxGuard::new());
+        apply_from_url("nyx://apply?home=https%3A%2F%2Fok.fr", &s, &b);
+        for bad in ["javascript%3Aalert(1)%2F%2F", "file%3A%2F%2F%2Fetc%2Fpasswd", "data%3A%2F%2Fx"] {
+            apply_from_url(&format!("nyx://apply?home={bad}"), &s, &b);
+            assert_ne!(s.borrow().home_url, "", "{bad}");
+            assert!(crate::url::is_navigable(&s.borrow().home_url), "{bad}");
+        }
+    }
+
+    #[test]
     fn stress_hundreds_of_applies() {
         let (s, b) = setup();
         let engines = ["ddg", "brave", "ecosia", "garbage", ""];
@@ -228,7 +245,7 @@ mod tests {
             // Invariant : l'état reste lisible et l'adblock suit le flag.
             let g = s.borrow();
             assert!(g.adblock_enabled);
-            assert_eq!(g.home_url, format!("site{i}.com"));
+            assert_eq!(g.home_url, format!("https://site{i}.com"));
         }
     }
 
