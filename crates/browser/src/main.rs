@@ -73,6 +73,8 @@ fn main() {
         win.tabs.open_new_tab();
         win.show_all();
         ui::anim::fade_in(&win.window); // fondu d'ouverture discret
+        // Moteur adblock (~3,5 MB à parser) construit après l'affichage de la fenêtre.
+        gtk::glib::idle_add_local_once(web::adfilter::warm_up);
     });
 
     app.run();

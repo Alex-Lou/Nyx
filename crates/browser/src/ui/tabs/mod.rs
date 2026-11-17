@@ -38,6 +38,8 @@ pub struct TabBar {
     toaster:        ToastHandle,
     vault:          Rc<vault::Vault>,
     on_new_webview: WebViewHook,
+    /// Un contexte partagé par mode : [normal, privé], créés à la demande.
+    contexts:       Rc<RefCell<[Option<WebContext>; 2]>>,
     settings_modal: Rc<RefCell<Option<Window>>>,
     parent:         Rc<RefCell<Option<WeakRef<Window>>>>,
 }
@@ -55,6 +57,7 @@ impl TabBar {
             notebook, blocker, settings, bookmarks: bm, permissions,
             downloads, downloads_temp: Rc::new(downloads_temp), toaster, vault,
             on_new_webview: Rc::new(RefCell::new(Box::new(|_| {}))),
+            contexts:       Rc::new(RefCell::new([None, None])),
             settings_modal: Rc::new(RefCell::new(None)),
             parent:         Rc::new(RefCell::new(None)),
         }
@@ -153,39 +156,49 @@ impl TabBar {
         wv
     }
 
+    /// Contexte partagé du mode courant (normal / privé), créé une seule fois.
+    /// Sandbox et bridge des téléchargements ne sont donc installés qu'une fois
+    /// par contexte, pas par onglet.
+    fn shared_context(&self) -> WebContext {
+        let private = self.settings.borrow().private_mode;
+        let mut slots = self.contexts.borrow_mut();
+        let slot = &mut slots[usize::from(private)];
+        if let Some(ctx) = slot {
+            return ctx.clone();
+        }
+        // Mode privé : contexte éphémère (rien sur disque — cookies,
+        // cache, historique vivent en RAM et disparaissent à la fermeture).
+        let ctx = if private { WebContext::new_ephemeral() } else { WebContext::new() };
+        // SÉCURITÉ : bac à sable des processus web (avant le 1er WebView).
+        // bubblewrap segfault sous WSL (pas de bus-proxy) → actif
+        // partout SAUF là. Sur un vrai Linux, le sandbox reste ON.
+        if !crate::platform::is_wsl() {
+            ctx.set_sandbox_enabled(true);
+        }
+        // Bridge des téléchargements WebKit : pre-flight policy,
+        // temp dir Nyx, sniff post-flight, sha256, sidecar quarantaine.
+        web::downloads::install(
+            &ctx,
+            self.downloads.clone(),
+            self.settings.clone(),
+            (*self.downloads_temp).clone(),
+            self.toaster.clone(),
+        );
+        *slot = Some(ctx.clone());
+        ctx
+    }
+
     fn build_webview(&self, parent: Option<&WebView>) -> WebView {
         let wv = match parent {
             Some(p) => WebView::with_related_view(p),
             None => {
-                // Mode privé : contexte éphémère (rien sur disque — cookies,
-                // cache, historique vivent en RAM et disparaissent à la fermeture).
-                let ctx = if self.settings.borrow().private_mode {
-                    WebContext::new_ephemeral()
-                } else {
-                    WebContext::new()
-                };
-                // SÉCURITÉ : bac à sable des processus web (avant le 1er WebView).
-                // bubblewrap segfault sous WSL (pas de bus-proxy) → actif
-                // partout SAUF là. Sur un vrai Linux, le sandbox reste ON.
-                if !crate::platform::is_wsl() {
-                    ctx.set_sandbox_enabled(true);
-                }
+                let ctx = self.shared_context();
 
                 // Mode sombre forcé : injecté via un UserContentManager dédié.
                 let ucm = UserContentManager::new();
                 if self.settings.borrow().dark_websites {
                     ucm.add_style_sheet(&darkmode::stylesheet());
                 }
-
-                // Bridge des téléchargements WebKit : pre-flight policy,
-                // temp dir Nyx, sniff post-flight, sha256, sidecar quarantaine.
-                web::downloads::install(
-                    &ctx,
-                    self.downloads.clone(),
-                    self.settings.clone(),
-                    (*self.downloads_temp).clone(),
-                    self.toaster.clone(),
-                );
 
                 WebView::builder()
                     .web_context(&ctx)

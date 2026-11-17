@@ -40,7 +40,7 @@ pub fn configure(
     perms: nyx_core::permissions::PermissionStore, vault: Rc<Vault>,
 ) {
     apply_privacy_settings(webview);
-    wire_history_autosave(webview, vault.clone());
+    wire_history_autosave(webview, vault.clone(), prefs.clone());
     password_capture::wire(webview, vault.clone());
     if prefs.borrow().reject_cookies {
         cookies::wire(webview); // refus auto des bannières de consentement
@@ -51,21 +51,24 @@ pub fn configure(
 
 /// Historique automatique : chaque chargement http(s) terminé est poussé
 /// dans le vault, sans doublon consécutif (reload, redirect).
-fn wire_history_autosave(webview: &WebView, vault: Rc<Vault>) {
+fn wire_history_autosave(webview: &WebView, vault: Rc<Vault>, prefs: Settings) {
+    // Dernière URL enregistrée, gardée en mémoire (pas de relecture en base).
+    let last = std::cell::RefCell::new(String::new());
     webview.connect_load_changed(move |wv, event| {
-        if event != LoadEvent::Finished {
-            return;
+        if event != LoadEvent::Finished || prefs.borrow().private_mode {
+            return; // mode privé : aucune trace dans l'historique
         }
         let Some(uri) = wv.uri() else { return };
-        if !uri.starts_with("http") {
+        if !matches!(nyx_core::url::scheme_of(&uri).as_deref(), Some("http" | "https")) {
             return; // pages internes (nyx://, file://assets) hors historique
         }
-        let last = vault.recent_history(1).ok().and_then(|mut h| h.pop());
-        if last.is_some_and(|l| l.url == uri) {
+        if *last.borrow() == uri.as_str() {
             return;
         }
         let title = wv.title().unwrap_or_default();
-        let _ = vault.push_history(&uri, &title);
+        if vault.push_history(&uri, &title).is_ok() {
+            *last.borrow_mut() = uri.to_string();
+        }
     });
 }
 

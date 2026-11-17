@@ -26,6 +26,14 @@ thread_local! {
     static ENGINE: OnceCell<Engine> = const { OnceCell::new() };
 }
 
+/// Construit le moteur à l'avance (appelé en idle après l'affichage de la
+/// première fenêtre) pour que la première navigation ne paie pas le parse.
+pub fn warm_up() {
+    ENGINE.with(|cell| {
+        cell.get_or_init(|| Engine::from_filter_set(bundled_filter_set(), true));
+    });
+}
+
 /// true si l'URL de navigation matche les règles EasyList/EasyPrivacy.
 /// À consulter seulement si l'adblock est activé (le toggle vit dans
 /// AppSettings / NyxGuard, pas ici).
