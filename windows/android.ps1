@@ -76,7 +76,9 @@ Wait-Phone
 $model = (& $Adb shell getprop ro.product.model).Trim()
 Write-Host "-> Telephone detecte : $model. Installation..."
 
-$out = cmd /c "`"$Adb`" install -r `"$($apk.FullName)`" 2>&1" | Out-String
+# adb ecrit sur stderr : sans ca, PowerShell 5.1 en ferait une exception.
+$ErrorActionPreference = 'Continue'
+$out = & $Adb install -r $apk.FullName 2>&1 | Out-String
 if ($out -match 'INSTALL_FAILED_UPDATE_INCOMPATIBLE') {
     Write-Host '-> Ancienne version signee differemment : desinstallation puis reinstallation.'
     Write-Host '   (Les donnees de Nyx sur le telephone sont effacees.)'
