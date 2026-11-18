@@ -85,10 +85,18 @@ if ($out -match 'INSTALL_FAILED_UPDATE_INCOMPATIBLE') {
     & $Adb uninstall $Package | Out-Null
     $out = & $Adb install $apk.FullName 2>&1 | Out-String
 }
+# Une fois sur le telephone, l'APK et son zip ne servent plus : on nettoie
+# (et la prochaine fois, le script ira chercher la nouvelle version).
+function Remove-Apk {
+    Remove-Item -Recurse -Force -ErrorAction SilentlyContinue (Join-Path $Downloads 'nyx-android-debug')
+    Get-ChildItem $Downloads -Filter 'nyx-android-debug*.zip' -ErrorAction SilentlyContinue | Remove-Item -Force
+}
+
 # Xiaomi & co bloquent l'installation par USB : on copie simplement l'APK
 # dans Telechargements du telephone, l'installation se fait d'un tap.
 if ($out -match 'INSTALL_FAILED_USER_RESTRICTED') {
     & $Adb push $apk.FullName '/sdcard/Download/Nyx.apk' 2>&1 | Out-Null
+    Remove-Apk
     Write-Host ''
     Write-Host 'Nyx.apk est copie sur le telephone.' -ForegroundColor Green
     Write-Host 'Sur le telephone : appli Fichiers -> Telechargements -> Nyx.apk -> Installer.'
@@ -96,5 +104,6 @@ if ($out -match 'INSTALL_FAILED_USER_RESTRICTED') {
 }
 if ($out -notmatch 'Success') { throw "Echec de l'installation :`n$out" }
 
+Remove-Apk
 & $Adb shell monkey -p $Package -c android.intent.category.LAUNCHER 1 2>&1 | Out-Null
 Write-Host "OK. Nyx est installe et lance sur $model."
