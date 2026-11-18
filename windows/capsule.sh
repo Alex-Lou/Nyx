@@ -36,8 +36,30 @@ provision() {
         chown -h "$NYX_USER:$NYX_USER" "$link"
     fi
 
+    install_desktop_entry
+
     su - "$NYX_USER" -c 'command -v cargo >/dev/null || [ -x ~/.cargo/bin/cargo ] ||
         curl --proto =https --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal'
+}
+
+# Lanceur + icône : WSLg les lit pour afficher le logo Nyx dans la barre des
+# tâches (au lieu du pingouin) et ajoute « Nyx » au menu Démarrer de Windows.
+install_desktop_entry() {
+    local id=io.nyx.browser
+    install -Dm644 "$REPO/assets/icons/nyx.png" "/usr/share/icons/hicolor/512x512/apps/$id.png"
+    install -Dm644 "$REPO/assets/icons/nyx.png" "/usr/share/pixmaps/$id.png"
+    cat > "/usr/share/applications/$id.desktop" <<EOF
+[Desktop Entry]
+Type=Application
+Name=Nyx
+Comment=Navigateur Nyx
+Exec=$BIN %U
+Icon=$id
+StartupWMClass=$id
+Categories=Network;WebBrowser;
+Terminal=false
+EOF
+    command -v gtk-update-icon-cache >/dev/null && gtk-update-icon-cache -qf /usr/share/icons/hicolor || true
 }
 
 build() {

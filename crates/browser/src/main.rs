@@ -46,6 +46,9 @@ fn main() {
         std::env::set_var("LIBGL_ALWAYS_SOFTWARE", "1");
     }
 
+    // WM_CLASS (X11) = APP_ID → l'environnement associe la fenêtre au
+    // fichier io.nyx.browser.desktop et affiche le logo Nyx (WSLg compris).
+    gtk::glib::set_prgname(Some(APP_ID));
     let app = Application::builder().application_id(APP_ID).build();
 
     app.connect_activate(|app| {
