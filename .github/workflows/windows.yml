@@ -1,0 +1,63 @@
+name: Windows
+
+on:
+  push:
+    branches: [develop]
+    paths:
+      - "crates/nyx-win/**"
+      - "crates/nyx-core/**"
+      - "assets/**"
+      - "Cargo.toml"
+      - ".github/workflows/windows.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  exe:
+    name: Nyx.exe (WebView2)
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      CARGO_TERM_COLOR: always
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rust stable (MSVC)
+        run: |
+          rustup update stable --no-self-update
+          rustup default stable
+          rustup component add clippy
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: windows
+
+      - name: Clippy
+        run: cargo clippy -p nyx-win --all-targets -- -D warnings
+
+      - name: Tests (logique pure)
+        run: cargo test -p nyx-win
+
+      - name: Build release
+        run: cargo build --release -p nyx-win
+
+      - name: Nyx.exe
+        run: |
+          mkdir -p dist
+          cp target/release/nyx-win.exe dist/Nyx.exe
+          ls -l dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nyx-windows
+          path: dist/Nyx.exe
+          if-no-files-found: error
+          retention-days: 30
