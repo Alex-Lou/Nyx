@@ -2,6 +2,7 @@
 members = [
     "crates/browser",
     "crates/nyx-core",
+    "crates/nyx-ffi",
     "crates/vault",
 ]
 resolver = "2"

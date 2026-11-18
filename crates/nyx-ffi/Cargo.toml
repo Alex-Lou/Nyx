@@ -1,0 +1,29 @@
+[package]
+name = "nyx-ffi"
+version = "0.1.0"
+edition = "2021"
+description = "Pont JNI mince entre nyx-core et l'app Android (io.nyx.browser.NyxCore)"
+
+[lib]
+# cdylib : `libnyx_ffi.so` chargé par `System.loadLibrary("nyx_ffi")`.
+# rlib   : permet les tests host (`cargo test --workspace`) des helpers purs.
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+nyx-core = { path = "../nyx-core" }
+# Phase 2 : `vault = { path = "../vault" }` + module `vault` dans src/
+# (exports `Java_io_nyx_browser_NyxVault_*`). Non implémenté en phase 1.
+jni = { version = "0.21", default-features = false }
+
+# Lints propres à cette crate (PAS `workspace = true`) : le workspace met
+# `unsafe_code = "forbid"`, qui ne peut pas être levé localement. Or
+# `#[no_mangle]` (indispensable aux exports JNI `Java_*`) déclenche le lint
+# `unsafe_code`. On passe donc à `deny` — toujours bloquant partout — et
+# seul le module `jni_exports` fait `#![allow(unsafe_code)]`. Aucun bloc
+# `unsafe { }` n'est écrit : toute la marshalling passe par l'API sûre de
+# la crate `jni`.
+[lints.rust]
+unsafe_code = "deny"
+
+[lints.clippy]
+all = "warn"
