@@ -26,6 +26,8 @@ pub struct AppSettings {
     /// Refus automatique des bandeaux de consentement cookies (UserScript).
     /// Les cookies tiers réseau sont déjà bloqués par `cookie_policy`.
     pub reject_cookies:      bool,
+    /// Proposer d'enregistrer les mots de passe saisis sur les sites.
+    pub save_passwords:      bool,
 }
 
 impl Default for AppSettings {
@@ -42,6 +44,7 @@ impl Default for AppSettings {
             downloads_dir:     None,
             recheck_on_run:    true,
             reject_cookies:    true,
+            save_passwords:    true,
         }
     }
 }
@@ -148,6 +151,7 @@ pub fn apply_from_url(url: &str, settings: &Settings, blocker: &NyxGuard) -> boo
     s.private_mode      = flag("private");
     s.block_third_party = flag("blockauth");
     s.reject_cookies    = flag("rejectcookies");
+    s.save_passwords    = flag("savepw");
     // Defaut historique = true. Absent = on garde la valeur courante pour
     // ne pas forcer un downgrade silencieux.
     if params.contains_key("recheckrun") {
@@ -180,6 +184,7 @@ pub fn to_query(s: &AppSettings) -> String {
         ("private", s.private_mode),
         ("blockauth", s.block_third_party),
         ("rejectcookies", s.reject_cookies),
+        ("savepw", s.save_passwords),
     ] {
         if on {
             q.push_str(&format!("&{key}=true"));
@@ -266,6 +271,7 @@ mod tests {
             g.private_mode = false;
             g.block_third_party = true;
             g.reject_cookies = true;
+            g.save_passwords = false;
         }
         let q = to_query(&s.borrow());
 
@@ -283,7 +289,20 @@ mod tests {
         assert_eq!(a.private_mode, r.private_mode);
         assert_eq!(a.block_third_party, r.block_third_party);
         assert_eq!(a.reject_cookies, r.reject_cookies);
+        assert_eq!(a.save_passwords, r.save_passwords);
         let _ = b;
+    }
+
+    /// `savepw` : actif par défaut, absent du formulaire = désactivé.
+    #[test]
+    fn save_passwords_toggle() {
+        let (s, b) = setup();
+        assert!(s.borrow().save_passwords);
+        apply_from_url("nyx://apply?engine=ddg", &s, &b);
+        assert!(!s.borrow().save_passwords);
+        apply_from_url("nyx://apply?savepw=true", &s, &b);
+        assert!(s.borrow().save_passwords);
+        assert!(to_query(&s.borrow()).contains("savepw=true"));
     }
 
     /// Entrées hostiles / malformées : ne doivent jamais paniquer.
