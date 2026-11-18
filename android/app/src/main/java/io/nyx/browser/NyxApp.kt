@@ -4,7 +4,7 @@ import android.app.Application
 import android.util.Log
 
 /**
- * Charge EasyList + EasyPrivacy (assets `filterlists/*.txt.gz`, partagés avec
+ * Charge EasyList + EasyPrivacy (assets `filterlists/` en `.txt.gz`, partagés avec
  * le desktop) dans le moteur Rust, hors du thread UI : le parse prend environ
  * une seconde. En attendant, seules les règles intégrées de NyxGuard filtrent.
  */
