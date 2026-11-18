@@ -1,0 +1,85 @@
+name: Android
+
+on:
+  push:
+    branches: [develop]
+    paths:
+      - "android/**"
+      - "crates/nyx-core/**"
+      - "crates/nyx-ffi/**"
+      - "assets/newtab.html"
+      - "assets/filterlists/**"
+      - ".github/workflows/android.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  apk:
+    name: APK debug
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      CARGO_TERM_COLOR: always
+      CARGO_NDK_VERSION: "3.5.4"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Cibles Rust Android
+        run: |
+          rustup update stable --no-self-update
+          rustup default stable
+          rustup target add aarch64-linux-android x86_64-linux-android
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: android
+
+      - name: cargo-ndk
+        run: |
+          if ! cargo ndk --version 2>/dev/null | grep -q "$CARGO_NDK_VERSION"; then
+            cargo install cargo-ndk --version "$CARGO_NDK_VERSION" --locked --force
+          fi
+
+      - name: libnyx_ffi.so (arm64-v8a + x86_64)
+        run: |
+          # NDK préinstallé sur les runners ubuntu-latest.
+          export ANDROID_NDK_HOME="$ANDROID_NDK_LATEST_HOME"
+          echo "NDK : $ANDROID_NDK_HOME"
+          cargo ndk \
+            --target arm64-v8a --target x86_64 \
+            --platform 26 \
+            --output-dir android/app/src/main/jniLibs \
+            build --release -p nyx-ffi
+          find android/app/src/main/jniLibs -name '*.so' -exec ls -l {} \;
+
+      - name: Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: assembleDebug
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon assembleDebug
+
+      - name: Vérifier la présence de la lib native dans l'APK
+        run: |
+          APK=$(ls android/app/build/outputs/apk/debug/*.apk | head -n1)
+          unzip -l "$APK" | grep -E 'lib/(arm64-v8a|x86_64)/libnyx_ffi.so'
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nyx-android-debug
+          path: android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 30
