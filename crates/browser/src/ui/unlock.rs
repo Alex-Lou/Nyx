@@ -15,6 +15,11 @@ fn vault_path() -> PathBuf {
     dir.join("vault.db")
 }
 
+/// Premier lancement = aucun coffre encore créé.
+pub fn is_first_launch() -> bool {
+    !vault_path().exists()
+}
+
 /// Dialogue de déverrouillage au démarrage (Sprint 2.1).
 /// Boucle tant que la passphrase est mauvaise ; None si l'utilisateur quitte.
 /// Au premier lancement, le vault est créé (passphrase + confirmation).

@@ -55,6 +55,11 @@ fn main() {
         ui::theme::load();
         ui::icon::set_default();
 
+        // Écran d'accueil animé : premier lancement (ou NYX_SPLASH=1 pour le revoir).
+        if ui::unlock::is_first_launch() || std::env::var_os("NYX_SPLASH").is_some() {
+            ui::splash::play();
+        }
+
         // Déverrouillage du vault (Sprint 2) — abandon = pas de fenêtre,
         // l'application se termine d'elle-même.
         let Some(vault) = ui::unlock::unlock_vault() else { return };

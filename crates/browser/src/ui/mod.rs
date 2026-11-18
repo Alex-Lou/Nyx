@@ -12,6 +12,7 @@ pub mod navbar;
 pub mod passwords_popover;
 pub mod settings_window;
 pub mod shortcuts;
+pub mod splash;
 pub mod tabs;
 pub mod theme;
 pub mod unlock;
