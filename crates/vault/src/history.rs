@@ -20,6 +20,30 @@ pub fn push(conn: &Connection, url: &str, title: &str) -> Result<()> {
     Ok(())
 }
 
+/// Import en bloc `(url, titre, secondes Unix)` : une transaction, sans
+/// doublon exact (url + date) pour qu'un ré-import soit idempotent, puis
+/// même plafond que `push` — en gardant les plus récentes par date.
+/// Retourne le nombre de lignes réellement ajoutées.
+pub fn import(conn: &Connection, entries: &[(String, String, i64)]) -> Result<usize> {
+    let tx = conn.unchecked_transaction()?;
+    let mut added = 0;
+    for (url, title, secs) in entries {
+        let Some(at) = chrono::DateTime::<Utc>::from_timestamp(*secs, 0) else { continue };
+        added += tx.execute(
+            "INSERT INTO history (url, title, visited_at) SELECT ?1, ?2, ?3
+             WHERE NOT EXISTS (SELECT 1 FROM history WHERE url = ?1 AND visited_at = ?3)",
+            params![url, title, at.to_rfc3339()],
+        )?;
+    }
+    tx.execute(
+        "DELETE FROM history WHERE id NOT IN
+         (SELECT id FROM history ORDER BY visited_at DESC, id DESC LIMIT ?1)",
+        params![MAX_ENTRIES],
+    )?;
+    tx.commit()?;
+    Ok(added)
+}
+
 pub fn list_recent(conn: &Connection, limit: usize) -> Result<Vec<HistoryEntry>> {
     query(
         conn,
