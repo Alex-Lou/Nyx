@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Racine edge-to-edge : MainActivity applique les insets (barres système +
+     clavier) en padding ; le fond deep colore aussi la zone de status bar. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/nyx_deep"
+    android:orientation="vertical">
+
+    <LinearLayout
+        android:id="@+id/toolbar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingHorizontal="4dp"
+        android:paddingVertical="6dp">
+
+        <ImageButton
+            android:id="@+id/btn_back"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/cd_back"
+            android:src="@drawable/ic_back" />
+
+        <ImageButton
+            android:id="@+id/btn_forward"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/cd_forward"
+            android:src="@drawable/ic_forward" />
+
+        <EditText
+            android:id="@+id/address"
+            android:layout_width="0dp"
+            android:layout_height="40dp"
+            android:layout_marginHorizontal="4dp"
+            android:layout_weight="1"
+            android:background="@drawable/address_bg"
+            android:hint="@string/address_hint"
+            android:imeOptions="actionGo|flagNoExtractUi"
+            android:importantForAutofill="no"
+            android:inputType="textUri"
+            android:maxLines="1"
+            android:paddingHorizontal="14dp"
+            android:selectAllOnFocus="true"
+            android:singleLine="true"
+            android:textColor="@color/nyx_text"
+            android:textColorHint="@color/nyx_dim"
+            android:textSize="15sp" />
+
+        <ImageButton
+            android:id="@+id/btn_reload"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/cd_reload"
+            android:src="@drawable/ic_reload" />
+
+        <TextView
+            android:id="@+id/btn_tabs"
+            android:layout_width="30dp"
+            android:layout_height="28dp"
+            android:layout_marginHorizontal="8dp"
+            android:background="@drawable/tab_counter_bg"
+            android:clickable="true"
+            android:contentDescription="@string/cd_tabs"
+            android:focusable="true"
+            android:gravity="center"
+            android:textColor="@color/nyx_star"
+            android:textSize="13sp"
+            android:textStyle="bold" />
+    </LinearLayout>
+
+    <ProgressBar
+        android:id="@+id/progress"
+        style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="match_parent"
+        android:layout_height="2dp"
+        android:indeterminate="false"
+        android:max="100"
+        android:progressTint="@color/nyx_aurora"
+        android:progressBackgroundTint="@android:color/transparent"
+        android:visibility="invisible" />
+
+    <FrameLayout
+        android:id="@+id/web_container"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:background="@color/nyx_void" />
+</LinearLayout>

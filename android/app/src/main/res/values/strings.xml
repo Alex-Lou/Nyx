@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Nyx</string>
+    <string name="address_hint">Rechercher ou saisir une adresse</string>
+    <string name="cd_back">Précédent</string>
+    <string name="cd_forward">Suivant</string>
+    <string name="cd_reload">Recharger</string>
+    <string name="cd_tabs">Onglets</string>
+    <string name="cd_close_tab">Fermer l\'onglet</string>
+    <string name="tabs_title">Onglets</string>
+    <string name="new_tab">Nouvel onglet</string>
+    <string name="address_refused">Adresse refusée</string>
+    <string name="no_app">Aucune application pour ouvrir ce lien</string>
+</resources>

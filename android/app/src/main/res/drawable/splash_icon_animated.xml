@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Entrée du splash (~800 ms) : la lune grandit, son contour se dessine
+     (trim path) puis se remplit ; la vague se trace ; l'étoile s'allume. -->
+<animated-vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:drawable="@drawable/splash_icon">
+    <target
+        android:name="moon_group"
+        android:animation="@animator/splash_moon_scale" />
+    <target
+        android:name="moon_stroke"
+        android:animation="@animator/splash_moon_trim" />
+    <target
+        android:name="moon_fill"
+        android:animation="@animator/splash_moon_fill" />
+    <target
+        android:name="wave"
+        android:animation="@animator/splash_wave_trim" />
+    <target
+        android:name="star"
+        android:animation="@animator/splash_star_fade" />
+</animated-vector>

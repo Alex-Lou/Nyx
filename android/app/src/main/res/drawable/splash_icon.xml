@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Icône du splash : croissant de lune (nébuleuse), vague (aurore), étoile.
+     Viewport 108 ; tout le dessin tient dans le cercle sûr de 2/3 (rayon 36
+     autour de 54,54). Les valeurs ici = état FINAL (affiché tel quel si
+     l'animation n'est pas jouée, ex. API < 31). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <group
+        android:name="moon_group"
+        android:pivotX="54"
+        android:pivotY="54"
+        android:scaleX="1"
+        android:scaleY="1">
+        <path
+            android:name="moon_fill"
+            android:fillAlpha="1"
+            android:fillColor="#9D6EF7"
+            android:pathData="M52.62,26.04 A24,24 0 1,0 75.12,61.4 A21,21 0 0,1 52.62,26.04 Z" />
+        <path
+            android:name="moon_stroke"
+            android:pathData="M52.62,26.04 A24,24 0 1,0 75.12,61.4 A21,21 0 0,1 52.62,26.04 Z"
+            android:strokeWidth="1.5"
+            android:strokeColor="#C8D6FF"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round"
+            android:trimPathEnd="1" />
+    </group>
+
+    <path
+        android:name="wave"
+        android:pathData="M34,80 Q39,75 44,80 T54,80 T64,80 T74,80"
+        android:strokeWidth="3"
+        android:strokeColor="#4AF2C8"
+        android:strokeLineCap="round"
+        android:trimPathEnd="1" />
+
+    <path
+        android:name="star"
+        android:fillAlpha="1"
+        android:fillColor="#C8D6FF"
+        android:pathData="M76,29 L77.2,32.8 L81,34 L77.2,35.2 L76,39 L74.8,35.2 L71,34 L74.8,32.8 Z" />
+</vector>

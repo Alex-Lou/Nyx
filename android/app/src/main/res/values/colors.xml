@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Palette Nyx (miroir de nyx_core::theme::ROOT). -->
+<resources>
+    <color name="nyx_splash_bg">#05070B</color>
+    <color name="nyx_void">#06060F</color>
+    <color name="nyx_deep">#0A0A18</color>
+    <color name="nyx_surface">#0F0F22</color>
+    <color name="nyx_raised">#141430</color>
+    <color name="nyx_border">#1E1E40</color>
+    <color name="nyx_star">#C8D6FF</color>
+    <color name="nyx_moon">#7B8CDE</color>
+    <color name="nyx_nebula">#9D6EF7</color>
+    <color name="nyx_aurora">#4AF2C8</color>
+    <color name="nyx_text">#DDE4FF</color>
+    <color name="nyx_dim">#7078A8</color>
+</resources>

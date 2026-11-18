@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:tools="http://schemas.android.com/tools">
+
+    <style name="Theme.Nyx" parent="Theme.Material3.Dark.NoActionBar">
+        <item name="colorPrimary">@color/nyx_nebula</item>
+        <item name="colorSecondary">@color/nyx_aurora</item>
+        <item name="colorSurface">@color/nyx_surface</item>
+        <item name="android:colorBackground">@color/nyx_void</item>
+        <item name="android:windowBackground">@color/nyx_void</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar" tools:targetApi="27">false</item>
+        <!-- Requis (targetSdk ≥ 33) pour que la WebView autorise l'assombrissement
+             algorithmique des pages. -->
+        <item name="android:isLightTheme" tools:targetApi="29">false</item>
+    </style>
+
+    <!-- Splash animé (androidx core-splashscreen) : AVD lune + vague, 800 ms. -->
+    <style name="Theme.Nyx.Splash" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/nyx_splash_bg</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/splash_icon_animated</item>
+        <item name="windowSplashScreenAnimationDuration">800</item>
+        <item name="postSplashScreenTheme">@style/Theme.Nyx</item>
+    </style>
+</resources>

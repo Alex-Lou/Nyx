@@ -12,6 +12,11 @@ sha2      = "0.10"
 # Seul appel impur de nyx-core, isolé dans `fresh_random_bytes`.
 getrandom = "0.2"
 serde_json = { workspace = true }
+# Bloqueur production (moteur Brave) — SANS la feature par défaut
+# `single-thread`, pour que `Engine` soit `Send + Sync` (partagé entre les
+# threads réseau d'Android). Cf. `adfilter.rs`.
+adblock   = { version = "0.12", default-features = false, features = ["embedded-domain-resolver", "full-regex-handling"] }
+flate2    = "1.0"
 
 [lints]
 workspace = true

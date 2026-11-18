@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Séquentiel : un palier à 0 (250 ms) puis le fondu — la valeur de départ
+     est ainsi appliquée dès t=0, sans flash de l'état final. -->
+<set xmlns:android="http://schemas.android.com/apk/res/android"
+    android:ordering="sequentially">
+    <objectAnimator
+        android:duration="250"
+        android:propertyName="fillAlpha"
+        android:valueFrom="0"
+        android:valueTo="0"
+        android:valueType="floatType" />
+    <objectAnimator
+        android:duration="550"
+        android:interpolator="@android:interpolator/fast_out_slow_in"
+        android:propertyName="fillAlpha"
+        android:valueFrom="0"
+        android:valueTo="1"
+        android:valueType="floatType" />
+</set>
