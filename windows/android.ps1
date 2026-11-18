@@ -85,10 +85,14 @@ if ($out -match 'INSTALL_FAILED_UPDATE_INCOMPATIBLE') {
     & $Adb uninstall $Package | Out-Null
     $out = & $Adb install $apk.FullName 2>&1 | Out-String
 }
+# Xiaomi & co bloquent l'installation par USB : on copie simplement l'APK
+# dans Telechargements du telephone, l'installation se fait d'un tap.
 if ($out -match 'INSTALL_FAILED_USER_RESTRICTED') {
-    throw ("Le telephone a bloque l'installation par USB (Xiaomi / Redmi / POCO).`n" +
-        "Options pour les developpeurs -> active 'Installer via USB' (et 'Debogage USB (parametres de securite)'),`n" +
-        "puis relance ce script et appuie sur 'Installer' dans la fenetre qui s'ouvre sur le telephone.")
+    & $Adb push $apk.FullName '/sdcard/Download/Nyx.apk' 2>&1 | Out-Null
+    Write-Host ''
+    Write-Host 'Nyx.apk est copie sur le telephone.' -ForegroundColor Green
+    Write-Host 'Sur le telephone : appli Fichiers -> Telechargements -> Nyx.apk -> Installer.'
+    exit 0
 }
 if ($out -notmatch 'Success') { throw "Echec de l'installation :`n$out" }
 
