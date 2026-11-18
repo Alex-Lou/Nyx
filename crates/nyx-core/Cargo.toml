@@ -11,6 +11,7 @@ sha2      = "0.10"
 # OS CSPRNG — pour le suffix random du temp path (cf. staging.rs).
 # Seul appel impur de nyx-core, isolé dans `fresh_random_bytes`.
 getrandom = "0.2"
+serde_json = { workspace = true }
 
 [lints]
 workspace = true

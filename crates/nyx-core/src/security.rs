@@ -26,6 +26,9 @@ pub enum Verdict {
     MoveBookmark,
     /// Annuler la navigation et effacer l'historique (`nyx://history/clear`).
     ClearHistory,
+    /// Annuler la navigation et ouvrir l'assistant d'import Chrome
+    /// (`nyx://import/chrome`). Lit des fichiers locaux : interne uniquement.
+    ImportChrome,
     /// Annuler la navigation et charger une page interne.
     Load(Page),
 }
@@ -64,6 +67,12 @@ pub fn decide(url: &str, page_internal: bool, guard: &NyxGuard) -> Verdict {
         if rest.starts_with("history/clear") {
             return if page_internal { Verdict::ClearHistory } else {
                 sec_log::emit(Level::Block, &format!("nyx://history/clear from remote page: {}", sec_log::redact_url(url)));
+                Verdict::Block
+            };
+        }
+        if rest.starts_with("import/chrome") {
+            return if page_internal { Verdict::ImportChrome } else {
+                sec_log::emit(Level::Block, &format!("nyx://import from remote page: {}", sec_log::redact_url(url)));
                 Verdict::Block
             };
         }
@@ -150,5 +159,15 @@ mod tests {
     #[test] fn clear_history_from_remote_blocked() {
         // SÉCURITÉ : une page distante ne peut pas effacer l'historique.
         assert_eq!(decide("nyx://history/clear", false, &guard()), Verdict::Block);
+    }
+
+    #[test] fn import_chrome_from_internal_ok() {
+        assert_eq!(decide("nyx://import/chrome", true, &guard()), Verdict::ImportChrome);
+    }
+    #[test] fn import_chrome_from_remote_blocked() {
+        // SÉCURITÉ : une page distante ne peut pas déclencher la lecture des
+        // fichiers Chrome ni ouvrir un sélecteur de fichiers.
+        assert_eq!(decide("nyx://import/chrome", false, &guard()), Verdict::Block);
+        assert!(decide("NYX://import/chrome", false, &guard()).is_block());
     }
 }

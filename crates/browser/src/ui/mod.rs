@@ -8,6 +8,7 @@ pub mod findbar;
 pub mod dialog;
 pub mod downloads;
 pub mod icon;
+pub mod import_chrome;
 pub mod navbar;
 pub mod passwords_popover;
 pub mod settings_window;

@@ -140,6 +140,16 @@ fn wire_policy_filter(
                 load_internal_page(wv, Page::History, &prefs, &bm, &vault);
                 true
             }
+            Verdict::ImportChrome => {
+                decision.ignore();
+                let parent = wv.toplevel().and_then(|w| w.downcast::<gtk::Window>().ok());
+                let (bm, vault) = (bm.clone(), vault.clone());
+                // Hors du callback de politique : le dialog ne réentre pas WebKit.
+                gtk::glib::idle_add_local_once(move || {
+                    crate::ui::import_chrome::run(parent.as_ref(), &bm, &vault);
+                });
+                true
+            }
             Verdict::Load(page) => {
                 decision.ignore();
                 load_internal_page(wv, page, &prefs, &bm, &vault);

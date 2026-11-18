@@ -216,6 +216,17 @@ input:checked + .chip {
             </div>
         </section>
     </form>
+
+    <!-- Import Chrome : hors du formulaire (pas d'auto-save), action interne nyx://import/chrome -->
+    <section class="section">
+        <div class="section-head">Importer</div>
+        <div class="divider"></div>
+        <div class="row">
+            <div class="row-text"><div class="row-label">Importer depuis Chrome</div>
+                <div class="row-desc">Favoris, historique et mots de passe (export CSV). Fermez Chrome avant d'importer l'historique.</div></div>
+            <button type="button" class="preset" id="import-chrome">Importer depuis Chrome</button>
+        </div>
+    </section>
 </div>
 
 <script>
@@ -233,6 +244,10 @@ input:checked + .chip {
         clearTimeout(timer);
         timer = setTimeout(() => ind.classList.remove('show'), 1400);
     }
+
+    document.getElementById('import-chrome').addEventListener('click', () => {
+        sink.src = 'nyx://import/chrome?t=' + Date.now(); // t : force une nouvelle navigation
+    });
 
     form.querySelectorAll('input').forEach(el => el.addEventListener('change', save));
     document.querySelectorAll('[data-home]').forEach(btn =>

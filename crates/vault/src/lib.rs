@@ -1,10 +1,12 @@
 mod bookmarks;
+mod chrome;
 mod db;
 mod history;
 mod models;
 mod passwords;
 mod settings;
 
+pub use chrome::read_chrome_history;
 pub use models::{Bookmark, HistoryEntry, Password};
 
 use anyhow::Result;
@@ -75,6 +77,11 @@ impl Vault {
 
     pub fn push_history(&self, url: &str, title: &str) -> Result<()> {
         history::push(&self.conn, url, title)
+    }
+
+    /// Import en bloc d'historique `(url, titre, secondes Unix)`.
+    pub fn import_history(&self, entries: &[(String, String, i64)]) -> Result<usize> {
+        history::import(&self.conn, entries)
     }
 
     pub fn recent_history(&self, limit: usize) -> Result<Vec<HistoryEntry>> {
@@ -166,6 +173,26 @@ mod tests {
 
         vault.delete_password(id)?;
         assert!(vault.passwords_for("example.com")?.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn import_history_keeps_dates_dedups_and_bounds() -> Result<()> {
+        let tmp = TempVault::new("import_history");
+        let vault = tmp.open("pw")?;
+        let e = |u: &str, t: i64| (u.to_string(), String::new(), t);
+        assert_eq!(vault.import_history(&[e("https://a.org", 1_600_000_000), e("https://b.org", 1_700_000_000)])?, 2);
+        // Ré-import : idempotent.
+        assert_eq!(vault.import_history(&[e("https://a.org", 1_600_000_000)])?, 0);
+        let recent = vault.recent_history(10)?;
+        assert_eq!(recent[0].url, "https://b.org");
+        assert_eq!(recent[0].visited_at.timestamp(), 1_700_000_000);
+        // Plafond : les plus récentes gagnent.
+        let many: Vec<_> = (0..history::MAX_ENTRIES + 10).map(|i| e(&format!("https://x.org/{i}"), 1_800_000_000 + i)).collect();
+        vault.import_history(&many)?;
+        let all = vault.recent_history(history::MAX_ENTRIES as usize + 100)?;
+        assert_eq!(all.len(), history::MAX_ENTRIES as usize);
+        assert!(all.iter().all(|h| h.url != "https://a.org"));
         Ok(())
     }
 
