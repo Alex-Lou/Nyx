@@ -41,7 +41,7 @@ pub fn configure(
 ) {
     apply_privacy_settings(webview);
     wire_history_autosave(webview, vault.clone(), prefs.clone());
-    password_capture::wire(webview, vault.clone());
+    password_capture::wire(webview, vault.clone(), prefs.clone());
     if prefs.borrow().reject_cookies {
         cookies::wire(webview); // refus auto des bannières de consentement
     }
