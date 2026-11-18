@@ -1,21 +1,16 @@
-//! Filtre publicitaire production — moteur `adblock` de Brave nourri par
-//! EasyList + EasyPrivacy bundlées (~82 000 règles).
+//! Filtre publicitaire production — moteur `nyx_core::adfilter` (Brave
+//! `adblock`) nourri par EasyList + EasyPrivacy bundlées (~82 000 règles).
 //!
-//! Pourquoi ici et pas dans `nyx_core::nyxguard` ? Le moteur Brave n'est ni
-//! `Send` ni `Sync`, or NyxGuard est partagé en `Arc` et stressé en
-//! multi-thread (tests `hostile_stress`). On garde donc la politique pure
-//! (rapide, sûre, multi-thread) dans nyx-core, et ce moteur lourd vit sur le
-//! thread GTK uniquement, consulté EN COMPLÉMENT à la frontière decide-policy.
+//! Le moteur lui-même vit dans nyx-core (partagé avec Android, où il est
+//! `Send + Sync`). Côté desktop on garde une instance par thread GTK,
+//! consultée EN COMPLÉMENT à `NyxGuard` à la frontière decide-policy.
 //! Les sous-ressources (img/script/xhr) sont bloquées par le content filter
 //! au niveau navigation/iframes (decide-policy). Le filtrage des sous-
 //! ressources via FFI a été retiré (segfault selon la version WebKitGTK).
 
 use std::cell::OnceCell;
-use std::io::Read;
 
-use adblock::lists::{FilterSet, ParseOptions};
-use adblock::request::Request;
-use adblock::Engine;
+use nyx_core::adfilter::AdFilter;
 
 const EASYLIST_GZ: &[u8] = include_bytes!("../../../../assets/filterlists/easylist.txt.gz");
 const EASYPRIVACY_GZ: &[u8] = include_bytes!("../../../../assets/filterlists/easyprivacy.txt.gz");
@@ -23,14 +18,18 @@ const EASYPRIVACY_GZ: &[u8] = include_bytes!("../../../../assets/filterlists/eas
 thread_local! {
     /// Lazy : le parse des listes (~3,5 MB) ne se paie qu'à la première
     /// vérification d'URL, pas au démarrage.
-    static ENGINE: OnceCell<Engine> = const { OnceCell::new() };
+    static ENGINE: OnceCell<AdFilter> = const { OnceCell::new() };
+}
+
+fn build() -> AdFilter {
+    AdFilter::from_gz_lists([EASYLIST_GZ, EASYPRIVACY_GZ])
 }
 
 /// Construit le moteur à l'avance (appelé en idle après l'affichage de la
 /// première fenêtre) pour que la première navigation ne paie pas le parse.
 pub fn warm_up() {
     ENGINE.with(|cell| {
-        cell.get_or_init(|| Engine::from_filter_set(bundled_filter_set(), true));
+        cell.get_or_init(build);
     });
 }
 
@@ -38,26 +37,7 @@ pub fn warm_up() {
 /// À consulter seulement si l'adblock est activé (le toggle vit dans
 /// AppSettings / NyxGuard, pas ici).
 pub fn should_block(url: &str) -> bool {
-    ENGINE.with(|cell| {
-        let engine = cell.get_or_init(|| Engine::from_filter_set(bundled_filter_set(), true));
-        Request::new(url, url, "document")
-            .map(|r| engine.check_network_request(&r).matched)
-            .unwrap_or(false)
-    })
-}
-
-fn bundled_filter_set() -> FilterSet {
-    let mut set = FilterSet::new(false);
-    for gz in [EASYLIST_GZ, EASYPRIVACY_GZ] {
-        set.add_filters(gunzip(gz).lines(), ParseOptions::default());
-    }
-    set
-}
-
-fn gunzip(data: &[u8]) -> String {
-    let mut out = String::new();
-    let _ = flate2::read::GzDecoder::new(data).read_to_string(&mut out);
-    out
+    ENGINE.with(|cell| cell.get_or_init(build).should_block(url, url, "document"))
 }
 
 #[cfg(test)]
