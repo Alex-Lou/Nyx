@@ -19,7 +19,8 @@ use std::sync::Arc;
 use gtk::prelude::*;
 use webkit2gtk::{
     NavigationPolicyDecision, NavigationPolicyDecisionExt, PolicyDecision,
-    PolicyDecisionExt, PolicyDecisionType, URIRequestExt, WebView, WebViewExt,
+    PolicyDecisionExt, PolicyDecisionType, ResponsePolicyDecision,
+    ResponsePolicyDecisionExt, URIRequestExt, URIResponseExt, WebView, WebViewExt,
 };
 
 use std::rc::Rc;
@@ -86,6 +87,15 @@ fn apply_privacy_settings(webview: &WebView) {
     s.set_enable_smooth_scrolling(true);
 }
 
+/// `Content-Disposition: attachment` : le serveur demande un téléchargement
+/// même pour un type affichable (PDF, image, texte…).
+fn is_attachment(r: &ResponsePolicyDecision) -> bool {
+    r.response()
+        .and_then(|resp| resp.http_headers())
+        .and_then(|h| h.one("Content-Disposition"))
+        .is_some_and(|v| v.trim_start().to_ascii_lowercase().starts_with("attachment"))
+}
+
 fn wire_policy_filter(
     webview: &WebView, blocker: Arc<NyxGuard>, prefs: Settings, bm: Bookmarks, vault: Rc<Vault>,
 ) {
@@ -103,6 +113,17 @@ fn wire_policy_filter(
                     return true;
                 }
                 return false;
+            }
+            // Réponse que WebKit ne sait pas afficher (zip, exe, pdf forcé…) :
+            // sans décision explicite, la navigation reste figée. On la
+            // bascule en téléchargement → pont downloads (politique + shelf).
+            PolicyDecisionType::Response => {
+                let Some(r) = decision.downcast_ref::<ResponsePolicyDecision>() else { return false };
+                if r.is_mime_type_supported() && !is_attachment(r) {
+                    return false;
+                }
+                r.download();
+                return true;
             }
             _ => return false,
         };

@@ -19,7 +19,9 @@ provision() {
     apt-get install -yq --no-install-recommends \
         build-essential pkg-config curl ca-certificates git \
         libwebkit2gtk-4.1-dev libgtk-3-dev libsqlcipher-dev \
-        fonts-noto-core fonts-noto-color-emoji
+        fonts-noto-core fonts-noto-color-emoji \
+        gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-libav
+    # ↑ codecs vidéo/audio : H.264, AAC, AV1, VP9, Opus (YouTube, Twitch…).
 
     id "$NYX_USER" &>/dev/null || useradd -m -s /bin/bash "$NYX_USER"
 

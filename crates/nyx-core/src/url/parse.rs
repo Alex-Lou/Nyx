@@ -132,8 +132,40 @@ pub fn host_matches(host: &str, domain: &str) -> bool {
         .is_some_and(|rest| rest.is_empty() || rest.ends_with('.'))
 }
 
+/// Nom de fichier suggéré par l'URL : dernier segment du chemin, décodé
+/// (`%20` → espace). `None` si le chemin se termine par `/`. Le résultat
+/// n'est PAS sûr tel quel : `download_policy` l'assainit ensuite.
+pub fn filename_of(url: &str) -> Option<String> {
+    let path = url.split(['?', '#']).next()?;
+    let after_scheme = path.split_once("://").map_or(path, |(_, r)| r);
+    let (_, path) = after_scheme.split_once('/')?;
+    let last = path.rsplit('/').next().filter(|s| !s.is_empty())?;
+    let bytes = last.as_bytes();
+    let hex = |b: u8| (b as char).to_digit(16);
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        match (bytes[i], bytes.get(i + 1).copied().and_then(hex), bytes.get(i + 2).copied().and_then(hex)) {
+            (b'%', Some(h), Some(l)) => { out.push((h * 16 + l) as u8); i += 3; }
+            (b, _, _) => { out.push(b); i += 1; }
+        }
+    }
+    Some(String::from_utf8_lossy(&out).into_owned())
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn filename_from_url_path() {
+        use super::filename_of;
+        assert_eq!(filename_of("https://h.com/a/file.zip?x=1#y").as_deref(), Some("file.zip"));
+        assert_eq!(filename_of("https://h.com/my%20doc.pdf").as_deref(), Some("my doc.pdf"));
+        assert_eq!(filename_of("https://h.com/a+b.txt").as_deref(), Some("a+b.txt"));
+        assert_eq!(filename_of("https://h.com/caf%C3%A9.txt").as_deref(), Some("café.txt"));
+        assert_eq!(filename_of("https://h.com/dir/"), None);
+        assert_eq!(filename_of("https://h.com"), None);
+    }
+
     use super::*;
 
     #[test]

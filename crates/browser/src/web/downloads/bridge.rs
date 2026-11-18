@@ -344,9 +344,12 @@ fn read_request(download: &Download) -> RequestData {
     let response = download.response();
     // Le suggested_filename vit sur URIResponse (Content-Disposition parsé
     // par WebKit), pas sur Download directement dans cette version du binding.
+    // Sans Content-Disposition, nom tiré de l'URL (`…/file.zip` → file.zip).
     let suggested = response.as_ref()
         .and_then(|r| r.suggested_filename())
         .map(|s| s.to_string())
+        .filter(|s| !s.is_empty())
+        .or_else(|| nyx_core::url::filename_of(&uri))
         .unwrap_or_default();
     let mime = response.as_ref()
         .and_then(|r| r.mime_type())

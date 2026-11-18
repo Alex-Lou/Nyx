@@ -6,7 +6,7 @@ mod parse;
 
 pub use encode::{form_decode, form_encode, html_escape};
 pub use parse::{
-    host_matches, host_of, is_http, is_navigable, is_loopback_host, is_loopback_url,
+    filename_of, host_matches, host_of, is_http, is_navigable, is_loopback_host, is_loopback_url,
     is_potentially_trustworthy, origin_of, scheme_of,
 };
 
