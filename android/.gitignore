@@ -1,0 +1,8 @@
+.gradle/
+build/
+local.properties
+.idea/
+*.iml
+.kotlin/
+# Produit par cargo-ndk en CI (jamais versionné)
+app/src/main/jniLibs/
