@@ -151,7 +151,11 @@ pub fn apply_from_url(url: &str, settings: &Settings, blocker: &NyxGuard) -> boo
     s.private_mode      = flag("private");
     s.block_third_party = flag("blockauth");
     s.reject_cookies    = flag("rejectcookies");
-    s.save_passwords    = flag("savepw");
+    // Absent = réglage antérieur à l'option → on garde le défaut (actif).
+    // Le formulaire envoie toujours `savepw` (champ caché `false`).
+    if params.contains_key("savepw") {
+        s.save_passwords = flag("savepw");
+    }
     // Defaut historique = true. Absent = on garde la valeur courante pour
     // ne pas forcer un downgrade silencieux.
     if params.contains_key("recheckrun") {
@@ -176,7 +180,7 @@ pub fn to_query(s: &AppSettings) -> String {
         form_encode(s.downloads_dir.as_deref().unwrap_or("")),
     );
     // recheckrun n'est appliqué que si présent → toujours l'émettre.
-    q.push_str(&format!("&recheckrun={}", s.recheck_on_run));
+    q.push_str(&format!("&recheckrun={}&savepw={}", s.recheck_on_run, s.save_passwords));
     // Même convention que le formulaire : une checkbox absente = false.
     for (key, on) in [
         ("adblock", s.adblock_enabled),
@@ -184,7 +188,6 @@ pub fn to_query(s: &AppSettings) -> String {
         ("private", s.private_mode),
         ("blockauth", s.block_third_party),
         ("rejectcookies", s.reject_cookies),
-        ("savepw", s.save_passwords),
     ] {
         if on {
             q.push_str(&format!("&{key}=true"));
@@ -293,16 +296,20 @@ mod tests {
         let _ = b;
     }
 
-    /// `savepw` : actif par défaut, absent du formulaire = désactivé.
+    /// `savepw` : actif par défaut, toujours émis, absent = inchangé.
     #[test]
     fn save_passwords_toggle() {
         let (s, b) = setup();
         assert!(s.borrow().save_passwords);
+        // Réglages sauvegardés avant l'option : absent → reste actif.
         apply_from_url("nyx://apply?engine=ddg", &s, &b);
-        assert!(!s.borrow().save_passwords);
-        apply_from_url("nyx://apply?savepw=true", &s, &b);
         assert!(s.borrow().save_passwords);
-        assert!(to_query(&s.borrow()).contains("savepw=true"));
+        // Formulaire : champ caché `false` puis checkbox (le dernier gagne).
+        apply_from_url("nyx://apply?savepw=false", &s, &b);
+        assert!(!s.borrow().save_passwords);
+        assert!(to_query(&s.borrow()).contains("savepw=false"));
+        apply_from_url("nyx://apply?savepw=false&savepw=true", &s, &b);
+        assert!(s.borrow().save_passwords);
     }
 
     /// Entrées hostiles / malformées : ne doivent jamais paniquer.
