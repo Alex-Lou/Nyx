@@ -46,12 +46,8 @@ impl NyxGuard {
                 || self.ad_paths.iter().any(|p| url_contains_path(url, p));
             if ad { return true; }
         }
-        if self.accounts_on.load(Ordering::Relaxed)
+        self.accounts_on.load(Ordering::Relaxed)
             && self.accounts.iter().any(|d| host_matches(host, d))
-        {
-            return true;
-        }
-        false
     }
 }
 

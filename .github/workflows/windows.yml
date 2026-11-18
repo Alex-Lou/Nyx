@@ -40,12 +40,6 @@ jobs:
         with:
           key: windows
 
-      - name: Clippy
-        run: cargo clippy -p nyx-win --all-targets -- -D warnings
-
-      - name: Tests (logique pure)
-        run: cargo test -p nyx-win
-
       - name: Build release
         run: cargo build --release -p nyx-win
 
@@ -61,3 +55,11 @@ jobs:
           path: dist/Nyx.exe
           if-no-files-found: error
           retention-days: 30
+
+      # Qualité APRÈS l'artefact : un nouveau lint ne bloque jamais Nyx.exe,
+      # mais fait quand même échouer le job.
+      - name: Tests (logique pure)
+        run: cargo test -p nyx-win
+
+      - name: Clippy
+        run: cargo clippy -p nyx-win --all-targets -- -D warnings
