@@ -145,9 +145,10 @@ main * { pointer-events: auto; }
     // ── 3 ambiances : flux + accent token. La palette est DÉRIVÉE des tokens CSS Nyx
     //    (--nyx-bg, --nyx-nebula, --nyx-aurora, --nyx-star) → cohérence avec le reste de l'UI.
     const AMB = {
-        nebula: { speed: .075, warp: 4.2, vbias: .0, accent: '--nyx-nebula', fb: '#9d6ef7', pal: null, glow: null },
-        aurora: { speed: .060, warp: 3.0, vbias: .7, accent: '--nyx-aurora', fb: '#4af2c8', pal: null, glow: null },
-        sky:    { speed: .035, warp: 2.3, vbias: .0, accent: '--nyx-star',   fb: '#c8d6ff', pal: null, glow: null },
+        // stars = densité du champ d'étoiles net, detail = grain fin pleine résolution.
+        nebula: { speed: .075, warp: 4.2, vbias: .0, stars: .35, detail: .16, accent: '--nyx-nebula', fb: '#9d6ef7', pal: null, glow: null },
+        aurora: { speed: .060, warp: 3.0, vbias: .7, stars: .50, detail: .10, accent: '--nyx-aurora', fb: '#4af2c8', pal: null, glow: null },
+        sky:    { speed: .035, warp: 2.3, vbias: .0, stars: 1.0, detail: .08, accent: '--nyx-star',   fb: '#c8d6ff', pal: null, glow: null },
     };
     let mode = 'nebula', A = AMB.nebula;
 
@@ -365,84 +366,158 @@ main * { pointer-events: auto; }
         return { GW, GH, splat, clickSplat, step, encode, get active() { return energy > 0; } };
     }
 
-    function initGL() {
-        try {
-            const vs = 'attribute vec2 a;void main(){gl_Position=vec4(a,0.,1.);}';
-            const fs = `precision highp float;
+    // ══════════════════ Rendu WebGL en 2 passes ══════════════════════════
+    // Le nuage (domain warping fbm) est BASSE fréquence : il est calculé dans
+    // une petite texture (FBO, ~½ résolution) puis agrandi — invisible car le
+    // signal est lisse. Tout ce qui doit être NET (étoiles, grain fin,
+    // vignette, dither) est fait à pleine résolution dans une 2e passe très
+    // légère. Le bruit vient d'une texture précalculée (1 lecture au lieu de
+    // 4 hash) → ~10× moins de calcul par pixel qu'un fbm procédural.
+    // Fonction (hoistée) et non const : initGL() est appelé plus haut dans le fichier.
+    function shaderSources() {
+    const NOISE_SIZE = 256;
+    const GLSL_NOISE = `
+uniform sampler2D u_noise;
+float noise(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.0-2.0*f);
+ return texture2D(u_noise,(i+f+0.5)/${F(NOISE_SIZE)}).x;}`;
+
+    const FS_SCENE = `precision highp float;
 uniform vec2 u_res;uniform float u_time;
 uniform sampler2D u_field;
 uniform vec3 u_p0,u_p1,u_p2,u_p3,u_glow;uniform float u_warp,u_vbias,u_speed;
-const float FIELD_SCALE = ${F(TUNING.fieldScale)};
-const float FIELD_WARP  = ${F(TUNING.fieldWarp)};
-float hash(vec2 p){p=fract(p*vec2(123.34,456.21));p+=dot(p,p+45.32);return fract(p.x*p.y);}
-float noise(vec2 p){vec2 i=floor(p),f=fract(p);vec2 u=f*f*(3.0-2.0*f);
- return mix(mix(hash(i),hash(i+vec2(1.,0.)),u.x),mix(hash(i+vec2(0.,1.)),hash(i+vec2(1.,1.)),u.x),u.y);}
-float fbm(vec2 p){float v=0.,a=.5;for(int i=0;i<4;i++){v+=a*noise(p);p=p*2.0+vec2(1.7,9.2);a*=.5;}return v;}
+const float FIELD_SCALE=${F(TUNING.fieldScale)};
+const float FIELD_WARP=${F(TUNING.fieldWarp)};
+${GLSL_NOISE}
+const mat2 ROT=mat2(1.6,1.2,-1.2,1.6);
+float fbm(vec2 p){float v=0.,a=.5;for(int i=0;i<4;i++){v+=a*noise(p);p=ROT*p;a*=.5;}return v;}
 void main(){
  vec2 uv=gl_FragCoord.xy/u_res;
- float aspect=u_res.x/u_res.y;
- vec2 p=uv*vec2(aspect,1.0)*2.4;
+ vec2 p=uv*vec2(u_res.x/u_res.y,1.0)*2.4;
  float t=u_time*u_speed;
-
- // ─── CHAMP FLUIDE : la vélocité advectée (simulée côté CPU, persistante)
- //     décale l'échantillonnage du motif → le motif EST traîné et
- //     tourbillonné par le liquide. Réaliste car le champ persiste,
- //     diffuse et se dissipe ; aucun V analytique plaqué.
  vec4 fld=texture2D(u_field,uv);
- vec2 vel=(fld.rg-0.5)*FIELD_SCALE;
+ p+=(fld.rg-0.5)*FIELD_SCALE*FIELD_WARP;
  float ink=fld.b;
- p+=vel*FIELD_WARP;
-
  vec2 q=vec2(fbm(p+vec2(0.,t)),fbm(p+vec2(5.2,1.3)-vec2(0.,t*(1.0+u_vbias))));
  vec2 r=vec2(fbm(p+u_warp*q+vec2(1.7,9.2)+t*0.5),fbm(p+u_warp*q+vec2(8.3,2.8)-t*0.5));
  float f=fbm(p+u_warp*r);
-
  vec3 col=mix(u_p0,u_p1,smoothstep(0.0,0.6,f));
  col=mix(col,u_p2,smoothstep(0.35,0.9,r.x));
  col=mix(col,u_p3,smoothstep(0.55,1.0,q.y)*0.5);
  col+=u_glow*pow(max(f,0.0),3.0)*0.07;
+ col+=u_glow*ink*0.55+u_p3*ink*ink*0.35;
+ gl_FragColor=vec4(col,1.0);
+}`;
 
- // Encre du fluide : lueur là où on a remué + coeur saturé sur les fortes
- // perturbations. C'est la trace VISIBLE du liquide déplacé.
- col+=u_glow*ink*0.55;
- col+=u_p3*ink*ink*0.35;
-
+    const FS_OUT = `precision highp float;
+uniform sampler2D u_scene,u_field;
+uniform vec2 u_res;uniform float u_time,u_dpr,u_stars,u_detail;uniform vec3 u_glow;
+const float FIELD_SCALE=${F(TUNING.fieldScale)};
+${GLSL_NOISE}
+float h12(vec2 p){vec3 q=fract(p.xyx*.1031);q+=dot(q,q.yzx+33.33);return fract((q.x+q.y)*q.z);}
+vec2 h22(vec2 p){vec3 q=fract(p.xyx*vec3(.1031,.1030,.0973));q+=dot(q,q.yzx+33.33);return fract((q.xx+q.yz)*q.zy);}
+// Une étoile max par cellule (taille en px CSS) : nette quelle que soit la
+// résolution du nuage. dens = probabilité qu'une cellule en contienne une.
+float stars(vec2 px,float cell,float dens,float size){
+ vec2 id=floor(px/cell),f=fract(px/cell);
+ float h=h12(id);
+ if(h>dens)return 0.;
+ vec2 d=(f-(0.15+0.7*h22(id+7.0)))*cell/size;
+ float tw=0.7+0.3*sin(u_time*(0.8+2.5*h)+h*60.0);
+ return exp(-dot(d,d)*2.0)*tw*(0.35+0.65*fract(h*17.0));
+}
+void main(){
+ vec2 uv=gl_FragCoord.xy/u_res;
+ vec3 col=texture2D(u_scene,uv).rgb;
+ vec2 vel=(texture2D(u_field,uv).rg-0.5)*FIELD_SCALE;
+ vec2 px=gl_FragCoord.xy/u_dpr;
+ // Grain fin pleine résolution, dosé par la luminance (les noirs restent purs).
+ float lum=dot(col,vec3(0.299,0.587,0.114));
+ col*=1.0+u_detail*(noise(px*0.11+vel*6.0+u_time*0.15)-0.5)*smoothstep(0.02,0.25,lum);
+ if(u_stars>0.0){
+  vec2 sp=px+vel*5.0;
+  float s=stars(sp,9.0,u_stars*0.10,0.8)*0.55+stars(sp+113.0,31.0,u_stars*0.45,1.3);
+  col+=mix(vec3(1.0),u_glow,0.3)*s;
+ }
  float d=distance(uv,vec2(0.5));
  col*=mix(0.80,1.12,smoothstep(0.0,0.85,d));
  col*=1.0-0.32*d*d;
- col+=hash(uv*u_res+u_time)*0.02-0.01;
+ // Dither IGN (Jimenez 2014) : supprime le banding 8 bits sans grain visible.
+ col+=(fract(52.9829189*fract(dot(gl_FragCoord.xy,vec2(0.06711056,0.00583715))))-0.5)/255.0;
  gl_FragColor=vec4(col,1.0);
 }`;
-            const prog = link(vs, fs);
-            if (!prog) return false;
-            gl.useProgram(prog);
+
+    return { FS_SCENE, FS_OUT };
+    }
+
+    function initGL() {
+        try {
+            const vs = 'attribute vec2 a;void main(){gl_Position=vec4(a,0.,1.);}';
+            const { FS_SCENE, FS_OUT } = shaderSources();
+            const scene = link(vs, FS_SCENE), out = link(vs, FS_OUT);
+            if (!scene || !out) return false;
+
             const buf = gl.createBuffer();
             gl.bindBuffer(gl.ARRAY_BUFFER, buf);
             gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
-            const loc = gl.getAttribLocation(prog, 'a');
-            gl.enableVertexAttribArray(loc);
-            gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+            for (const p of [scene, out]) {
+                const loc = gl.getAttribLocation(p, 'a');
+                gl.enableVertexAttribArray(loc);
+                gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+            }
+            const U = (p, names) => Object.fromEntries(names.map(n => [n, gl.getUniformLocation(p, 'u_' + n)]));
             GLU = {
-                res: gl.getUniformLocation(prog, 'u_res'), time: gl.getUniformLocation(prog, 'u_time'),
-                field: gl.getUniformLocation(prog, 'u_field'),
-                p0: gl.getUniformLocation(prog, 'u_p0'), p1: gl.getUniformLocation(prog, 'u_p1'),
-                p2: gl.getUniformLocation(prog, 'u_p2'), p3: gl.getUniformLocation(prog, 'u_p3'),
-                glow: gl.getUniformLocation(prog, 'u_glow'),
-                warp: gl.getUniformLocation(prog, 'u_warp'), vbias: gl.getUniformLocation(prog, 'u_vbias'),
-                speed: gl.getUniformLocation(prog, 'u_speed'),
+                scene, out,
+                s: U(scene, ['res', 'time', 'field', 'noise', 'p0', 'p1', 'p2', 'p3', 'glow', 'warp', 'vbias', 'speed']),
+                o: U(out, ['res', 'time', 'dpr', 'stars', 'detail', 'glow', 'scene', 'field', 'noise']),
+                fbo: gl.createFramebuffer(), sceneTex: null, fw: 0, fh: 0,
             };
-            // Champ fluide → texture RGBA8 (LINEAR pour un upscale doux).
+
+            // Unités fixes : 0 = bruit, 1 = champ fluide, 2 = nuage (FBO).
+            gl.activeTexture(gl.TEXTURE0);
+            const ntex = texture(gl.REPEAT);
+            const N = 256, rnd = new Uint8Array(N * N * 4);
+            for (let i = 0; i < rnd.length; i++) rnd[i] = (Math.random() * 256) | 0;
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, N, N, 0, gl.RGBA, gl.UNSIGNED_BYTE, rnd);
+
+            gl.activeTexture(gl.TEXTURE1);
             fluid = makeFluid(innerWidth / Math.max(1, innerHeight));
-            ftex = gl.createTexture();
-            gl.bindTexture(gl.TEXTURE_2D, ftex);
+            ftex = texture(gl.CLAMP_TO_EDGE);
             gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, fluid.GW, fluid.GH, 0, gl.RGBA, gl.UNSIGNED_BYTE, fluid.encode());
-            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-            gl.uniform1i(GLU.field, 0);
-            return true;
+
+            gl.activeTexture(gl.TEXTURE2);
+            GLU.sceneTex = texture(gl.CLAMP_TO_EDGE);
+
+            gl.useProgram(scene);
+            gl.uniform1i(GLU.s.noise, 0); gl.uniform1i(GLU.s.field, 1);
+            gl.useProgram(out);
+            gl.uniform1i(GLU.o.noise, 0); gl.uniform1i(GLU.o.field, 1); gl.uniform1i(GLU.o.scene, 2);
+            return resizeScene(64, 36);
         } catch (e) { fluid = null; return false; }
+    }
+
+    // Texture LINEAR sur l'unité active.
+    function texture(wrap) {
+        const t = gl.createTexture();
+        gl.bindTexture(gl.TEXTURE_2D, t);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, wrap);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, wrap);
+        return t;
+    }
+
+    // (Ré)alloue le FBO du nuage — seulement quand sa taille change.
+    function resizeScene(w, h) {
+        if (w === GLU.fw && h === GLU.fh) return true;
+        gl.activeTexture(gl.TEXTURE2);
+        gl.bindTexture(gl.TEXTURE_2D, GLU.sceneTex);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+        gl.bindFramebuffer(gl.FRAMEBUFFER, GLU.fbo);
+        gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, GLU.sceneTex, 0);
+        const ok = gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE;
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+        GLU.fw = w; GLU.fh = h;
+        return ok;
     }
 
     function link(vsrc, fsrc) {
@@ -471,15 +546,13 @@ void main(){
         return p;
     }
 
-    function pushUniforms(now, dt) {
-        // Lerp position douce (sert au shine du wordmark).
+    // Logique par frame hors GPU : fluide (CPU) + brillance du wordmark.
+    function update(now, dt) {
         const lerp = Math.min(1, dt * 0.004);
         mx += (rawMx - mx) * lerp;
         my += (rawMy - my) * lerp;
 
-        // ── Champ fluide : le déplacement réel de la souris cette frame
-        //    devient une force (en cellules). Le champ advecte/dissipe seul →
-        //    sillage persistant et tourbillons, plus de V plaqué.
+        // Le déplacement réel de la souris devient une force dans le champ.
         if (fluid) {
             const idx_ = rawMx - injPrevX, idy_ = rawMy - injPrevY;
             const sp = Math.hypot(idx_, idy_);
@@ -489,16 +562,15 @@ void main(){
                     Math.min(0.9, sp * INK_INJECT), 5.0);
             }
             injPrevX = rawMx; injPrevY = rawMy;
-            // Champ au repos (ni vélocité ni encre, aucun splat) : on saute
-            // step + encode + upload — la texture GPU reste valide.
+            // Champ au repos : ni step, ni encode, ni upload.
             if (fluid.active) {
                 fluid.step(Math.max(0.2, Math.min(2.0, dt / 16.67)));
+                gl.activeTexture(gl.TEXTURE1);
                 gl.bindTexture(gl.TEXTURE_2D, ftex);
                 gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, fluid.GW, fluid.GH, gl.RGBA, gl.UNSIGNED_BYTE, fluid.encode());
             }
         }
 
-        // ── Wordmark shine (inchangé) ──
         const csx = rawMx * innerWidth, csy = (1 - rawMy) * innerHeight;
         const wdist = Math.hypot(csx - wordCx, csy - wordCy);
         const tIn = wordReach * 0.20, tOut = wordReach * 1.00;
@@ -512,49 +584,91 @@ void main(){
             lastShine = shine;
             document.documentElement.style.setProperty('--nyx-shine', shine.toFixed(3));
         }
+    }
 
-        gl.uniform2f(GLU.res, canvas.width, canvas.height);
-        gl.uniform1f(GLU.time, now * 0.001);
-        gl.uniform3fv(GLU.p0, A.pal[0]); gl.uniform3fv(GLU.p1, A.pal[1]);
-        gl.uniform3fv(GLU.p2, A.pal[2]); gl.uniform3fv(GLU.p3, A.pal[3]);
-        gl.uniform3fv(GLU.glow, A.glow);
-        gl.uniform1f(GLU.warp, A.warp); gl.uniform1f(GLU.vbias, A.vbias); gl.uniform1f(GLU.speed, A.speed);
+    function draw(now) {
+        const t = (now * 0.001) % 3600;          // borne : précision float stable
+        const s = GLU.s, o = GLU.o;
+
+        gl.bindFramebuffer(gl.FRAMEBUFFER, GLU.fbo);
+        gl.viewport(0, 0, GLU.fw, GLU.fh);
+        gl.useProgram(GLU.scene);
+        gl.uniform2f(s.res, GLU.fw, GLU.fh);
+        gl.uniform1f(s.time, t);
+        gl.uniform3fv(s.p0, A.pal[0]); gl.uniform3fv(s.p1, A.pal[1]);
+        gl.uniform3fv(s.p2, A.pal[2]); gl.uniform3fv(s.p3, A.pal[3]);
+        gl.uniform3fv(s.glow, A.glow);
+        gl.uniform1f(s.warp, A.warp); gl.uniform1f(s.vbias, A.vbias); gl.uniform1f(s.speed, A.speed);
+        gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+        gl.viewport(0, 0, canvas.width, canvas.height);
+        gl.useProgram(GLU.out);
+        gl.uniform2f(o.res, canvas.width, canvas.height);
+        gl.uniform1f(o.time, t);
+        gl.uniform1f(o.dpr, canvas.width / Math.max(1, innerWidth));
+        gl.uniform1f(o.stars, A.stars);
+        gl.uniform1f(o.detail, A.detail);
+        gl.uniform3fv(o.glow, A.glow);
+        gl.drawArrays(gl.TRIANGLES, 0, 3);
     }
 
     function runGL() {
-        // Governor de RÉSOLUTION : sous rendu logiciel (WSL), on rend en basse
-        // résolution et le navigateur upscale → fluide même sans GPU.
-        let quality = 0.85, fpsFrames = 0, fpsTimer = 0, last = 0;
+        // Paliers : on baisse d'abord la résolution du NUAGE (lisse, donc
+        // invisible), puis la CADENCE (30 i/s régulières plutôt que 60 i/s
+        // irrégulières), la netteté de sortie en tout dernier. Hystérésis
+        // large → jamais d'oscillation (source de saccades).
+        const LEVELS = [
+            { scene: .5,  out: 1,   every: 1 },
+            { scene: .36, out: 1,   every: 1 },
+            { scene: .3,  out: .8,  every: 1 },
+            { scene: .36, out: 1,   every: 2 },
+            { scene: .3,  out: .8,  every: 2 },
+            { scene: .25, out: .65, every: 2 },
+        ];
+        const FRAME_MS = 1000 / 60, WINDOW_MS = 1500, FAST_WINDOWS = 4;
+        let level = 0, acc = 0, frames = 0, fastStreak = 0, warm = true, last = 0, tick = 0;
         let running = true, _raf = 0;
+
         function sizeFor() {
-            const w = Math.max(2, Math.round(innerWidth * quality));
-            const h = Math.max(2, Math.round(innerHeight * quality));
-            if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; gl.viewport(0, 0, w, h); }
+            const L = LEVELS[level];
+            const dpr = Math.min(window.devicePixelRatio || 1, 1.5) * L.out;
+            const w = Math.max(2, Math.round(innerWidth * dpr)), h = Math.max(2, Math.round(innerHeight * dpr));
+            if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
+            resizeScene(Math.max(2, Math.round(innerWidth * L.scene)), Math.max(2, Math.round(innerHeight * L.scene)));
+        }
+        // dt = intervalle entre deux frames RENDUES ; budget = cadence visée.
+        function govern(dt) {
+            acc += dt; frames++;
+            if (acc < WINDOW_MS) return;
+            const avg = acc / frames, budget = FRAME_MS * LEVELS[level].every;
+            acc = 0; frames = 0;
+            if (warm) { warm = false; return; }          // 1re fenêtre = chargement
+            if (avg > budget * 1.4 && level < LEVELS.length - 1) { level++; fastStreak = 0; }
+            else if (avg < budget * 1.1) {
+                if (++fastStreak >= FAST_WINDOWS && level > 0) { level--; fastStreak = 0; }
+            } else fastStreak = 0;
         }
         function frame(now) {
             _raf = 0;
             if (!running) return;
-            if (!last) last = now;
-            const dt = now - last; last = now;
-            fpsFrames++; fpsTimer += dt;
-            if (fpsTimer >= 1000) {
-                const fps = fpsFrames * 1000 / fpsTimer; fpsFrames = 0; fpsTimer = 0;
-                quality = fps < 40 ? Math.max(0.4, quality - 0.12) : fps > 56 ? Math.min(1, quality + 0.08) : quality;
-            }
-            sizeFor();
-            pushUniforms(now, dt || 16);
-            gl.drawArrays(gl.TRIANGLES, 0, 3);
             if (!document.hidden) _raf = requestAnimationFrame(frame);
+            if (tick++ % LEVELS[level].every) return;   // cadence divisée
+            const dt = last ? now - last : FRAME_MS * LEVELS[level].every; last = now;
+            govern(dt);
+            sizeFor();
+            update(now, dt);
+            draw(now);
         }
         // Boucle UNIQUE, idempotente. Onglet caché → on ne planifie rien ;
         // le visibilitychange global appelle kick().
         function schedule() {
             if (_raf || !running || document.hidden) return;
-            last = 0; fpsFrames = 0; fpsTimer = 0;
+            last = 0; acc = 0; frames = 0; warm = true; tick = 0;
             injPrevX = rawMx; injPrevY = rawMy;   // pas de splat parasite au retour
             _raf = requestAnimationFrame(frame);
         }
-        function drawStatic() { sizeFor(); pushUniforms(12000, 16); gl.drawArrays(gl.TRIANGLES, 0, 3); }
+        function drawStatic() { sizeFor(); update(12000, 16); draw(12000); }
         if (reduce) { drawStatic(); running = false; }
         else schedule();
         return {
