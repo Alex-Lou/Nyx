@@ -2,6 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta http-equiv="Content-Security-Policy"
       content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:; form-action https://duckduckgo.com">
 <title>Nyx</title>
@@ -91,6 +92,24 @@ main * { pointer-events: auto; }
 .ambiance button.active::before { transform: scale(1.5); }
 
 .hint { position: fixed; top: 24px; right: 26px; z-index: 20; color: rgba(112,120,168,.5); font-size: 11px; user-select: none; }
+/* ── Mobile / tactile ─────────────────────────────────────────────────── */
+/* Canvas tactiles : un glissé remue le fluide au lieu de scroller/zoomer. */
+#fx, #loom-fx, #aurora-fx { touch-action: none; }
+@media (pointer: coarse) { .hint { display: none; } }
+@media (max-width: 600px) {
+    body { gap: 24px; padding: env(safe-area-inset-top, 0px) 18px env(safe-area-inset-bottom, 0px); }
+    main { gap: 26px; width: 100%; margin-top: -10vh; }
+    .wordmark { font-size: clamp(58px, 21vw, 100px); letter-spacing: .14em; }
+    .wordmark:hover { letter-spacing: .14em; }
+    .tagline { font-size: 11px; }
+    .search { width: 100%; padding: 14px 16px; border-radius: 16px; }
+    .search input { font-size: 16px; }
+    .ambiance {
+        bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+        gap: 2px; padding: 4px; max-width: calc(100vw - 24px);
+    }
+    .ambiance button { min-height: 40px; padding: 0 12px; font-size: 12px; }
+}
 .hint kbd { background: rgba(255,255,255,.04); border: 1px solid rgba(120,130,200,.16); border-radius: 5px; color: rgba(200,214,255,.7); font-family: 'JetBrains Mono',monospace; font-size: 10px; padding: 1px 6px; margin: 0 1px; }
 </style>
 </head>
@@ -109,7 +128,7 @@ main * { pointer-events: auto; }
     </div>
     <form class="search" action="https://duckduckgo.com/" method="get" autocomplete="off">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
-        <input name="q" placeholder="Rechercher…" autofocus spellcheck="false">
+        <input name="q" placeholder="Rechercher…" spellcheck="false">
     </form>
 </main>
 
@@ -233,6 +252,17 @@ main * { pointer-events: auto; }
     queueMicrotask(measureWord);
 
     addEventListener('pointermove', e => { rawMx = e.clientX / innerWidth; rawMy = 1 - e.clientY / innerHeight; });
+    // Tactile : le doigt « apparaît » sans trajet depuis la dernière position
+    // → on recale l'origine du sillage, sinon un splat géant au premier contact.
+    addEventListener('pointerdown', e => {
+        rawMx = e.clientX / innerWidth; rawMy = 1 - e.clientY / innerHeight;
+        if (e.pointerType !== 'mouse') { injPrevX = rawMx; injPrevY = rawMy; }
+    });
+    // Focus auto de la recherche à la souris seulement : sur téléphone, pas
+    // de clavier qui surgit à chaque nouvel onglet.
+    if (!matchMedia('(pointer: coarse)').matches) {
+        document.querySelector('.search input')?.focus();
+    }
     // Clic = impulsion radiale sortante dans le fluide (caillou dans l'eau).
     // No-op sauf si le moteur fluide est actif.
     function onCanvasDown(e) {

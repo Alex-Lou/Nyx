@@ -290,6 +290,12 @@ class MainActivity : AppCompatActivity() {
         s.setSupportMultipleWindows(false)
         s.javaScriptCanOpenWindowsAutomatically = false
         s.mediaPlaybackRequiresUserGesture = true
+        // Se présenter comme un vrai navigateur mobile : sans « ; wv » ni
+        // « Version/4.0 », Google & co servent leur site mobile complet et
+        // n'interdisent pas la connexion (refusée aux WebView intégrées).
+        s.userAgentString = s.userAgentString
+            .replace("; wv", "")
+            .replace(Regex(" Version/\\d+(\\.\\d+)*"), "")
         s.loadWithOverviewMode = true
         s.useWideViewPort = true
         s.setSupportZoom(true)
