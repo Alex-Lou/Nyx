@@ -1,0 +1,192 @@
+/* Chrome Nyx (Windows) — miroir web de assets/theme.css (navbar, onglets,
+   barre d'adresse). Palette : variables --nyx-* injectées via {{TOKENS}}. */
+
+* { box-sizing: border-box; }
+
+html, body {
+    margin: 0;
+    height: 100%;
+    overflow: hidden;
+    background: var(--nyx-surface);
+    color: var(--nyx-text);
+    font: 13px "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+    user-select: none;
+    -webkit-font-smoothing: antialiased;
+}
+
+/* ── Onglets ─────────────────────────────────────── */
+
+#strip {
+    display: flex;
+    align-items: flex-end;
+    gap: 2px;
+    height: 36px;
+    padding: 4px 8px 0;
+    background: var(--nyx-surface);
+}
+
+#tabs {
+    display: flex;
+    gap: 2px;
+    min-width: 0;
+    overflow: hidden;
+}
+
+.tab {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex: 0 1 200px;
+    min-width: 90px;
+    height: 32px;
+    padding: 0 6px 0 10px;
+    border-radius: 8px 8px 0 0;
+    color: var(--nyx-dim);
+    cursor: default;
+    transition: background-color 180ms cubic-bezier(.4, 0, .2, 1),
+                color 180ms cubic-bezier(.4, 0, .2, 1);
+}
+
+.tab:hover { background: color-mix(in srgb, var(--nyx-raised) 70%, transparent); color: var(--nyx-text); }
+
+.tab.active {
+    background: var(--nyx-raised);
+    color: var(--nyx-star);
+    box-shadow: inset 0 -2px 0 var(--nyx-aurora), 0 0 12px rgba(74, 242, 200, .10);
+}
+
+.tab .label {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.tab .dot {
+    width: 7px;
+    height: 7px;
+    flex: none;
+    border-radius: 50%;
+    background: var(--nyx-ghost);
+}
+
+.tab.loading .dot {
+    background: var(--nyx-aurora);
+    box-shadow: 0 0 8px var(--nyx-aurora);
+    animation: pulse 1s ease-in-out infinite alternate;
+}
+
+@keyframes pulse { from { opacity: .35; } to { opacity: 1; } }
+
+.tab .close {
+    width: 20px;
+    height: 20px;
+    flex: none;
+    padding: 0;
+    border: none;
+    border-radius: 50%;
+    background: none;
+    color: var(--nyx-ghost);
+    font-size: 14px;
+    line-height: 20px;
+    transition: background-color 120ms ease, color 120ms ease;
+}
+
+.tab .close:hover { background: rgba(255, 126, 179, .18); color: var(--nyx-twilight); }
+
+/* ── Barre de navigation ─────────────────────────── */
+
+#bar {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    height: 44px;
+    padding: 6px 8px;
+    background: var(--nyx-raised);
+    border-top: 1px solid var(--nyx-border);
+    border-bottom: 1px solid var(--nyx-border);
+}
+
+.btn {
+    min-width: 32px;
+    height: 30px;
+    padding: 0 8px;
+    border: none;
+    border-radius: 8px;
+    background: none;
+    color: var(--nyx-dim);
+    font-size: 15px;
+    transition: background-color 150ms cubic-bezier(.4, 0, .2, 1),
+                color 150ms cubic-bezier(.4, 0, .2, 1);
+}
+
+.btn:hover:not(:disabled) { background: var(--nyx-raised); color: var(--nyx-text); }
+#bar .btn:hover:not(:disabled) { background: var(--nyx-border); }
+.btn:active:not(:disabled) { color: var(--nyx-aurora); }
+.btn:disabled { color: var(--nyx-ghost); }
+#strip .btn { height: 28px; margin-bottom: 2px; }
+
+#go { flex: 1; min-width: 0; }
+
+#url {
+    width: 100%;
+    height: 30px;
+    padding: 4px 12px;
+    border: 1px solid var(--nyx-border);
+    border-radius: 10px;
+    outline: none;
+    background: var(--nyx-surface);
+    color: var(--nyx-text);
+    caret-color: var(--nyx-aurora);
+    font: 13px "JetBrains Mono", "Cascadia Mono", Consolas, monospace;
+    user-select: text;
+    transition: border-color 180ms cubic-bezier(.4, 0, .2, 1),
+                box-shadow 180ms cubic-bezier(.4, 0, .2, 1);
+}
+
+#url::placeholder { color: var(--nyx-ghost); }
+#url::selection { background: rgba(74, 242, 200, .22); color: var(--nyx-star); }
+
+#url:focus {
+    border-color: var(--nyx-aurora);
+    box-shadow: 0 0 0 3px rgba(74, 242, 200, .15), 0 2px 12px rgba(6, 6, 15, .6);
+}
+
+/* ── Progression + toast ─────────────────────────── */
+
+#progress {
+    position: fixed;
+    left: 0;
+    bottom: 0;
+    height: 2px;
+    width: 0;
+    background: var(--nyx-aurora);
+    box-shadow: 0 0 8px var(--nyx-aurora);
+    opacity: 0;
+    transition: width 600ms ease, opacity 300ms ease;
+}
+
+#progress.on { width: 70%; opacity: 1; }
+
+#toast {
+    position: fixed;
+    right: 12px;
+    top: 4px;
+    max-width: 50%;
+    padding: 5px 12px;
+    border: 1px solid var(--nyx-border);
+    border-radius: 10px;
+    background: var(--nyx-void);
+    color: var(--nyx-star);
+    font-size: 12px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    opacity: 0;
+    transform: translateY(-6px);
+    pointer-events: none;
+    transition: opacity 200ms ease, transform 200ms ease;
+}
+
+#toast.on { opacity: 1; transform: none; }

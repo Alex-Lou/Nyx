@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Nyx</title>
+{{TOKENS}}
+<link rel="stylesheet" href="chrome.css">
+<script src="chrome.js" defer></script>
+</head>
+<body>
+<nav id="strip" aria-label="Onglets">
+  <div id="tabs" role="tablist"></div>
+  <button id="newtab" class="btn" title="Nouvel onglet (Ctrl+T)" aria-label="Nouvel onglet">+</button>
+</nav>
+<header id="bar">
+  <button id="back" class="btn" title="Précédent (Alt+←)" aria-label="Précédent" disabled>&#x2190;</button>
+  <button id="forward" class="btn" title="Suivant (Alt+→)" aria-label="Suivant" disabled>&#x2192;</button>
+  <button id="reload" class="btn" title="Recharger (F5)" aria-label="Recharger">&#x27F3;</button>
+  <button id="home" class="btn" title="Accueil" aria-label="Accueil">&#x2302;</button>
+  <form id="go" autocomplete="off">
+    <input id="url" type="text" spellcheck="false" maxlength="8000"
+           placeholder="Rechercher ou saisir une adresse" aria-label="Barre d'adresse">
+  </form>
+  <button id="downloads" class="btn" title="Téléchargements" aria-label="Téléchargements">&#x2913;</button>
+</header>
+<div id="progress" aria-hidden="true"></div>
+<div id="toast" role="status" aria-live="polite"></div>
+</body>
+</html>

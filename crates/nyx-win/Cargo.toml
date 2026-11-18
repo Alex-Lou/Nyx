@@ -1,0 +1,43 @@
+[package]
+name = "nyx-win"
+version = "0.1.0"
+edition = "2021"
+description = "Nyx natif Windows — coquille mince WebView2 (wry/tao) au-dessus de nyx-core"
+
+[[bin]]
+name = "nyx-win"
+path = "src/main.rs"
+
+# Modules purs (IPC, onglets, navigation, protocoles, téléchargements,
+# raccourcis) : compilés et testés sur toutes les plateformes.
+[dependencies]
+nyx-core   = { path = "../nyx-core" }
+serde      = { workspace = true }
+serde_json = { workspace = true }
+
+# Coquille WebView2 : Windows uniquement. Hors Windows, le binaire est un
+# stub (`main` affiche « réservé à Windows ») et rien de ceci n'est compilé.
+# Versions épinglées : wry/tao/webview2-com/windows doivent rester alignées
+# (wry 0.57 ⇔ webview2-com 0.39 ⇔ windows 0.62).
+[target.'cfg(windows)'.dependencies]
+wry          = { version = "=0.57.2", default-features = false, features = ["os-webview"] }
+tao          = { version = "=0.37.2", default-features = false, features = ["rwh_06"] }
+webview2-com = "=0.39.1"
+windows      = { version = "0.62", features = [
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_WindowsAndMessaging",
+] }
+image        = { version = "0.25", default-features = false, features = ["png"] }
+
+[target.'cfg(windows)'.build-dependencies]
+winresource = "=0.1.34"
+
+# Lints propres (PAS `workspace = true`) : `unsafe_code = "forbid"` du
+# workspace ne peut pas être levé localement. On passe à `deny` — bloquant
+# partout — et seul `webview2.rs` fait `#![allow(unsafe_code)]` (COM
+# WebView2 non exposé par wry), sur le modèle de nyx-ffi.
+[lints.rust]
+unsafe_code = "deny"
+
+[lints.clippy]
+all = "warn"
