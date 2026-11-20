@@ -9,6 +9,7 @@ pub mod dialog;
 pub mod downloads;
 pub mod icon;
 pub mod import_chrome;
+pub mod master_password;
 pub mod navbar;
 pub mod passwords_popover;
 pub mod settings_window;

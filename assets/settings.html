@@ -87,6 +87,7 @@ input:checked + .chip {
 
 .stack { display: flex; flex-direction: column; gap: 12px; padding: 6px 2px; }
 .presets { display: flex; gap: 8px; }
+.profiles { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
 .preset {
     padding: 7px 14px; border-radius: 9px; cursor: pointer; font-size: 12.5px;
     background: var(--nyx-raised); border: 1px solid var(--nyx-border); color: var(--nyx-dim);
@@ -223,6 +224,10 @@ input:checked + .chip {
         </section>
     </form>
 
+    <!-- Mot de passe principal : hors du formulaire ; les boutons n'émettent
+         qu'une action nyx://master/… (saisie dans un dialogue GTK natif). -->
+    {{MASTER}}
+
     <!-- Import Chrome : hors du formulaire (pas d'auto-save), action interne nyx://import/chrome -->
     <section class="section">
         <div class="section-head">Importer</div>
@@ -254,6 +259,11 @@ input:checked + .chip {
     document.getElementById('import-chrome').addEventListener('click', () => {
         sink.src = 'nyx://import/chrome?t=' + Date.now(); // t : force une nouvelle navigation
     });
+
+    document.querySelectorAll('[data-action]').forEach(btn =>
+        btn.addEventListener('click', () => {
+            sink.src = btn.dataset.action + '?t=' + Date.now(); // t : force une nouvelle navigation
+        }));
 
     form.querySelectorAll('input').forEach(el => el.addEventListener('change', save));
     document.querySelectorAll('[data-home]').forEach(btn =>

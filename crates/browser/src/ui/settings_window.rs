@@ -35,8 +35,9 @@ pub fn build(
     }
 
     let wv = WebView::new();
+    let has_master = vault.has_master_password();
     web::configure(&wv, blocker, prefs.clone(), bm, perms, vault);
-    wv.load_html(&settings_page::html(&prefs.borrow()), Some(pages::assets_base_uri()));
+    wv.load_html(&settings_page::html(&prefs.borrow(), has_master), Some(pages::assets_base_uri()));
     win.add(&wv);
 
     win
