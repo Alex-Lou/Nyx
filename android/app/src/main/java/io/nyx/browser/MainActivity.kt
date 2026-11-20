@@ -374,8 +374,8 @@ class MainActivity : AppCompatActivity() {
         configureWebView(webView)
         webView.webViewClient = TabClient(tab)
         webView.webChromeClient = TabChromeClient(tab)
-        webView.setDownloadListener { url, userAgent, contentDisposition, mimeType, _ ->
-            startDownload(url, userAgent, contentDisposition, mimeType)
+        webView.setDownloadListener { link, userAgent, contentDisposition, mimeType, _ ->
+            startDownload(link, userAgent, contentDisposition, mimeType)
         }
         webView.setFindListener { activeMatchOrdinal, numberOfMatches, _ ->
             onFindResult(tab, activeMatchOrdinal, numberOfMatches)
@@ -411,8 +411,8 @@ class MainActivity : AppCompatActivity() {
         val index = tabs.indexOf(tab)
         if (index < 0) return
         tabs.removeAt(index)
-        if (current === tab) current = null
         releaseTab(tab)
+        if (current === tab) current = null
         destroyWebView(tab.webView)
         when {
             tabs.isEmpty() -> openTab(null)
