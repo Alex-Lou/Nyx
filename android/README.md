@@ -1,14 +1,15 @@
 # Nyx pour Android
 
-Version Android native de Nyx (phase 1) : application Kotlin bâtie sur
-la WebView système d'Android, qui réutilise la logique Rust de `nyx-core`
-via la petite crate JNI `crates/nyx-ffi`.
+Version Android native de Nyx : application Kotlin bâtie sur la WebView
+système d'Android, qui réutilise la logique Rust de `nyx-core` et le
+coffre chiffré `vault` via la petite crate JNI `crates/nyx-ffi`.
 
-**Contenu de la phase 1** : navigation par onglets, barre d'adresse
-(URL ou recherche DuckDuckGo), page « Nouvel onglet » Nyx avec ses
-ambiances, thème sombre, splash animé, blocage publicitaire NyxGuard
-(EasyList + EasyPrivacy). Le coffre-fort de mots de passe et la
-synchronisation avec le PC arriveront dans les phases suivantes.
+**Contenu** : navigation par onglets, barre d'adresse (URL ou recherche
+avec le moteur choisi), page « Nouvel onglet » Nyx avec ses ambiances,
+thème sombre, splash animé, blocage publicitaire NyxGuard (EasyList +
+EasyPrivacy), et le **coffre chiffré** (favoris, historique, mots de
+passe, réglages) au même comportement que sur PC. La synchronisation avec
+le PC arrivera plus tard (« Appareils liés (bientôt) » dans les réglages).
 
 **Usage quotidien** :
 
@@ -25,7 +26,59 @@ synchronisation avec le PC arriveront dans les phases suivantes.
   utiliser… » puis, si besoin, la permission Android. Seules les origines
   https sont éligibles ; l'accord DRM est mémorisé pour la session, les
   autres valent pour une seule demande.
-- **Rechercher dans la page** : appui long sur le compteur d'onglets.
+- **Rechercher dans la page** : menu ⋮, ou appui long sur le compteur
+  d'onglets.
+- **Menu ⋮** : ajouter / retirer la page des favoris (étoile), nouvel
+  onglet, rechercher, **Favoris**, **Historique**, **Mots de passe**,
+  **Réglages**.
+
+## Coffre chiffré
+
+Comme sur PC, tout est dans une base **SQLCipher** (AES-256),
+`filesDir/vault.db`, privée à l'application (`allowBackup="false"` ; la
+clé Keystore ne quitte jamais l'appareil). Seule l'origine de la clé
+change :
+
+- **Clé d'appareil (par défaut)** : 32 octets aléatoires, enveloppés par
+  une clé AES-256-GCM du **Keystore Android** (alias `nyx_vault_wrap`,
+  non exportable, sans authentification) dans `filesDir/vault.key.enc`.
+  Le coffre s'ouvre sans rien demander.
+- **Mot de passe principal (optionnel)** : demandé à chaque lancement,
+  aucun fichier de clé. Au premier lancement, une carte de bienvenue
+  propose « **Plus tard** » (défaut : clé d'appareil) ou « **Définir un
+  mot de passe principal** ». Ensuite : **Réglages → Mot de passe
+  principal** (définir / changer / retirer).
+- **Ordre sûr** (identique à `vault::keymode`) : chaque changement de clé
+  est vérifié en rouvrant le coffre ; en cas d'échec la clé précédente est
+  restaurée. Le fichier de clé n'est supprimé qu'*après* un rechiffrement
+  vérifié, et il est écrit puis relu *avant* de rechiffrer vers une clé
+  d'appareil. Un fichier de clé illisible n'efface rien : Nyx demande
+  alors le mot de passe principal.
+- Les octets de clé traversent JNI en `ByteArray`, effacés des deux côtés
+  après usage.
+
+Fonctions du coffre :
+
+- **Mots de passe** : après une connexion sur un site **https**, Nyx
+  propose « Enregistrer le mot de passe de … pour *site* ? » (Oui / Non).
+  Le script de capture est celui du PC (`assets/password_capture.js`) ;
+  il parle à Nyx par `WebViewCompat.addWebMessageListener` (cadres https
+  seulement) et Rust revalide l'origine de l'émetteur contre l'hôte de la
+  page principale. Désactivable dans les réglages.
+- **Pré-remplissage** : https, hôte exact, cadre principal, un seul
+  compte enregistré — même politique que Windows
+  (`nyx_core::vault_autofill::fill_script`).
+- **Écran Mots de passe** : masqués par défaut ; « Afficher » et
+  « Copier » demandent le verrouillage de l'appareil (biométrie ou code,
+  `androidx.biometric`) s'il est configuré.
+- **Historique** : navigations principales http(s), recherche, « Tout
+  effacer ». **Favoris** : liste, suppression.
+- **Réglages** : moteur de recherche (DuckDuckGo, Brave, Ecosia), page
+  d'accueil des nouveaux onglets, bloqueur on/off, enregistrement des
+  mots de passe on/off — stockés dans le coffre au même format que le PC.
+
+Android n'a pas encore de navigation privée : quand elle arrivera, ni
+historique, ni capture, ni pré-remplissage (déjà prévu côté Rust).
 
 ## Installer l'APK sur son téléphone
 
@@ -62,12 +115,16 @@ Appareils compatibles : Android 8.0 (API 26) ou plus récent, en
 Le SDK et le NDK Android ne sont pas nécessaires en local : l'APK est
 produit par GitHub Actions (`.github/workflows/android.yml`), déclenché
 par chaque push sur `develop` qui touche `android/`, `crates/nyx-core/`,
-`crates/nyx-ffi/` (ou le workflow lui-même), ou à la main.
+`crates/nyx-ffi/`, `crates/vault/` (ou le workflow lui-même), ou à la main.
 
 1. **Rust → `libnyx_ffi.so`** : `cargo-ndk` compile la crate `nyx-ffi`
    pour `arm64-v8a` et `x86_64` (API 26) avec le NDK préinstallé du
    runner, et dépose les bibliothèques dans
-   `android/app/src/main/jniLibs/` (non versionné).
+   `android/app/src/main/jniLibs/` (non versionné). SQLCipher et OpenSSL
+   sont compilés depuis les sources et liés dans la même bibliothèque
+   (feature rusqlite `bundled-sqlcipher-vendored-openssl`, comme sous
+   Windows) : Perl (présent sur le runner) pour le `Configure` d'OpenSSL,
+   et la chaîne LLVM du NDK dans le `PATH`.
 2. **Kotlin → APK** : `./gradlew assembleDebug` (wrapper Gradle 8.9,
    Android Gradle Plugin 8.7, Kotlin 2.0, JDK 17).
 3. L'APK est publié comme artefact `nyx-android-debug` (30 jours).
@@ -77,10 +134,12 @@ par chaque push sur `develop` qui touche `android/`, `crates/nyx-core/`,
 | Couche | Rôle |
 |---|---|
 | `crates/nyx-core` | Logique pure partagée avec le desktop : résolution de la barre d'adresse, règles NyxGuard, moteur EasyList (`adfilter`), palette des pages (`theme`). |
-| `crates/nyx-ffi` | Pont JNI mince (`io.nyx.browser.NyxCore`) : aucune logique, que du marshalling. État global en `OnceLock`, sûr entre threads. |
-| `android/app` | Interface Kotlin : `MainActivity` (onglets, barre, retour, téléchargements, fichiers, plein écran, permissions, recherche), `NewTabPage` (page servie par `WebViewAssetLoader` sur `https://appassets.androidplatform.net/`), `NyxApp` (chargement des listes en arrière-plan). |
+| `crates/vault` | Coffre SQLCipher partagé avec le PC (schéma, clés, rechiffrement). |
+| `crates/nyx-ffi` | Pont JNI mince (`io.nyx.browser.NyxCore`, `io.nyx.browser.NyxVault`) : helpers purs testés sur l'hôte (`vault_api`) + marshalling. État global en `OnceLock` / `Mutex`, sûr entre threads ; listes en JSON. |
+| `android/app` | Interface Kotlin : `MainActivity` (onglets, barre, menu, retour, téléchargements, fichiers, plein écran, permissions, recherche), `NewTabPage` (page servie par `WebViewAssetLoader` sur `https://appassets.androidplatform.net/`), `NyxApp` (chargement des listes en arrière-plan), `VaultRepo` + `KeyStoreWrap` (coffre, clé d'appareil), `VaultDialogs` (bienvenue, déverrouillage, mot de passe principal), `PasswordCapture` (capture, pré-remplissage), `LibraryActivity` (Favoris / Historique / Mots de passe), `SettingsActivity`. |
 
-Les fichiers `assets/newtab.html` et `assets/filterlists/*.txt.gz` du dépôt
+Les fichiers `assets/newtab.html`, `assets/password_capture.js` et
+`assets/filterlists/*.txt.gz` du dépôt
 sont empaquetés directement comme assets Android (pas de copie) : desktop
 et mobile partagent la même source.
 
