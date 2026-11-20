@@ -22,6 +22,7 @@ import android.text.TextUtils
 import android.util.Log
 import android.view.Gravity
 import android.view.KeyEvent
+import android.view.Menu
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
@@ -44,6 +45,7 @@ import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.ImageButton
 import android.widget.LinearLayout
+import android.widget.PopupMenu
 import android.widget.ProgressBar
 import android.widget.ScrollView
 import android.widget.TextView
@@ -59,6 +61,7 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.core.widget.doAfterTextChanged
 import androidx.webkit.WebSettingsCompat
 import androidx.webkit.WebViewAssetLoader
 import androidx.webkit.WebViewFeature
@@ -82,6 +85,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnReload: ImageButton
     private lateinit var btnTabs: TextView
     private lateinit var progress: ProgressBar
+    private lateinit var findBar: View
+    private lateinit var findInput: EditText
+    private lateinit var findCount: TextView
     private lateinit var assetLoader: WebViewAssetLoader
 
     /** Suite d'une demande de permissions Android en cours (une seule à la fois). */
@@ -127,6 +133,9 @@ class MainActivity : AppCompatActivity() {
         btnReload = findViewById(R.id.btn_reload)
         btnTabs = findViewById(R.id.btn_tabs)
         progress = findViewById(R.id.progress)
+        findBar = findViewById(R.id.find_bar)
+        findInput = findViewById(R.id.find_input)
+        findCount = findViewById(R.id.find_count)
 
         WindowInsetsControllerCompat(window, window.decorView).apply {
             isAppearanceLightStatusBars = false
@@ -195,6 +204,11 @@ class MainActivity : AppCompatActivity() {
         btnForward.setOnClickListener { current?.webView?.takeIf { it.canGoForward() }?.goForward() }
         btnReload.setOnClickListener { current?.webView?.reload() }
         btnTabs.setOnClickListener { showTabSwitcher() }
+        btnTabs.setOnLongClickListener {
+            showQuickMenu(it)
+            true
+        }
+        bindFindBar()
 
         address.setOnEditorActionListener { _, actionId, event ->
             val enter = event != null &&
@@ -234,6 +248,90 @@ class MainActivity : AppCompatActivity() {
     private fun hideKeyboard() {
         val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
         imm.hideSoftInputFromWindow(address.windowToken, 0)
+    }
+
+    /** Appui long sur le compteur d'onglets. */
+    private fun showQuickMenu(anchor: View) {
+        val menu = PopupMenu(this, anchor)
+        menu.menu.add(Menu.NONE, MENU_FIND, Menu.NONE, R.string.find_in_page)
+        menu.menu.add(Menu.NONE, MENU_NEW_TAB, Menu.NONE, R.string.new_tab)
+        menu.setOnMenuItemClickListener { item ->
+            when (item.itemId) {
+                MENU_FIND -> openFindBar()
+                MENU_NEW_TAB -> openTab(null)
+            }
+            true
+        }
+        menu.show()
+    }
+
+    // ── Rechercher dans la page ────────────────────────────────────────────
+
+    private fun bindFindBar() {
+        findInput.doAfterTextChanged { text ->
+            if (findBar.visibility != View.VISIBLE) return@doAfterTextChanged
+            val query = text?.toString().orEmpty()
+            val wv = current?.webView ?: return@doAfterTextChanged
+            if (query.isEmpty()) {
+                wv.clearMatches()
+                findCount.text = ""
+            } else {
+                wv.findAllAsync(query)
+            }
+        }
+        findInput.setOnEditorActionListener { _, actionId, event ->
+            val enter = event != null &&
+                event.keyCode == KeyEvent.KEYCODE_ENTER &&
+                event.action == KeyEvent.ACTION_DOWN
+            if (actionId == EditorInfo.IME_ACTION_SEARCH || enter) {
+                findStep(forward = true)
+                true
+            } else {
+                false
+            }
+        }
+        findViewById<View>(R.id.find_prev).setOnClickListener { findStep(forward = false) }
+        findViewById<View>(R.id.find_next).setOnClickListener { findStep(forward = true) }
+        findViewById<View>(R.id.find_close).setOnClickListener { closeFindBar() }
+    }
+
+    private fun openFindBar() {
+        if (current == null) return
+        findBar.visibility = View.VISIBLE
+        findCount.text = ""
+        findInput.requestFocus()
+        findInput.selectAll()
+        val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+        imm.showSoftInput(findInput, InputMethodManager.SHOW_IMPLICIT)
+        // Relance la recherche si un texte est resté dans le champ.
+        val query = findInput.text.toString()
+        if (query.isNotEmpty()) current?.webView?.findAllAsync(query)
+    }
+
+    private fun findStep(forward: Boolean) {
+        val wv = current?.webView ?: return
+        if (findInput.text.isNullOrEmpty()) return
+        wv.findNext(forward)
+    }
+
+    /** Ferme la barre et efface les surlignages de l'onglet courant. */
+    private fun closeFindBar() {
+        if (findBar.visibility != View.VISIBLE) return
+        findBar.visibility = View.GONE
+        findCount.text = ""
+        val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+        imm.hideSoftInputFromWindow(findInput.windowToken, 0)
+        findInput.clearFocus()
+        current?.webView?.clearMatches()
+    }
+
+    private fun onFindResult(tab: BrowserTab, activeMatchOrdinal: Int, numberOfMatches: Int) {
+        if (tab !== current || findBar.visibility != View.VISIBLE) return
+        findCount.text = if (numberOfMatches == 0) {
+            if (findInput.text.isNullOrEmpty()) "" else "0/0"
+        } else {
+            getString(R.string.find_count, activeMatchOrdinal + 1, numberOfMatches)
+        }
     }
 
     private fun refreshAddress() {
@@ -279,6 +377,9 @@ class MainActivity : AppCompatActivity() {
         webView.setDownloadListener { url, userAgent, contentDisposition, mimeType, _ ->
             startDownload(url, userAgent, contentDisposition, mimeType)
         }
+        webView.setFindListener { activeMatchOrdinal, numberOfMatches, _ ->
+            onFindResult(tab, activeMatchOrdinal, numberOfMatches)
+        }
         tabs.add(tab)
         switchTo(tab)
         load(tab, url ?: NewTabPage.URL)
@@ -287,6 +388,7 @@ class MainActivity : AppCompatActivity() {
     private fun switchTo(tab: BrowserTab) {
         val previous = current
         if (customViewTab != null && customViewTab !== tab) exitFullscreen(notifyPage = true)
+        if (previous !== tab) closeFindBar()
         if (previous != null && previous !== tab) {
             previous.webView.onPause()
             container.removeView(previous.webView)
@@ -321,6 +423,7 @@ class MainActivity : AppCompatActivity() {
 
     /** Rend la main à la page : aucun callback WebView ne survit à l'onglet. */
     private fun releaseTab(tab: BrowserTab) {
+        if (tab === current) closeFindBar()
         if (fileCallbackTab === tab) cancelFileChooser()
         if (customViewTab === tab) exitFullscreen(notifyPage = true)
         settlePagePermissions(tab)
@@ -331,6 +434,7 @@ class MainActivity : AppCompatActivity() {
         (webView.parent as? ViewGroup)?.removeView(webView)
         webView.stopLoading()
         webView.setDownloadListener(null)
+        webView.setFindListener(null)
         webView.webChromeClient = null
         webView.destroy()
     }
@@ -792,6 +896,10 @@ class MainActivity : AppCompatActivity() {
             exitFullscreen(notifyPage = true)
             return
         }
+        if (findBar.visibility == View.VISIBLE) {
+            closeFindBar()
+            return
+        }
         if (address.hasFocus()) {
             hideKeyboard()
             address.clearFocus()
@@ -987,6 +1095,8 @@ class MainActivity : AppCompatActivity() {
 
     private companion object {
         const val TAG = "NyxBrowser"
+        const val MENU_FIND = 1
+        const val MENU_NEW_TAB = 2
 
         fun blockedResponse(): WebResourceResponse =
             WebResourceResponse(

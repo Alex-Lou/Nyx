@@ -26,4 +26,10 @@
     <string name="perm_allow">Autoriser</string>
     <string name="perm_deny">Refuser</string>
     <string name="perm_system_denied">Permission refusée par Android</string>
+    <string name="find_in_page">Rechercher dans la page</string>
+    <string name="find_hint">Rechercher dans la page</string>
+    <string name="find_count">%1$d/%2$d</string>
+    <string name="cd_find_prev">Occurrence précédente</string>
+    <string name="cd_find_next">Occurrence suivante</string>
+    <string name="cd_find_close">Fermer la recherche</string>
 </resources>
