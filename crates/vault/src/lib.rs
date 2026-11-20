@@ -79,6 +79,11 @@ impl Vault {
         history::push(&self.conn, url, title)
     }
 
+    /// Retitre la dernière visite de `url` (titre arrivé après le chargement).
+    pub fn retitle_history(&self, url: &str, title: &str) -> Result<bool> {
+        history::retitle(&self.conn, url, title)
+    }
+
     /// Import en bloc d'historique `(url, titre, secondes Unix)`.
     pub fn import_history(&self, entries: &[(String, String, i64)]) -> Result<usize> {
         history::import(&self.conn, entries)
@@ -208,6 +213,20 @@ mod tests {
 
         vault.clear_history()?;
         assert!(vault.recent_history(10)?.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn retitle_touches_latest_visit_only() -> Result<()> {
+        let tmp = TempVault::new("retitle");
+        let vault = tmp.open("secret")?;
+        vault.push_history("https://a.org", "")?;
+        vault.push_history("https://a.org", "")?;
+        assert!(vault.retitle_history("https://a.org", "A")?);
+        assert!(!vault.retitle_history("https://a.org", "A")?, "déjà à jour");
+        assert!(!vault.retitle_history("https://none.org", "x")?);
+        let titles: Vec<String> = vault.recent_history(10)?.into_iter().map(|h| h.title).collect();
+        assert_eq!(titles.iter().filter(|t| *t == "A").count(), 1);
         Ok(())
     }
 

@@ -29,6 +29,10 @@ pub enum Verdict {
     /// Annuler la navigation et ouvrir l'assistant d'import Chrome
     /// (`nyx://import/chrome`). Lit des fichiers locaux : interne uniquement.
     ImportChrome,
+    /// Annuler la navigation et proposer l'import du coffre de la capsule
+    /// WSL (`nyx://import/capsule`, Windows). Lit un fichier local et demande
+    /// une passphrase : interne uniquement.
+    ImportCapsule,
     /// Annuler la navigation et charger une page interne.
     Load(Page),
 }
@@ -72,6 +76,12 @@ pub fn decide(url: &str, page_internal: bool, guard: &NyxGuard) -> Verdict {
         }
         if rest.starts_with("import/chrome") {
             return if page_internal { Verdict::ImportChrome } else {
+                sec_log::emit(Level::Block, &format!("nyx://import from remote page: {}", sec_log::redact_url(url)));
+                Verdict::Block
+            };
+        }
+        if rest.starts_with("import/capsule") {
+            return if page_internal { Verdict::ImportCapsule } else {
                 sec_log::emit(Level::Block, &format!("nyx://import from remote page: {}", sec_log::redact_url(url)));
                 Verdict::Block
             };
@@ -169,5 +179,11 @@ mod tests {
         // fichiers Chrome ni ouvrir un sélecteur de fichiers.
         assert_eq!(decide("nyx://import/chrome", false, &guard()), Verdict::Block);
         assert!(decide("NYX://import/chrome", false, &guard()).is_block());
+    }
+
+    #[test] fn import_capsule_internal_only() {
+        assert_eq!(decide("nyx://import/capsule", true, &guard()), Verdict::ImportCapsule);
+        assert_eq!(decide("nyx://import/capsule", false, &guard()), Verdict::Block);
+        assert!(decide("Nyx://import/capsule?x=1", false, &guard()).is_block());
     }
 }

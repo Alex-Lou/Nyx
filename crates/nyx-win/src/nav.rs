@@ -112,7 +112,8 @@ pub fn decide(target: &str, current: &str, guard: &NyxGuard) -> Nav {
         | Verdict::ApplySettings
         | Verdict::MoveBookmark
         | Verdict::ClearHistory
-        | Verdict::ImportChrome => Nav::Deny,
+        | Verdict::ImportChrome
+        | Verdict::ImportCapsule => Nav::Deny,
     }
 }
 

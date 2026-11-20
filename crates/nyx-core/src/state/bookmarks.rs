@@ -52,6 +52,36 @@ pub fn move_to(bm: &Bookmarks, index: usize, folder: String) {
     }
 }
 
+/// Parse l'action interne `nyx://move?idx=N&to=Dossier` → `(index, dossier)`
+/// (dossier form-décodé : `+` → espace, `%xx` → octet). `None` sans `idx`
+/// valide.
+pub fn parse_move(url: &str) -> Option<(usize, String)> {
+    let query = url.split_once('?')?.1;
+    let (mut idx, mut to) = (None::<usize>, String::new());
+    for pair in query.split('&') {
+        let (k, v) = pair.split_once('=').unwrap_or((pair, ""));
+        match k {
+            "idx" => idx = v.parse().ok(),
+            "to" => to = crate::url::form_decode(v),
+            _ => {}
+        }
+    }
+    idx.map(|i| (i, to))
+}
+
+/// Ajoute ou retire `url` des favoris (bouton étoile). Retourne `true` si le
+/// favori existe après l'appel. URL non navigable → jamais ajoutée.
+pub fn toggle(bm: &Bookmarks, url: &str, title: &str) -> bool {
+    let pos = bm.borrow().iter().position(|b| b.url == url);
+    match pos {
+        Some(i) => {
+            remove(bm, i);
+            false
+        }
+        None => add(bm, url.to_string(), title.to_string()),
+    }
+}
+
 /// Liste triée et dédupliquée des chemins de dossiers présents (hors racine).
 pub fn folders(items: &[Bookmark]) -> Vec<String> {
     let mut out: Vec<String> = items.iter()
@@ -242,6 +272,27 @@ mod tests {
         add_in(&bm, "https://c.com".into(), "C".into(), "Z".into());
         add(&bm, "https://d.com".into(), "D".into()); // racine
         assert_eq!(folders(&bm.borrow()), vec!["A".to_string(), "Z".to_string()]);
+    }
+
+    #[test]
+    fn parse_move_query() {
+        assert_eq!(parse_move("nyx://move?idx=3&to=Travail%2FOutils"), Some((3, "Travail/Outils".into())));
+        assert_eq!(parse_move("nyx://move?to=Mes+liens&idx=0"), Some((0, "Mes liens".into())));
+        assert_eq!(parse_move("nyx://move?idx=1"), Some((1, String::new())));
+        assert_eq!(parse_move("nyx://move?idx=-1&to=x"), None);
+        assert_eq!(parse_move("nyx://move"), None);
+        assert_eq!(parse_move("nyx://move?to=x"), None);
+    }
+
+    #[test]
+    fn toggle_adds_then_removes() {
+        let bm = new();
+        assert!(toggle(&bm, "https://a.com/", "A"));
+        assert_eq!(bm.borrow().len(), 1);
+        assert!(!toggle(&bm, "https://a.com/", "A"));
+        assert!(bm.borrow().is_empty());
+        assert!(!toggle(&bm, "javascript:alert(1)", "x"), "non navigable");
+        assert!(bm.borrow().is_empty());
     }
 
     #[test]
