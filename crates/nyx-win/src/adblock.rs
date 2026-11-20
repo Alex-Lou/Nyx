@@ -49,9 +49,11 @@ pub fn should_block(target: &str, source_url: &str, resource_type: &str) -> bool
     if guard().should_block(target) {
         return true;
     }
-    FILTER
-        .get()
-        .is_some_and(|f| f.should_block(target, source_url, resource_type))
+    // EasyList suit l'interrupteur NyxGuard des réglages.
+    guard().is_enabled()
+        && FILTER
+            .get()
+            .is_some_and(|f| f.should_block(target, source_url, resource_type))
 }
 
 /// WebView2 range les documents principaux ET les (i)frames sous le même

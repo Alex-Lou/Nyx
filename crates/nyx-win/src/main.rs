@@ -5,25 +5,37 @@
 //! (`NyxGuard` + `AdFilter`), noms de téléchargement (`download_policy`) et
 //! palette (`theme`) viennent de `nyx-core`.
 //!
-//! Modules purs (compilés et testés partout) : `ipc`, `tabs`, `nav`,
-//! `protocol`, `adblock`, `downloads`, `keys`, `chrome`.
-//! Modules Windows : `app` (fenêtre, boucle, onglets), `content` (WebView
+//! Modules purs (compilés et testés partout) : `ipc`, `content_ipc`, `tabs`,
+//! `nav`, `protocol`, `pages`, `adblock`, `downloads`, `keys`, `chrome`,
+//! `secret`, `paths`.
+//! Coffre (phase 2, testés partout avec de vrais coffres SQLCipher) :
+//! `store` (favoris/réglages), `capture`, `autofill`, `history`, `migrate`
+//! (capsule WSL), `import_chrome`.
+//! Modules Windows : `app` (fenêtre, boucle, onglets ; `app::vault` :
+//! déverrouillage, capture, actions internes), `content` (WebView
 //! d'onglet), `webview2` (seul module `unsafe` : COM WebView2).
-//!
-//! Phase 2 : intégration du coffre (`vault` : mots de passe, favoris,
-//! historique) via un module `vault` branché sur `app`, comme `nyx-ffi`.
 
 #![cfg_attr(windows, windows_subsystem = "windows")]
 // Hors Windows, seuls les tests utilisent les modules purs.
 #![cfg_attr(not(windows), allow(dead_code))]
 
 mod adblock;
+mod autofill;
+mod capture;
 mod chrome;
+mod content_ipc;
 mod downloads;
+mod history;
+mod import_chrome;
 mod ipc;
 mod keys;
+mod migrate;
 mod nav;
+mod pages;
+mod paths;
 mod protocol;
+mod secret;
+mod store;
 mod tabs;
 
 #[cfg(windows)]

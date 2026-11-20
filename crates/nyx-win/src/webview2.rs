@@ -4,7 +4,7 @@
 //! • filtre `WebResourceRequested` (blocage pub/traqueurs des sous-ressources) ;
 //! • prévention du pistage `Strict` (API Profile) ;
 //! • `DownloadStarting` SANS masquer l'UI native (SmartScreen, MOTW) ;
-//! • `HistoryChanged` / `SourceChanged`, précédent/suivant/arrêt ;
+//! • `HistoryChanged` / `SourceChanged`, précédent/suivant/arrêt, titre ;
 //! • raccourcis clavier (`AcceleratorKeyPressed`) ;
 //! • boîte d'erreur fatale.
 //!
@@ -202,6 +202,15 @@ pub fn history_state(view: &WebView) -> (bool, bool) {
         let _ = core.CanGoForward(&mut forward);
     }
     (back.as_bool(), forward.as_bool())
+}
+
+/// Titre courant du document principal (historique à la fin du chargement).
+pub fn document_title(view: &WebView) -> String {
+    let mut title = PWSTR::null();
+    match unsafe { view.webview().DocumentTitle(&mut title) } {
+        Ok(()) => take_pwstr(title),
+        Err(_) => String::new(),
+    }
 }
 
 pub fn go_back(view: &WebView) {
