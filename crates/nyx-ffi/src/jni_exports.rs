@@ -153,3 +153,18 @@ pub extern "system" fn Java_io_nyx_browser_NyxCore_renderPage<'local>(
     .unwrap_or_default();
     new_string(&mut env, &page)
 }
+
+/// `NyxCore.sanitizeFilename(name: String): String` — jamais vide.
+#[no_mangle]
+pub extern "system" fn Java_io_nyx_browser_NyxCore_sanitizeFilename<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    name: JString<'local>,
+) -> jstring {
+    let safe = catch_unwind(AssertUnwindSafe(|| {
+        let name = read_string(&mut env, &name);
+        crate::sanitize_filename(&name)
+    }))
+    .unwrap_or_else(|_| "download".to_string());
+    new_string(&mut env, &safe)
+}

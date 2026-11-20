@@ -28,6 +28,7 @@ object NyxCore {
     @JvmStatic external fun resolveInput(text: String): String?
     @JvmStatic external fun isNavigable(url: String): Boolean
     @JvmStatic external fun renderPage(template: String): String?
+    @JvmStatic external fun sanitizeFilename(name: String): String?
 
     /** Barre d'adresse → URL ; `""` si l'entrée est refusée. */
     fun safeResolveInput(text: String): String {
@@ -43,6 +44,18 @@ object NyxCore {
         if (!loaded) return false
         val type = resourceType(url, accept) ?: "other"
         return shouldBlock(url, sourceUrl, type)
+    }
+
+    /**
+     * Nom de fichier sûr (sanitizer `download_policy` de nyx-core). Sans la
+     * lib : repli minimal — dernière composante, sans contrôles ni `..`.
+     */
+    fun safeSanitizeFilename(name: String): String {
+        if (loaded) return sanitizeFilename(name)?.takeIf { it.isNotEmpty() } ?: "download"
+        val last = name.substringAfterLast('/').substringAfterLast('\\')
+            .filter { !it.isISOControl() && it.code !in 0x202A..0x202E && it.code !in 0x2066..0x2069 }
+            .trim().trimEnd('.', ' ')
+        return if (last.isEmpty() || last == "..") "download" else last.take(200)
     }
 
     fun safeRenderPage(template: String): String =

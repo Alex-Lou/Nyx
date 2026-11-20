@@ -16,6 +16,7 @@
 use std::sync::OnceLock;
 
 use nyx_core::adfilter::{self, AdFilter};
+use nyx_core::download_policy;
 use nyx_core::nyxguard::NyxGuard;
 use nyx_core::state::settings::AppSettings;
 use nyx_core::{theme, url};
@@ -84,6 +85,13 @@ pub fn render_page(template: &str) -> String {
     theme::render_page(template)
 }
 
+/// Nom de fichier sûr pour un téléchargement (sanitizer de
+/// `download_policy`) : jamais vide, sans séparateur, NUL, contrôle ni bidi,
+/// ≤ 255 octets, ni `.`/`..`, noms réservés Windows préfixés.
+pub fn sanitize_filename(raw: &str) -> String {
+    download_policy::analyze(&download_policy::Request::direct(raw, "", "")).normalized_filename
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -119,6 +127,19 @@ mod tests {
         assert!(filters_ready());
         assert!(should_block("https://ads.example/b.png", "https://site.example/", "image"));
         assert!(!should_block("https://site.example/b.png", "https://site.example/", "image"));
+    }
+
+    #[test]
+    fn download_names() {
+        assert_eq!(sanitize_filename("rapport.pdf"), "rapport.pdf");
+        assert_eq!(sanitize_filename("../../etc/passwd"), "passwd");
+        assert_eq!(sanitize_filename("a\\b\\photo.jpg"), "photo.jpg");
+        assert_eq!(sanitize_filename("facture\u{202E}fdp.exe"), "facturefdp.exe");
+        assert_eq!(sanitize_filename("x\0y.txt"), "xy.txt");
+        assert_eq!(sanitize_filename(".."), "download");
+        assert_eq!(sanitize_filename("   "), "download");
+        assert_eq!(sanitize_filename("CON.txt"), "_CON.txt");
+        assert!(sanitize_filename(&"a".repeat(400)).len() <= 255);
     }
 
     #[test]
