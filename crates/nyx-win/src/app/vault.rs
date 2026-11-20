@@ -10,7 +10,7 @@ use std::path::Path;
 use nyx_core::security::Page;
 use nyx_core::state::bookmarks as bm;
 use vault::keymode::{KeyError, KeyStore, Startup};
-use vault::Vault;
+use vault::{keyfile, Key, Vault};
 
 use super::{App, Pending, Responder, UserEvent};
 use crate::dpapi::Dpapi;
@@ -120,7 +120,10 @@ impl App {
                 Overlay::Welcome { capsule: CapsuleView::Probing, error: String::new() }
             }
             Startup::DeviceKey => match ks.open_with_device_key() {
-                Ok(vault) => return self.finish_unlock(vault, None),
+                Ok(vault) => {
+                    let key = self.device_key();
+                    return self.finish_unlock(vault, key, None);
+                }
                 Err(_) => Overlay::Unlock { notice: DEVICE_KEY_FAILED.into(), error: String::new() },
             },
             Startup::MasterPassword => Overlay::Unlock { notice: String::new(), error: String::new() },
@@ -132,8 +135,9 @@ impl App {
         if self.vault.is_some() || !matches!(self.overlay, Some(Overlay::Unlock { .. })) {
             return;
         }
-        match self.key_store().open_with_master(&passphrase.to_passphrase()) {
-            Ok(vault) => self.finish_unlock(vault, None),
+        let pass = passphrase.to_passphrase();
+        match self.key_store().open_with_master(&pass) {
+            Ok(vault) => self.finish_unlock(vault, Some(Key::Passphrase(pass)), None),
             Err(e) => self.overlay_error(&e.to_string()),
         }
     }
@@ -179,23 +183,33 @@ impl App {
             None
         };
         drop(capsule_pass);
-        let created = if master { ks.create_with_master(&passphrase.to_passphrase()) } else { ks.create_with_device_key() };
+        let pass = passphrase.to_passphrase();
+        let created = if master { ks.create_with_master(&pass) } else { ks.create_with_device_key() };
         drop(passphrase);
         let vault = match created {
             Ok(v) => v,
             Err(e) => return self.overlay_error(&format!("Création du coffre impossible : {e}")),
         };
+        let key = if master { Some(Key::Passphrase(pass)) } else { self.device_key() };
         let summary = copy.map(|c| migrate::merge(c.vault(), &vault).map(|s| s.text()));
         let note = summary.map(|r| r.unwrap_or_else(|e| e.message()));
-        self.finish_unlock(vault, note);
+        self.finish_unlock(vault, key, note);
+    }
+
+    /// Clé d'appareil (fichier scellé DPAPI), pour la connexion du thread de
+    /// synchronisation. Mémoire seulement.
+    fn device_key(&self) -> Option<Key> {
+        keyfile::read(self.key_store().keyfile_path(), &Dpapi).ok().map(Key::Raw)
     }
 
     /// Coffre ouvert : charge réglages + favoris, ferme le panneau, ouvre
-    /// l'accueil.
-    fn finish_unlock(&mut self, vault: Vault, note: Option<String>) {
+    /// l'accueil, démarre la synchronisation (si la clé est connue).
+    fn finish_unlock(&mut self, vault: Vault, key: Option<Key>, note: Option<String>) {
         store::load_settings(&self.settings, &vault, adblock::guard());
         store::load_bookmarks(&self.bookmarks, &vault);
         self.vault = Some(vault);
+        self.vault_key = key;
+        self.start_sync();
         self.set_overlay(None);
         let home = nav::home_url(&self.settings.borrow());
         if self.open_tab(&home, true).is_err() {
@@ -249,9 +263,14 @@ impl App {
         if let Err(msg) = secret::check_new_passphrase(&passphrase, &confirm) {
             return self.overlay_error(msg);
         }
+        if self.vault.is_none() {
+            return;
+        }
+        let new = passphrase.to_passphrase();
+        self.stop_sync_for_rekey();
         let Some(vault) = &self.vault else { return };
-        let result = self.key_store().set_master(vault, &passphrase.to_passphrase());
-        self.master_done(result, "Mot de passe principal défini");
+        let result = self.key_store().set_master(vault, &new);
+        self.master_done(result, Some(Key::Passphrase(new)), "Mot de passe principal défini");
     }
 
     pub(super) fn on_change_master(&mut self, old: Secret, passphrase: Secret, confirm: Secret) {
@@ -261,9 +280,14 @@ impl App {
         if let Err(msg) = secret::check_new_passphrase(&passphrase, &confirm) {
             return self.overlay_error(msg);
         }
+        if self.vault.is_none() {
+            return;
+        }
+        let new = passphrase.to_passphrase();
+        self.stop_sync_for_rekey();
         let Some(vault) = &self.vault else { return };
-        let result = self.key_store().change_master(vault, &old.to_passphrase(), &passphrase.to_passphrase());
-        self.master_done(result, "Mot de passe principal changé");
+        let result = self.key_store().change_master(vault, &old.to_passphrase(), &new);
+        self.master_done(result, Some(Key::Passphrase(new)), "Mot de passe principal changé");
     }
 
     pub(super) fn on_remove_master(&mut self, passphrase: Secret) {
@@ -273,22 +297,30 @@ impl App {
         if passphrase.is_empty() {
             return self.overlay_error("Saisis le mot de passe principal actuel");
         }
+        if self.vault.is_none() {
+            return;
+        }
+        self.stop_sync_for_rekey();
         let Some(vault) = &self.vault else { return };
         let result = self.key_store().remove_master(vault, &passphrase.to_passphrase());
-        self.master_done(result, "Mot de passe principal retiré : protection par la session Windows");
+        let new = if result.is_ok() { self.device_key() } else { None };
+        self.master_done(result, new, "Mot de passe principal retiré : protection par la session Windows");
     }
 
-    fn master_done(&mut self, result: Result<(), KeyError>, ok: &str) {
+    /// Fin d'un changement de clé : la synchronisation (arrêtée avant le
+    /// rechiffrement) redémarre avec la nouvelle clé, ou l'ancienne si
+    /// l'opération a échoué (état précédent restauré par `KeyStore`).
+    fn master_done(&mut self, result: Result<(), KeyError>, new_key: Option<Key>, ok: &str) {
+        if result.is_ok() {
+            self.vault_key = new_key;
+        }
+        self.start_sync();
         match result {
             Ok(()) => {
                 self.set_overlay(None);
                 self.toast(ok);
                 // Pages Réglages ouvertes : redessinées avec le nouvel état.
-                for tab in self.tabs.iter() {
-                    if nav::to_policy_url(&tab.url).starts_with("nyx://settings") {
-                        let _ = tab.view.reload();
-                    }
-                }
+                self.reload_pages(&["nyx://settings"]);
             }
             Err(e) => self.overlay_error(&e.to_string()),
         }
@@ -365,6 +397,9 @@ impl App {
             return;
         }
         let title = tab.title.trim().to_string();
+        // Le coffre fait foi (synchronisation) : relu avant modification,
+        // car la persistance remplace toute la liste.
+        store::load_bookmarks(&self.bookmarks, vault);
         let added = bm::toggle(&self.bookmarks, &tab.url, &title);
         store::persist_bookmarks(&self.bookmarks, vault);
         self.toast(if added { "Ajouté aux favoris" } else { "Retiré des favoris" });
@@ -379,7 +414,12 @@ impl App {
             (Some(v), Page::Settings) => {
                 let user_data = paths::chrome_user_data(std::env::var("LOCALAPPDATA").ok().as_deref());
                 let profiles = import_chrome::profiles(user_data.as_deref());
-                Asset::page(pages::settings_html(&self.settings.borrow(), &profiles, v.has_master_password()))
+                Asset::page(pages::settings_html(
+                    &self.settings.borrow(),
+                    &profiles,
+                    v.has_master_password(),
+                    &self.devices,
+                ))
             }
             (Some(_), Page::Bookmarks) => Asset::page(nyx_core::pages::bookmarks::page_html(&self.bookmarks.borrow())),
             (Some(v), Page::History) => {
@@ -395,7 +435,12 @@ impl App {
         match action {
             Action::Apply(url) => store::apply_settings(&url, &self.settings, vault, adblock::guard()),
             Action::MoveBookmark(url) => {
+                // Le coffre fait foi : relu avant de réécrire toute la liste
+                // (sinon des favoris reçus par synchronisation seraient
+                // effacés). La page affichée est rechargée après chaque
+                // synchronisation qui reçoit des données.
                 if let Some((i, to)) = bm::parse_move(&url) {
+                    store::load_bookmarks(&self.bookmarks, vault);
                     bm::move_to(&self.bookmarks, i, to);
                     store::persist_bookmarks(&self.bookmarks, vault);
                 }
@@ -412,6 +457,7 @@ impl App {
                 let profiles = import_chrome::profiles(user_data.as_deref());
                 let text = match import_chrome::select(&url, &profiles) {
                     Some(profile) => {
+                        store::load_bookmarks(&self.bookmarks, vault);
                         let text = import_chrome::run(profile, &self.bookmarks, vault);
                         store::persist_bookmarks(&self.bookmarks, vault);
                         text
@@ -430,6 +476,7 @@ impl App {
                     self.set_overlay(Some(Overlay::Master { mode, error: String::new() }));
                 }
             }
+            Action::Devices(url) => self.on_devices_action(&url),
         }
         self.push_state();
     }

@@ -105,13 +105,50 @@ clique **Réessayer** :
 wsl -d NyxCapsule -e true
 ```
 
+## Appareils liés (synchronisation PC ↔ téléphone, réseau local)
+
+Paramètres › **Appareils liés** : nom de ce PC, liste des appareils
+(« Retirer », avec confirmation), **Ajouter un téléphone**, **Synchroniser
+maintenant** et l'état de la dernière synchronisation. Mots de passe,
+favoris, historique et réglages sont chiffrés de bout en bout (Noise), sans
+compte ni serveur ; détails et modèle de menace : `docs/sync.md`.
+
+- **Ajouter un téléphone** : un QR s'affiche (valable 5 minutes, à usage
+  unique). Sur Android : Paramètres › Appareils liés › « Associer à un
+  ordinateur » → scanner (ou « Saisir le code » : coller la chaîne
+  `nyxpair:v1:…` affichée sous le QR). Les deux écrans montrent alors un
+  code à 6 chiffres : s'ils sont identiques, « Les codes correspondent ».
+- Dès le déverrouillage du coffre, un service tourne en arrière-plan (thread
+  dédié, sa propre connexion au coffre, même clé — jamais écrite) : écoute
+  TCP sur le port **47420** (ou le suivant libre jusqu'à 47429), annonce
+  mDNS `_nyx-sync._tcp`, synchronisation avec les autres appareils trouvés
+  toutes les 5 minutes et à la demande. Le téléphone se synchronise vers le
+  PC à son ouverture quand il est sur le même Wi-Fi.
+
+### Pare-feu Windows
+
+La première fois que Nyx ouvre ce port, **Windows affiche « Le pare-feu
+Windows Defender a bloqué certaines fonctionnalités de cette
+application »**. Coche **Réseaux privés** (domicile, travail) et clique
+« Autoriser l'accès ». Ne coche pas « Réseaux publics » (Wi-Fi d'hôtel, de
+gare…) : la synchronisation n'y a rien à faire.
+
+Si la fenêtre a été refusée ou fermée, le téléphone ne trouve pas le PC
+(« Aucun appareil lié trouvé sur le réseau local ») : Paramètres Windows ›
+Confidentialité et sécurité › Sécurité Windows › Pare-feu et protection du
+réseau › **Autoriser une application via le pare-feu** › Modifier les
+paramètres → cocher `nyx-win` (ou `Nyx`) dans la colonne **Privé**. Vérifie
+aussi que le réseau Wi-Fi du PC est en profil **Privé** (Paramètres › Réseau
+et Internet › Wi-Fi › propriétés du réseau). Les routeurs avec « isolation
+des clients » (Wi-Fi invité) empêchent les appareils de se voir.
+
 ## Ce que fait Nyx Windows
 
 - Onglets (Ctrl+T, Ctrl+W, Ctrl+Tab, Ctrl+L/F6), précédent/suivant,
   recharger/arrêter, accueil = page d'accueil des réglages.
 - Chaque navigation passe par `nyx_core::security::decide` ; `file://` est
   refusé depuis le web ; les actions internes (`nyx://apply`, `nyx://move`,
-  `nyx://history/clear`, imports) ne sont acceptées **que depuis une page
+  `nyx://history/clear`, imports, `nyx://devices/…`) ne sont acceptées **que depuis une page
   interne** (canal natif dont WebView2 certifie l'émetteur, ou lien direct
   non issu d'une redirection).
 - **Mots de passe** : à la connexion sur un site, barre « Enregistrer le mot

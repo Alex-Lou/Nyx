@@ -62,5 +62,24 @@
     </div>
   </form>
 </section>
+
+<!-- Appareils liés : ajout d'un téléphone (QR + code) / retrait confirmé. -->
+<section id="pair" hidden>
+  <div class="card" role="dialog" aria-modal="true" aria-labelledby="pair-title">
+    <h1 id="pair-title"></h1>
+    <p id="pair-sub" class="sub"></p>
+    <img id="pair-qr" alt="Code QR d'appairage à scanner avec le téléphone" width="232" height="232">
+    <p id="pair-timer" class="sub small"></p>
+    <p id="pair-offer-label" class="sub small">Ou, sur le téléphone, « Saisir le code » :</p>
+    <code id="pair-offer"></code>
+    <p id="pair-code" class="pair-code" aria-live="polite"></p>
+    <p id="pair-hint" class="sub small"></p>
+    <p id="pair-error" class="error" role="alert"></p>
+    <div class="actions">
+      <button id="pair-cancel" type="button" class="pill">Annuler</button>
+      <button id="pair-ok" type="button" class="pill primary"></button>
+    </div>
+  </div>
+</section>
 </body>
 </html>

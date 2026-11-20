@@ -52,6 +52,8 @@ pub enum Action {
     ImportCapsule,
     /// Ouvrir le panneau du mot de passe principal (saisie dans le chrome).
     MasterPassword(MasterOp),
+    /// Appareils liés (`nyx://devices/…`, analysé par `devices::DeviceOp`).
+    Devices(String),
 }
 
 /// URL moteur canonique d'une page interne.
@@ -145,6 +147,7 @@ fn action_of(verdict: Verdict, policy_url: &str) -> Option<Action> {
         Verdict::ImportChrome => Action::ImportChrome(policy_url.to_string()),
         Verdict::ImportCapsule => Action::ImportCapsule,
         Verdict::MasterPassword(op) => Action::MasterPassword(op),
+        Verdict::Devices => Action::Devices(policy_url.to_string()),
         _ => return None,
     })
 }
@@ -303,6 +306,11 @@ mod tests {
             Nav::Action(Action::MoveBookmark("nyx://move?idx=1&to=A".into()))
         );
         assert_eq!(internal_action("nyx://import/capsule", SETTINGS_URL, &g()), Some(Action::ImportCapsule));
+        assert_eq!(
+            internal_action("nyx://devices/revoke?id=ab", SETTINGS_URL, &g()),
+            Some(Action::Devices("nyx://devices/revoke?id=ab".into()))
+        );
+        assert_eq!(internal_action("nyx://devices/pair", "https://evil.com/", &g()), None);
         assert_eq!(internal_action("https://example.com/", SETTINGS_URL, &g()), None);
         assert_eq!(internal_action("nyx://settings", SETTINGS_URL, &g()), None);
         // Un sous-domaine piège n'est pas « interne ».

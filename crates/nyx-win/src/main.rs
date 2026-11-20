@@ -11,6 +11,9 @@
 //! Coffre (phase 2, testés partout avec de vrais coffres SQLCipher) :
 //! `store` (favoris/réglages), `capture`, `autofill`, `history`, `migrate`
 //! (capsule WSL), `import_chrome`.
+//! Appareils liés (testés partout, vrais coffres + sockets locales) :
+//! `sync_service` (thread de synchronisation), `devices` (actions et
+//! section Réglages), `qr` (QR de l'offre d'appairage en SVG).
 //! Modules Windows : `app` (fenêtre, boucle, onglets ; `app::vault` :
 //! déverrouillage, capture, actions internes), `content` (WebView
 //! d'onglet), `webview2` et `dpapi` (seuls modules `unsafe` : COM WebView2,
@@ -25,6 +28,7 @@ mod autofill;
 mod capture;
 mod chrome;
 mod content_ipc;
+mod devices;
 mod downloads;
 mod history;
 mod import_chrome;
@@ -35,8 +39,10 @@ mod nav;
 mod pages;
 mod paths;
 mod protocol;
+mod qr;
 mod secret;
 mod store;
+mod sync_service;
 mod tabs;
 
 #[cfg(windows)]

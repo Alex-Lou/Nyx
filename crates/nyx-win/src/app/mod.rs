@@ -6,6 +6,7 @@
 //! vit dans le sous-module `vault`. Tant qu'il est verrouillé, le chrome
 //! couvre toute la fenêtre (écran de déverrouillage) et aucun onglet n'existe.
 
+mod sync;
 mod vault;
 
 use std::path::PathBuf;
@@ -59,6 +60,8 @@ pub enum UserEvent {
     Serve { page: Page, responder: Responder },
     /// Résultat d'une sonde de la capsule WSL.
     Capsule(Capsule),
+    /// Événement du service de synchronisation (appareils liés).
+    Sync(crate::sync_service::Event),
 }
 
 /// Question Oui/Non en attente (enregistrement d'un mot de passe).
@@ -71,8 +74,17 @@ struct Pending {
     plan: crate::capture::Plan,
 }
 
-/// Ordre des champs = ordre de destruction : WebView avant la fenêtre.
+/// Ordre des champs = ordre de destruction : service de synchronisation
+/// d'abord (arrêt borné), WebView avant la fenêtre.
 struct App {
+    /// Service « Appareils liés » (thread avec sa propre connexion au
+    /// coffre) ; `None` tant que le coffre est verrouillé.
+    sync: Option<crate::sync_service::Service>,
+    /// Clé du coffre ouvert, en mémoire seulement (jamais écrite) : le
+    /// thread de synchronisation ouvre sa connexion avec.
+    vault_key: Option<::vault::Key>,
+    /// Appareils liés tels qu'affichés (alimenté par le service).
+    devices: crate::devices::DevicesUi,
     tabs: Tabs<WebView>,
     chrome: WebView,
     context: WebContext,
@@ -115,6 +127,9 @@ pub fn run() -> Result<(), String> {
     let mut context = WebContext::new(data_dir());
     let chrome = build_chrome(&window, &mut context, &proxy).map_err(|e| format!("WebView2 : {e}"))?;
     let mut app = App {
+        sync: None,
+        vault_key: None,
+        devices: crate::devices::DevicesUi::default(),
         tabs: Tabs::new(),
         chrome,
         context,
@@ -355,6 +370,7 @@ impl App {
             UserEvent::Credential { host, username, password } => self.on_credential(host, username, password),
             UserEvent::Serve { page, responder } => self.serve(page, responder),
             UserEvent::Capsule(status) => self.on_capsule_probed(status),
+            UserEvent::Sync(event) => self.on_sync_event(event),
         }
         true
     }
@@ -408,9 +424,11 @@ impl App {
             ChromeMsg::RetryCapsule => self.probe_capsule_again(),
             ChromeMsg::CloseOverlay => {
                 if self.vault.is_some() && self.overlay.as_ref().is_some_and(|o| !o.is_locked_screen()) {
-                    self.set_overlay(None);
+                    self.close_devices_overlay();
                 }
             }
+            ChromeMsg::PairAnswer { yes } => self.on_pair_answer(yes),
+            ChromeMsg::ConfirmRevoke { id } => self.on_confirm_revoke(id),
             ChromeMsg::Quit => return self.vault.is_some(),
         }
         true

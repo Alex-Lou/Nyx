@@ -79,6 +79,9 @@ input:checked + .chip {
 .field:focus { border-color: color-mix(in srgb, var(--nyx-aurora) 40%, transparent); }
 .profiles { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
 .none { font-size: 12px; color: var(--nyx-ghost); font-style: italic; }
+.inline { display: flex; gap: 8px; align-items: center; }
+.inline .field { flex: 1; }
+.row-desc.warn { color: var(--nyx-twilight); }
 #saved {
     position: fixed; top: 22px; right: 26px; z-index: 30; padding: 8px 14px; border-radius: 20px; font-size: 12px;
     background: color-mix(in srgb, var(--nyx-aurora) 10%, transparent);
@@ -150,6 +153,10 @@ input:checked + .chip {
          nyx://master/… ; la saisie se fait dans le chrome (origine nyxui). -->
     {{MASTER}}
 
+    <!-- Appareils liés : actions nyx://devices/… ; QR, code à 6 chiffres et
+         confirmation de retrait s'affichent dans le chrome (origine nyxui). -->
+    {{DEVICES}}
+
     <section class="section">
         <div class="section-head">Importer</div>
         <div class="divider"></div>
@@ -191,6 +198,17 @@ input:checked + .chip {
     form.querySelectorAll('input').forEach((el) => el.addEventListener('change', save));
     document.querySelectorAll('[data-action]').forEach((btn) =>
         btn.addEventListener('click', () => nyxAction(btn.dataset.action)));
+
+    // Appareils liés : renommer cet appareil (Nyx revalide et tronque).
+    const devname = document.getElementById('devname');
+    const rename = () => {
+        const v = devname.value.trim();
+        if (v) nyxAction('nyx://devices/rename?name=' + encodeURIComponent(v));
+    };
+    if (devname) {
+        document.getElementById('devname-save').addEventListener('click', rename);
+        devname.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); rename(); } });
+    }
 })();
 </script>
 </body>

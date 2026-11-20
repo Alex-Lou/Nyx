@@ -37,6 +37,19 @@
     const lockAlt = $('lock-alt');
     const lockCancel = $('lock-cancel');
 
+    // Appareils liés (panneau distinct, sans aucun champ secret).
+    const pairBox = $('pair');
+    const pairQr = $('pair-qr');
+    const pairTimer = $('pair-timer');
+    const pairOffer = $('pair-offer');
+    const pairOfferLabel = $('pair-offer-label');
+    const pairCode = $('pair-code');
+    const pairHint = $('pair-hint');
+    const pairOk = $('pair-ok');
+    const pairCancel = $('pair-cancel');
+    const LOCK_KINDS = ['welcome', 'unlock', 'capsule', 'master'];
+    let pairTimerId = 0;
+
     let shownUrl = '';
     let loading = false;
     let toastTimer = 0;
@@ -129,7 +142,7 @@
 
     // (Re)dessine l'écran du coffre ; `fresh` = vient d'apparaître.
     function renderLock(fresh) {
-        if (!overlay) {
+        if (!overlay || !LOCK_KINDS.includes(overlay.kind)) {
             lock.hidden = true;
             defining = false;
             clearSecrets();
@@ -188,6 +201,93 @@
         }
     }
 
+    // Compte à rebours de l'offre (l'expiration fait foi côté Rust).
+    function tickPair() {
+        if (!overlay || overlay.kind !== 'pairing' || overlay.stage !== 'waiting') {
+            clearInterval(pairTimerId);
+            pairTimerId = 0;
+            return;
+        }
+        const left = Math.max(0, Math.round((Number(overlay.expiresAt) - Date.now()) / 1000));
+        const m = Math.floor(left / 60);
+        const s = String(left % 60).padStart(2, '0');
+        pairTimer.textContent = left > 0 ? `Expire dans ${m}:${s}` : 'Code expiré';
+    }
+
+    const PAIR_WAIT_SUB =
+        'Sur le téléphone : Nyx › Paramètres › Appareils liés › « Associer à un ordinateur », ' +
+        'puis scanne ce code. Les deux appareils doivent être sur le même réseau Wi-Fi.';
+    const FIREWALL_HINT =
+        'Si Windows demande l\'accès réseau pour Nyx, choisis « Autoriser » sur les réseaux privés.';
+
+    function renderPair(fresh) {
+        const kind = overlay ? overlay.kind : '';
+        const show = kind === 'pairing' || kind === 'revoke';
+        pairBox.hidden = !show;
+        if (!show) {
+            clearInterval(pairTimerId);
+            pairTimerId = 0;
+            pairQr.removeAttribute('src');
+            return;
+        }
+        let title = '';
+        let sub = '';
+        let ok = '';
+        let cancel = 'Annuler';
+        let hint = '';
+        const stage = overlay.stage;
+        const waiting = kind === 'pairing' && stage === 'waiting';
+        const confirming = kind === 'pairing' && stage === 'confirm';
+        pairOk.classList.toggle('danger', kind === 'revoke');
+        if (kind === 'revoke') {
+            title = `Retirer « ${String(overlay.name)} » ?`;
+            sub = 'Cet appareil ne pourra plus se synchroniser. Ce qu\'il possède déjà reste sur lui : ' +
+                's\'il a été perdu ou volé, change tes mots de passe importants.';
+            ok = 'Retirer';
+        } else if (stage === 'starting') {
+            title = 'Ajouter un téléphone';
+            sub = 'Un instant…';
+        } else if (waiting) {
+            title = 'Ajouter un téléphone';
+            sub = PAIR_WAIT_SUB;
+            hint = FIREWALL_HINT;
+        } else if (confirming) {
+            title = 'Vérifie le code';
+            sub = `« ${String(overlay.device)} » demande à rejoindre tes appareils. ` +
+                'Le téléphone doit afficher exactement le même code :';
+            ok = 'Les codes correspondent';
+        } else if (stage === 'done') {
+            const failed = Boolean(overlay.error);
+            title = failed ? 'Appairage non terminé' : 'Téléphone ajouté';
+            sub = failed ? '' : `« ${String(overlay.device)} » fait maintenant partie de tes appareils liés. ` +
+                'Il se synchronise avec ce PC dès qu\'il est sur le même Wi-Fi.';
+            ok = 'Fermer';
+            cancel = '';
+        }
+        $('pair-title').textContent = title;
+        $('pair-sub').textContent = sub;
+        pairHint.textContent = hint;
+        pairHint.hidden = !hint;
+        if (waiting && overlay.qr) {
+            pairQr.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(String(overlay.qr));
+        }
+        pairQr.hidden = !waiting;
+        pairTimer.hidden = !waiting;
+        pairOffer.textContent = waiting ? String(overlay.offer || '') : '';
+        pairOffer.hidden = !waiting;
+        pairOfferLabel.hidden = !waiting;
+        pairCode.textContent = confirming ? String(overlay.code || '') : '';
+        pairCode.hidden = !confirming;
+        $('pair-error').textContent = String(overlay.error || '');
+        pairOk.textContent = ok;
+        pairOk.hidden = !ok;
+        pairCancel.textContent = cancel;
+        pairCancel.hidden = !cancel;
+        if (waiting && !pairTimerId) pairTimerId = setInterval(tickPair, 1000);
+        tickPair();
+        if (fresh) (ok ? pairOk : pairCancel).focus();
+    }
+
     function createVault(master) {
         const extra = master ? { passphrase: pass.value, confirm: confirm.value } : {};
         send('create', Object.assign({
@@ -218,10 +318,12 @@
             $('prompt-text').textContent = s.prompt ? String(s.prompt.text) : '';
 
             const fresh = Boolean(s.overlay) &&
-                (!overlay || overlay.kind !== s.overlay.kind || overlay.mode !== s.overlay.mode);
+                (!overlay || overlay.kind !== s.overlay.kind || overlay.mode !== s.overlay.mode ||
+                    overlay.stage !== s.overlay.stage);
             overlay = s.overlay || null;
             capsuleCommand = String(s.capsuleCmd || '');
             renderLock(fresh);
+            renderPair(fresh);
         },
         toast(text) {
             toastEl.textContent = String(text);
@@ -304,6 +406,20 @@
     capsuleImport.addEventListener('change', () => renderLock(false));
     lock.addEventListener('keydown', (e) => {
         if (e.key === 'Escape' && overlay && !lockedScreen()) send('closeOverlay');
+    });
+
+    pairOk.addEventListener('click', () => {
+        if (!overlay) return;
+        if (overlay.kind === 'revoke') send('confirmRevoke', { id: String(overlay.id) });
+        else if (overlay.kind === 'pairing' && overlay.stage === 'confirm') send('pairAnswer', { yes: true });
+        else send('closeOverlay');
+    });
+    pairCancel.addEventListener('click', () => {
+        if (overlay && overlay.kind === 'pairing' && overlay.stage === 'confirm') send('pairAnswer', { yes: false });
+        else send('closeOverlay');
+    });
+    pairBox.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') pairCancel.click();
     });
 
     document.addEventListener('contextmenu', (e) => {

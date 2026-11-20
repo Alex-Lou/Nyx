@@ -15,6 +15,12 @@ nyx-core   = { path = "../nyx-core" }
 # Coffre SQLCipher (mots de passe, favoris, historique, réglages). Sous
 # Windows : SQLCipher + OpenSSL compilés (cf. crates/vault/Cargo.toml).
 vault      = { path = "../vault" }
+# Appareils liés : appairage QR + synchronisation LAN (thread dédié,
+# module `sync_service`, testé partout).
+nyx-sync   = { path = "../nyx-sync" }
+# QR de l'offre d'appairage, rendu localement en SVG (aucun réseau, aucun
+# CDN). Pur Rust, sans dépendance avec ces features. Version épinglée.
+qrcode     = { version = "=0.15.0", default-features = false, features = ["std", "svg"] }
 anyhow     = { workspace = true }
 chrono     = { workspace = true }
 serde      = { workspace = true }

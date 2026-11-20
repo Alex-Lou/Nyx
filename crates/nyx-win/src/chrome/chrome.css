@@ -230,7 +230,7 @@ html, body {
 
 /* ── Coffre : écran plein (déverrouillage, import capsule) ── */
 
-#lock {
+#lock, #pair {
     position: fixed;
     inset: 0;
     z-index: 10;
@@ -244,7 +244,36 @@ html, body {
     user-select: none;
 }
 
-#lock[hidden] { display: none; }
+#lock[hidden], #pair[hidden] { display: none; }
+
+/* ── Appareils liés : QR d'appairage, code à 6 chiffres ── */
+
+#pair-qr {
+    align-self: center;
+    width: 232px;
+    height: 232px;
+    padding: 8px;
+    border-radius: 12px;
+    background: #fff;
+    image-rendering: pixelated;
+}
+
+#pair-offer {
+    padding: 6px 10px;
+    border-radius: 8px;
+    background: var(--nyx-void);
+    color: var(--nyx-dim);
+    font: 11px "Cascadia Mono", Consolas, monospace;
+    word-break: break-all;
+    user-select: all;
+}
+
+.pair-code {
+    margin: 4px 0;
+    font: 600 34px "Cascadia Mono", Consolas, monospace;
+    letter-spacing: .28em;
+    color: var(--nyx-aurora);
+}
 
 .card {
     display: flex;

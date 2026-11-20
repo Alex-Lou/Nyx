@@ -71,8 +71,13 @@ pub enum ChromeMsg {
     RemoveMaster { passphrase: Secret },
     /// Sonder à nouveau la capsule (après `wsl -d NyxCapsule -e true`).
     RetryCapsule,
-    /// Fermer le panneau d'import de la capsule.
+    /// Fermer le panneau ouvert (import, mot de passe, appairage — qui est
+    /// alors annulé —, confirmation de retrait).
     CloseOverlay,
+    /// Appairage : « Les codes correspondent » (`yes`) ou « Annuler ».
+    PairAnswer { yes: bool },
+    /// Confirmation du retrait d'un appareil lié (panneau `revoke`).
+    ConfirmRevoke { id: String },
     /// Quitter Nyx (écran de déverrouillage).
     Quit,
 }
@@ -145,6 +150,20 @@ impl MasterMode {
     }
 }
 
+/// Étape du panneau d'appairage.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PairStage {
+    /// Offre en préparation (service occupé ou démarrage).
+    Starting,
+    /// QR affiché, compte à rebours, attente du téléphone.
+    Waiting,
+    /// Téléphone connecté : comparer le code à 6 chiffres.
+    Confirm,
+    /// Terminé : `device` (succès) ou `error`.
+    Done,
+}
+
 /// Panneau plein écran du chrome.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
@@ -158,6 +177,21 @@ pub enum Overlay {
     Capsule { capsule: CapsuleView, error: String },
     /// Réglages : définir / changer / retirer le mot de passe principal.
     Master { mode: MasterMode, error: String },
+    /// Appareils liés : ajout d'un téléphone. `qr` = SVG (affiché en image
+    /// `data:`), `offer` = même contenu à saisir à la main, `expires_at` en
+    /// ms depuis l'epoch (compte à rebours côté JS).
+    #[serde(rename_all = "camelCase")]
+    Pairing {
+        stage: PairStage,
+        qr: String,
+        offer: String,
+        expires_at: u64,
+        code: String,
+        device: String,
+        error: String,
+    },
+    /// Appareils liés : confirmer le retrait de `name`.
+    Revoke { id: String, name: String, error: String },
 }
 
 impl Overlay {
@@ -170,8 +204,23 @@ impl Overlay {
         let (Self::Welcome { error, .. }
         | Self::Unlock { error, .. }
         | Self::Capsule { error, .. }
-        | Self::Master { error, .. }) = self;
+        | Self::Master { error, .. }
+        | Self::Pairing { error, .. }
+        | Self::Revoke { error, .. }) = self;
         *error = message.to_string();
+    }
+
+    /// Panneau d'appairage vierge (en attente de l'offre du service).
+    pub fn pairing() -> Self {
+        Self::Pairing {
+            stage: PairStage::Starting,
+            qr: String::new(),
+            offer: String::new(),
+            expires_at: 0,
+            code: String::new(),
+            device: String::new(),
+            error: String::new(),
+        }
     }
 
     pub fn set_capsule(&mut self, view: CapsuleView) {
@@ -285,6 +334,17 @@ mod tests {
             ChromeMsg::parse(r#"{"cmd":"removeMaster","passphrase":"o"}"#),
             Some(ChromeMsg::RemoveMaster { .. })
         ));
+        assert_eq!(
+            ChromeMsg::parse(r#"{"cmd":"pairAnswer","yes":true}"#),
+            Some(ChromeMsg::PairAnswer { yes: true })
+        );
+        assert_eq!(
+            ChromeMsg::parse(r#"{"cmd":"confirmRevoke","id":"ab12"}"#),
+            Some(ChromeMsg::ConfirmRevoke { id: "ab12".into() })
+        );
+        assert!(!ChromeMsg::PairAnswer { yes: true }.allowed_while_locked());
+        assert!(ChromeMsg::parse(r#"{"cmd":"pairAnswer"}"#).is_none());
+        assert!(ChromeMsg::parse(r#"{"cmd":"confirmRevoke","id":1}"#).is_none());
         for bare in ["retryCapsule", "closeOverlay", "quit"] {
             assert!(ChromeMsg::parse(&format!(r#"{{"cmd":"{bare}"}}"#)).is_some(), "{bare}");
         }
@@ -383,6 +443,15 @@ mod tests {
         assert!(js.contains("wsl -d NyxCapsule -e true"));
         let master = Overlay::Master { mode: MasterMode::Remove, error: String::new() };
         assert_eq!(js_literal(&master), r#"{"kind":"master","mode":"remove","error":""}"#);
+        let mut pairing = Overlay::pairing();
+        pairing.set_error("x");
+        let js = js_literal(&pairing);
+        assert!(js.starts_with(r#"{"kind":"pairing","stage":"starting","qr":"","#), "{js}");
+        assert!(js.contains(r#""expiresAt":0"#) && js.contains(r#""error":"x""#), "{js}");
+        assert!(!pairing.is_locked_screen());
+        let revoke = Overlay::Revoke { id: "a".into(), name: "<Tél>".into(), error: String::new() };
+        let js = js_literal(&revoke);
+        assert!(js.starts_with(r#"{"kind":"revoke","id":"a","name":""#) && !js.contains('<'), "{js}");
     }
 
     #[test]
