@@ -14,6 +14,9 @@ use crate::domain_risk::{analyze_url, Risk};
 use crate::sec_log::{self, Level};
 use crate::url;
 
+mod fill;
+pub use fill::{fill_script, js_literal, Credential};
+
 /// Mode global du navigateur — partagé via [`crate::mode`]. Ré-exporté pour
 /// préserver la voie d'import `vault_autofill::Mode` historique.
 pub use crate::mode::Mode;
