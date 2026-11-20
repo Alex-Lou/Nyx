@@ -2,16 +2,21 @@ mod bookmarks;
 mod chrome;
 mod db;
 mod history;
+pub mod hlc;
 mod key;
 pub mod keyfile;
 pub mod keymode;
 mod models;
 mod passwords;
 mod settings;
+pub mod sync;
+#[cfg(test)]
+mod sync_tests;
 
 pub use chrome::read_chrome_history;
 pub use key::{Key, Passphrase, RawKey, RAW_KEY_LEN};
 pub use models::{Bookmark, HistoryEntry, Password};
+pub use sync::{ApplyStats, Change, Record, RecordData, Table};
 
 use anyhow::Result;
 use rusqlite::Connection;
@@ -23,6 +28,9 @@ pub struct Vault {
     path: PathBuf,
     /// Clé courante = mot de passe principal (sinon clé d'appareil).
     master: Cell<bool>,
+    /// Identifiant (aléatoire, 128 bits) de cet appareil : `origin_device`
+    /// de toutes les écritures locales.
+    device: String,
 }
 
 impl Vault {
@@ -35,7 +43,8 @@ impl Vault {
     /// Ouvre (ou crée) le vault avec une passphrase ou une clé brute.
     pub fn open_with(path: &Path, key: &Key) -> Result<Self> {
         let conn = db::open(path, key)?;
-        Ok(Self { conn, path: path.to_owned(), master: Cell::new(key.is_passphrase()) })
+        let device = sync::device_id(&conn)?;
+        Ok(Self { conn, path: path.to_owned(), master: Cell::new(key.is_passphrase()), device })
     }
 
     /// `true` si le coffre EXISTANT à `path` s'ouvre avec `key` (n'en crée
@@ -62,7 +71,7 @@ impl Vault {
     // ── Bookmarks ──────────────────────────────────────────────────────────
 
     pub fn add_bookmark(&self, b: &Bookmark) -> Result<i64> {
-        bookmarks::add(&self.conn, b)
+        bookmarks::add(&self.conn, &self.device, b)
     }
 
     pub fn list_bookmarks(&self) -> Result<Vec<Bookmark>> {
@@ -74,18 +83,18 @@ impl Vault {
     }
 
     pub fn delete_bookmark(&self, id: i64) -> Result<()> {
-        bookmarks::delete(&self.conn, id)
+        bookmarks::delete(&self.conn, &self.device, id)
     }
 
     /// Remplace tous les bookmarks d'un coup (sync du store mémoire).
     pub fn replace_bookmarks(&self, items: &[Bookmark]) -> Result<()> {
-        bookmarks::replace_all(&self.conn, items)
+        bookmarks::replace_all(&self.conn, &self.device, items)
     }
 
     // ── Passwords ──────────────────────────────────────────────────────────
 
     pub fn add_password(&self, p: &Password) -> Result<i64> {
-        passwords::add(&self.conn, p)
+        passwords::add(&self.conn, &self.device, p)
     }
 
     pub fn passwords_for(&self, domain: &str) -> Result<Vec<Password>> {
@@ -97,27 +106,27 @@ impl Vault {
     }
 
     pub fn update_password(&self, id: i64, new_password: &str) -> Result<()> {
-        passwords::update_password(&self.conn, id, new_password)
+        passwords::update_password(&self.conn, &self.device, id, new_password)
     }
 
     pub fn delete_password(&self, id: i64) -> Result<()> {
-        passwords::delete(&self.conn, id)
+        passwords::delete(&self.conn, &self.device, id)
     }
 
     // ── History ────────────────────────────────────────────────────────────
 
     pub fn push_history(&self, url: &str, title: &str) -> Result<()> {
-        history::push(&self.conn, url, title)
+        history::push(&self.conn, &self.device, url, title)
     }
 
     /// Retitre la dernière visite de `url` (titre arrivé après le chargement).
     pub fn retitle_history(&self, url: &str, title: &str) -> Result<bool> {
-        history::retitle(&self.conn, url, title)
+        history::retitle(&self.conn, &self.device, url, title)
     }
 
     /// Import en bloc d'historique `(url, titre, secondes Unix)`.
     pub fn import_history(&self, entries: &[(String, String, i64)]) -> Result<usize> {
-        history::import(&self.conn, entries)
+        history::import(&self.conn, &self.device, entries)
     }
 
     pub fn recent_history(&self, limit: usize) -> Result<Vec<HistoryEntry>> {
@@ -129,7 +138,7 @@ impl Vault {
     }
 
     pub fn clear_history(&self) -> Result<()> {
-        history::clear(&self.conn)
+        history::clear(&self.conn, &self.device)
     }
 
     // ── Settings ───────────────────────────────────────────────────────────
@@ -139,7 +148,57 @@ impl Vault {
     }
 
     pub fn set_setting(&self, key: &str, value: &str) -> Result<()> {
-        settings::set(&self.conn, key, value)
+        settings::set(&self.conn, &self.device, key, value)
+    }
+
+    // ── Synchronisation (bas niveau, utilisé par `nyx-sync`) ───────────────
+
+    /// Identifiant stable de cet appareil (32 caractères hexadécimaux).
+    pub fn device_id(&self) -> &str {
+        &self.device
+    }
+
+    /// Changements de `table` dont la `local_hlc` dépasse `after`, par ordre
+    /// croissant, ≈ `limit` au plus (voir [`sync`] pour la règle d'égalité).
+    pub fn sync_changes(&self, table: Table, after: u64, limit: usize) -> Result<Vec<Change>> {
+        sync::changes_since(&self.conn, table, after, limit)
+    }
+
+    /// Applique des enregistrements distants (dernier écrivain gagne) ; avec
+    /// `cursor = Some((pair, table, filigrane))`, avance le filigrane du pair
+    /// dans la même transaction.
+    pub fn sync_apply(&self, records: &[Record], cursor: Option<(&str, Table, u64)>) -> Result<ApplyStats> {
+        sync::apply(&self.conn, records, cursor)
+    }
+
+    /// Plus grande `local_hlc` du pair `peer` déjà appliquée ici pour `table`.
+    pub fn sync_watermark(&self, peer: &str, table: Table) -> Result<u64> {
+        sync::watermark(&self.conn, peer, table)
+    }
+
+    /// Oublie les filigranes d'un pair (appareil révoqué ou ré-appairé).
+    pub fn sync_forget_peer(&self, peer: &str) -> Result<()> {
+        sync::forget_peer(&self.conn, peer)
+    }
+
+    /// Méta-donnée de synchronisation (clés, profil…), chiffrée au repos par
+    /// SQLCipher comme le reste du coffre.
+    pub fn sync_meta(&self, key: &str) -> Result<Option<Vec<u8>>> {
+        sync::meta_get(&self.conn, key)
+    }
+
+    pub fn set_sync_meta(&self, key: &str, value: &[u8]) -> Result<()> {
+        sync::meta_set(&self.conn, key, value)
+    }
+
+    pub fn delete_sync_meta(&self, key: &str) -> Result<()> {
+        sync::meta_delete(&self.conn, key)
+    }
+
+    /// Purge les pierres tombales plus vieilles que `ttl_ms` (fait aussi à
+    /// chaque ouverture avec [`sync::TOMBSTONE_TTL_MS`]).
+    pub fn purge_tombstones(&self, ttl_ms: u64) -> Result<usize> {
+        sync::purge_tombstones(&self.conn, ttl_ms)
     }
 }
 
@@ -414,8 +473,8 @@ mod tests {
         // Insertion en masse directe, puis un push déclenche l'élagage.
         vault.conn.execute(
             "WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < ?1 + 10)
-             INSERT INTO history (url, title, visited_at)
-             SELECT 'https://x.org/' || i, 't', '2020-01-01T00:00:00Z' FROM n",
+             INSERT INTO history (url, title, visited_at, uuid)
+             SELECT 'https://x.org/' || i, 't', '2020-01-01T00:00:00Z', lower(hex(randomblob(16))) FROM n",
             [cap as i64],
         )?;
         vault.push_history("https://last.org", "last")?;
