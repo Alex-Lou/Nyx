@@ -13,7 +13,8 @@
 //! (capsule WSL), `import_chrome`.
 //! Modules Windows : `app` (fenêtre, boucle, onglets ; `app::vault` :
 //! déverrouillage, capture, actions internes), `content` (WebView
-//! d'onglet), `webview2` (seul module `unsafe` : COM WebView2).
+//! d'onglet), `webview2` et `dpapi` (seuls modules `unsafe` : COM WebView2,
+//! scellement DPAPI de la clé d'appareil du coffre).
 
 #![cfg_attr(windows, windows_subsystem = "windows")]
 // Hors Windows, seuls les tests utilisent les modules purs.
@@ -42,6 +43,8 @@ mod tabs;
 mod app;
 #[cfg(windows)]
 mod content;
+#[cfg(windows)]
+mod dpapi;
 #[cfg(windows)]
 mod webview2;
 

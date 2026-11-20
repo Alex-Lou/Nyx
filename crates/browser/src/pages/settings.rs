@@ -3,7 +3,8 @@ use crate::state::settings::AppSettings;
 const TEMPLATE: &str = include_str!("../../../../assets/settings.html");
 
 /// Rend la page paramètres avec les valeurs actuelles injectées dans le gabarit.
-pub fn html(s: &AppSettings) -> String {
+/// `has_master` : le coffre est protégé par un mot de passe principal.
+pub fn html(s: &AppSettings, has_master: bool) -> String {
     let chk  = |id: &str, cur: &str| if id == cur { " checked" } else { "" };
     let flag = |on: bool| if on { " checked" } else { "" };
 
@@ -27,4 +28,21 @@ pub fn html(s: &AppSettings) -> String {
         .replace("{{LANG_DE}}",       chk("de", s.language.id()))
         .replace("{{LANG_IT}}",       chk("it", s.language.id()))
         .replace("{{LANG_PT}}",       chk("pt", s.language.id()))
+        .replace("{{MASTER}}",        &nyx_core::pages::master::section(has_master, "Linux"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn master_section_follows_mode() {
+        let s = AppSettings::default();
+        let none = html(&s, false);
+        assert!(!none.contains("{{"), "placeholders");
+        assert!(none.contains("Protection : session Linux"));
+        assert!(none.contains("data-action=\"nyx://master/set\""));
+        let set = html(&s, true);
+        assert!(set.contains("data-action=\"nyx://master/remove\""));
+    }
 }

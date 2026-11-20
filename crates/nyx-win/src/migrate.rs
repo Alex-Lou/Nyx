@@ -12,7 +12,7 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use vault::Vault;
+use vault::{Key, Vault};
 
 use crate::paths;
 
@@ -75,8 +75,8 @@ pub struct CapsuleCopy {
 }
 
 impl CapsuleCopy {
-    /// Copie `source` (+ `-wal`) dans `temp_dir` puis l'ouvre avec `passphrase`.
-    pub fn open(source: &Path, temp_dir: &Path, passphrase: &str) -> Result<Self, Error> {
+    /// Copie `source` (+ `-wal`) dans `temp_dir` puis l'ouvre avec `key`.
+    pub fn open(source: &Path, temp_dir: &Path, key: &Key) -> Result<Self, Error> {
         static SEQ: AtomicU32 = AtomicU32::new(0);
         let path = paths::capsule_temp_copy(temp_dir, std::process::id(), SEQ.fetch_add(1, Ordering::Relaxed));
         // Le guard nettoie aussi en cas d'échec ci-dessous.
@@ -86,7 +86,11 @@ impl CapsuleCopy {
         if wal.is_file() {
             std::fs::copy(&wal, paths::sidecar(&copy.path, "-wal")).map_err(|e| Error::Copy(e.to_string()))?;
         }
-        copy.vault = Some(Vault::open(&copy.path, passphrase).map_err(|_| Error::BadPassphrase)?);
+        // Jamais de création : une clé fausse ne doit pas « réussir ».
+        if !Vault::check_key(&copy.path, key) {
+            return Err(Error::BadPassphrase);
+        }
+        copy.vault = Some(Vault::open_with(&copy.path, key).map_err(|_| Error::BadPassphrase)?);
         Ok(copy)
     }
 
@@ -159,9 +163,21 @@ pub fn merge(src: &Vault, dst: &Vault) -> Result<Summary, Error> {
 }
 
 /// Copie + ouverture + fusion, en une étape.
-pub fn import_capsule(source: &Path, temp_dir: &Path, passphrase: &str, dst: &Vault) -> Result<Summary, Error> {
-    let copy = CapsuleCopy::open(source, temp_dir, passphrase)?;
+pub fn import_capsule(source: &Path, temp_dir: &Path, key: &Key, dst: &Vault) -> Result<Summary, Error> {
+    let copy = CapsuleCopy::open(source, temp_dir, key)?;
     merge(copy.vault(), dst)
+}
+
+/// Clé d'ouverture de la capsule : sa passphrase si saisie, sinon sa clé
+/// d'appareil Linux (`vault.key` à côté du coffre, lisible par le même
+/// utilisateur via `\\wsl…`). `None` : rien d'utilisable, demander la
+/// passphrase. Indépendant du mode de clé du coffre Windows.
+pub fn capsule_key(source: &Path, passphrase: &str) -> Option<Key> {
+    if !passphrase.is_empty() {
+        return Some(Key::passphrase(passphrase));
+    }
+    let keyfile = vault::keyfile::path_for(source);
+    vault::keyfile::read(&keyfile, &vault::keyfile::OsAccountOnly).ok().map(Key::Raw)
 }
 
 #[cfg(test)]
@@ -217,7 +233,7 @@ mod tests {
 
         let temp = tmp.0.join("t");
         std::fs::create_dir_all(&temp).expect("t");
-        let s = import_capsule(&source, &temp, "old-pass", &dst).expect("import");
+        let s = import_capsule(&source, &temp, &Key::passphrase("old-pass"), &dst).expect("import");
         assert_eq!((s.passwords, s.bookmarks, s.history, s.settings), (2, 1, 2, true), "{s:?}");
         assert!(s.text().contains("2 mots de passe"));
 
@@ -235,7 +251,7 @@ mod tests {
 
         // Ré-import : rien de nouveau, réglages Windows préservés.
         dst.set_setting(SETTINGS_KEY, "engine=ecosia").expect("set");
-        let again = import_capsule(&source, &temp, "old-pass", &dst).expect("again");
+        let again = import_capsule(&source, &temp, &Key::passphrase("old-pass"), &dst).expect("again");
         assert_eq!((again.passwords, again.bookmarks, again.history, again.settings), (0, 0, 0, false));
         assert_eq!(dst.setting(SETTINGS_KEY).expect("set").as_deref(), Some("engine=ecosia"));
 
@@ -249,9 +265,9 @@ mod tests {
         let tmp = Tmp::new("errors");
         let source = capsule(&tmp.0);
         let dst = Vault::open(&tmp.0.join("windows.db"), "new").expect("dst");
-        assert_eq!(import_capsule(&source, &tmp.0, "nope", &dst), Err(Error::BadPassphrase));
+        assert_eq!(import_capsule(&source, &tmp.0, &Key::passphrase("nope"), &dst), Err(Error::BadPassphrase));
         assert!(dst.list_bookmarks().expect("bm").is_empty());
-        let missing = import_capsule(&tmp.0.join("absent.db"), &tmp.0, "old-pass", &dst);
+        let missing = import_capsule(&tmp.0.join("absent.db"), &tmp.0, &Key::passphrase("old-pass"), &dst);
         assert!(matches!(missing, Err(Error::Copy(_))));
         assert!(missing.unwrap_err().message().contains("wsl -d NyxCapsule -e true"));
         // Aucun reste de copie temporaire.
@@ -260,5 +276,28 @@ mod tests {
             .filter(|e| e.as_ref().is_ok_and(|e| e.file_name().to_string_lossy().starts_with("nyx-capsule-")))
             .count();
         assert_eq!(leftovers, 0);
+    }
+
+    #[test]
+    fn device_key_capsule() {
+        let tmp = Tmp::new("devkey");
+        let ks = vault::keymode::KeyStore::new(tmp.0.join("vault.db"), vault::keyfile::OsAccountOnly);
+        let source = ks.db_path().to_path_buf();
+        {
+            let v = ks.create_with_device_key().expect("capsule");
+            v.add_bookmark(&Bookmark::new("https://k.org/", "K")).expect("bm");
+        }
+        // Passphrase saisie : prioritaire (et fausse ici).
+        let typed = capsule_key(&source, "typed").expect("key");
+        assert!(typed.is_passphrase());
+        let dst = Vault::open(&tmp.0.join("windows.db"), "new").expect("dst");
+        assert_eq!(import_capsule(&source, &tmp.0, &typed, &dst), Err(Error::BadPassphrase));
+        // Vide : clé d'appareil de la capsule.
+        let key = capsule_key(&source, "").expect("keyfile");
+        let s = import_capsule(&source, &tmp.0, &key, &dst).expect("import");
+        assert_eq!(s.bookmarks, 1);
+        // Sans fichier de clé : rien.
+        vault::keyfile::remove(ks.keyfile_path()).expect("rm");
+        assert!(capsule_key(&source, "").is_none());
     }
 }

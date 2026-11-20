@@ -32,8 +32,9 @@ pub fn history_html(entries: &[HistoryEntry]) -> String {
     history::html(&items, HISTORY_CLEAR_URL)
 }
 
-/// Page réglages avec les valeurs courantes et les profils Chrome détectés.
-pub fn settings_html(s: &AppSettings, profiles: &[ChromeProfile]) -> String {
+/// Page réglages avec les valeurs courantes, les profils Chrome détectés et
+/// l'état du mot de passe principal (`has_master`).
+pub fn settings_html(s: &AppSettings, profiles: &[ChromeProfile], has_master: bool) -> String {
     let chk = |on: bool| if on { " checked" } else { "" };
     let engine = s.search_engine.id();
     // Options du desktop sans interrupteur ici : renvoyées telles quelles,
@@ -71,6 +72,7 @@ pub fn settings_html(s: &AppSettings, profiles: &[ChromeProfile]) -> String {
         .replace("{{PRIVATE}}", chk(s.private_mode))
         .replace("{{KEEP}}", &keep)
         .replace("{{CHROME_PROFILES}}", &chrome)
+        .replace("{{MASTER}}", &nyx_core::pages::master::section(has_master, "Windows"))
 }
 
 #[cfg(test)]
@@ -86,7 +88,7 @@ mod tests {
             dark_websites: true,
             ..AppSettings::default()
         };
-        let html = settings_html(&s, &[]);
+        let html = settings_html(&s, &[], false);
         assert!(!html.contains("{{"), "placeholders");
         assert!(html.contains("value=\"ddg\" checked"));
         assert!(html.contains("name=\"adblock\" value=\"true\" checked"));
@@ -95,6 +97,8 @@ mod tests {
         assert!(!html.contains("\"><script>"));
         assert!(html.contains("Aucun profil Chrome"));
         assert!(html.contains("nyx://import/capsule"));
+        assert!(html.contains("Protection : session Windows"));
+        assert!(html.contains("data-action=\"nyx://master/set\""));
     }
 
     #[test]
@@ -105,9 +109,10 @@ mod tests {
             has_bookmarks: true,
             has_history: true,
         };
-        let html = settings_html(&AppSettings::default(), &[p]);
+        let html = settings_html(&AppSettings::default(), &[p], true);
         assert!(html.contains("data-action=\"nyx://import/chrome?profile=Profile+1\""), "{html}");
         assert!(html.contains("&lt;i&gt;Profile 1"));
+        assert!(html.contains("data-action=\"nyx://master/remove\""));
     }
 
     #[test]

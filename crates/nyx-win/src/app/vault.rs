@@ -1,17 +1,20 @@
-//! Coffre côté application : déverrouillage / création, import de la
-//! capsule, capture + pré-remplissage des mots de passe, historique,
+//! Coffre côté application : démarrage (clé d'appareil DPAPI ou mot de
+//! passe principal), création, mot de passe principal (réglages), import de
+//! la capsule, capture + pré-remplissage des mots de passe, historique,
 //! favoris, pages internes et leurs actions. Toute décision vient des
-//! modules purs (`capture`, `autofill`, `history`, `migrate`, `store`,
-//! `import_chrome`, `pages`) et de `nyx-core`.
+//! modules purs (`vault::keymode`, `capture`, `autofill`, `history`,
+//! `migrate`, `store`, `import_chrome`, `pages`) et de `nyx-core`.
 
 use std::path::Path;
 
 use nyx_core::security::Page;
 use nyx_core::state::bookmarks as bm;
+use vault::keymode::{KeyError, KeyStore, Startup};
 use vault::Vault;
 
 use super::{App, Pending, Responder, UserEvent};
-use crate::ipc::{CapsuleView, Overlay};
+use crate::dpapi::Dpapi;
+use crate::ipc::{CapsuleView, MasterMode, Overlay};
 use crate::migrate::{self, CapsuleCopy};
 use crate::nav::{self, Action};
 use crate::paths::{self, Capsule};
@@ -20,7 +23,10 @@ use crate::secret::{self, Secret};
 use crate::tabs::TabId;
 use crate::{adblock, autofill, capture, import_chrome, pages, store, webview2};
 
-const BAD_PASSPHRASE: &str = "Passphrase invalide";
+/// Fichier de clé présent mais inutilisable : on n'efface rien, on demande.
+const DEVICE_KEY_FAILED: &str = "La clé de cet appareil n'ouvre pas le coffre (fichier corrompu ou créé \
+par un autre compte Windows). Saisis ton mot de passe principal.";
+const CAPSULE_PASSPHRASE_NEEDED: &str = "Saisissez la passphrase de la capsule";
 
 fn capsule_view(status: Option<&Capsule>) -> CapsuleView {
     match status {
@@ -45,13 +51,13 @@ impl App {
         }
     }
 
-    /// Message d'erreur du panneau courant (déverrouillage ou import).
+    /// Message d'erreur du panneau courant.
     fn overlay_error(&mut self, message: &str) {
-        let capsule = capsule_view(self.capsule.as_ref());
-        let overlay = match self.overlay.take() {
-            Some(Overlay::Unlock { creating, .. }) => Overlay::Unlock { creating, capsule, error: message.into() },
-            _ => Overlay::Capsule { capsule, error: message.into() },
-        };
+        let mut overlay = self
+            .overlay
+            .take()
+            .unwrap_or(Overlay::Capsule { capsule: capsule_view(self.capsule.as_ref()), error: String::new() });
+        overlay.set_error(message);
         // Toujours renvoyer l'état : le chrome a vidé les champs et attend
         // une réponse, même pour une erreur identique à la précédente.
         self.last_state = None;
@@ -84,10 +90,8 @@ impl App {
 
     fn refresh_overlay_capsule(&mut self) {
         let view = capsule_view(self.capsule.as_ref());
-        match &mut self.overlay {
-            Some(Overlay::Unlock { capsule, .. } | Overlay::Capsule { capsule, .. }) => *capsule = view,
-            None => return,
-        }
+        let Some(overlay) = &mut self.overlay else { return };
+        overlay.set_capsule(view);
         self.push_state();
     }
 
@@ -98,24 +102,62 @@ impl App {
         }
     }
 
-    // ── Déverrouillage / création ───────────────────────────────────────
+    // ── Démarrage / déverrouillage / création ───────────────────────────
+
+    /// `%APPDATA%\Nyx\vault.db` + `vault.key` scellé par DPAPI.
+    fn key_store(&self) -> KeyStore<Dpapi> {
+        KeyStore::new(self.vault_path.clone(), Dpapi)
+    }
+
+    /// Démarrage : clé d'appareil → ouverture silencieuse (repli sur le mot
+    /// de passe principal si elle échoue, rien n'est supprimé) ; coffre seul
+    /// → mot de passe principal ; rien → bienvenue.
+    pub(super) fn start_vault(&mut self) {
+        let ks = self.key_store();
+        let overlay = match ks.startup() {
+            Startup::FirstLaunch => {
+                self.probe_capsule();
+                Overlay::Welcome { capsule: CapsuleView::Probing, error: String::new() }
+            }
+            Startup::DeviceKey => match ks.open_with_device_key() {
+                Ok(vault) => return self.finish_unlock(vault, None),
+                Err(_) => Overlay::Unlock { notice: DEVICE_KEY_FAILED.into(), error: String::new() },
+            },
+            Startup::MasterPassword => Overlay::Unlock { notice: String::new(), error: String::new() },
+        };
+        self.set_overlay(Some(overlay));
+    }
 
     pub(super) fn on_unlock(&mut self, passphrase: Secret) {
-        if self.vault.is_some() {
+        if self.vault.is_some() || !matches!(self.overlay, Some(Overlay::Unlock { .. })) {
             return;
         }
-        match Vault::open(&self.vault_path, passphrase.expose()) {
+        match self.key_store().open_with_master(&passphrase.to_passphrase()) {
             Ok(vault) => self.finish_unlock(vault, None),
-            Err(_) => self.overlay_error(BAD_PASSPHRASE),
+            Err(e) => self.overlay_error(&e.to_string()),
         }
     }
 
-    pub(super) fn on_create(&mut self, passphrase: Secret, confirm: Secret, import: bool, capsule_pass: Secret) {
-        if self.vault.is_some() || self.vault_path.exists() {
+    /// Premier lancement : `master` faux = « Plus tard » (clé d'appareil).
+    pub(super) fn on_create(
+        &mut self,
+        master: bool,
+        passphrase: Secret,
+        confirm: Secret,
+        import: bool,
+        capsule_pass: Secret,
+    ) {
+        if self.vault.is_some() || !matches!(self.overlay, Some(Overlay::Welcome { .. })) {
             return;
         }
-        if let Err(msg) = secret::check_new_passphrase(&passphrase, &confirm) {
-            return self.overlay_error(msg);
+        let ks = self.key_store();
+        if ks.startup() != Startup::FirstLaunch {
+            return;
+        }
+        if master {
+            if let Err(msg) = secret::check_new_passphrase(&passphrase, &confirm) {
+                return self.overlay_error(msg);
+            }
         }
         drop(confirm);
         // Capsule d'abord : une mauvaise passphrase ne crée pas le coffre.
@@ -126,8 +168,10 @@ impl App {
                     paths::START_CAPSULE_CMD
                 ));
             };
-            let pass = if capsule_pass.is_empty() { &passphrase } else { &capsule_pass };
-            match CapsuleCopy::open(&source, &std::env::temp_dir(), pass.expose()) {
+            let Some(key) = migrate::capsule_key(&source, capsule_pass.expose()) else {
+                return self.overlay_error(CAPSULE_PASSPHRASE_NEEDED);
+            };
+            match CapsuleCopy::open(&source, &std::env::temp_dir(), &key) {
                 Ok(copy) => Some(copy),
                 Err(e) => return self.overlay_error(&e.message()),
             }
@@ -135,14 +179,12 @@ impl App {
             None
         };
         drop(capsule_pass);
-        if let Some(dir) = self.vault_path.parent() {
-            let _ = std::fs::create_dir_all(dir);
-        }
-        let vault = match Vault::open(&self.vault_path, passphrase.expose()) {
+        let created = if master { ks.create_with_master(&passphrase.to_passphrase()) } else { ks.create_with_device_key() };
+        drop(passphrase);
+        let vault = match created {
             Ok(v) => v,
             Err(e) => return self.overlay_error(&format!("Création du coffre impossible : {e}")),
         };
-        drop(passphrase);
         let summary = copy.map(|c| migrate::merge(c.vault(), &vault).map(|s| s.text()));
         let note = summary.map(|r| r.unwrap_or_else(|e| e.message()));
         self.finish_unlock(vault, note);
@@ -171,10 +213,11 @@ impl App {
                 paths::START_CAPSULE_CMD
             ));
         };
-        if passphrase.is_empty() {
-            return self.overlay_error("Saisissez la passphrase de la capsule");
-        }
-        match migrate::import_capsule(source, &std::env::temp_dir(), passphrase.expose(), vault) {
+        let Some(key) = migrate::capsule_key(source, passphrase.expose()) else {
+            return self.overlay_error(CAPSULE_PASSPHRASE_NEEDED);
+        };
+        drop(passphrase);
+        match migrate::import_capsule(source, &std::env::temp_dir(), &key, vault) {
             Ok(summary) => {
                 store::load_bookmarks(&self.bookmarks, vault);
                 if summary.settings {
@@ -184,6 +227,70 @@ impl App {
                 self.toast(&summary.text());
             }
             Err(e) => self.overlay_error(&e.message()),
+        }
+    }
+
+    // ── Mot de passe principal (réglages) ───────────────────────────────
+    // Saisie dans le chrome (origine `nyxui`) ; chaque commande n'est
+    // acceptée que si le panneau correspondant est ouvert (ouvert lui-même
+    // par l'action interne `nyx://master/…` d'une page interne).
+
+    fn master_mode(&self) -> Option<MasterMode> {
+        match &self.overlay {
+            Some(Overlay::Master { mode, .. }) => Some(*mode),
+            _ => None,
+        }
+    }
+
+    pub(super) fn on_set_master(&mut self, passphrase: Secret, confirm: Secret) {
+        if self.master_mode() != Some(MasterMode::Define) {
+            return;
+        }
+        if let Err(msg) = secret::check_new_passphrase(&passphrase, &confirm) {
+            return self.overlay_error(msg);
+        }
+        let Some(vault) = &self.vault else { return };
+        let result = self.key_store().set_master(vault, &passphrase.to_passphrase());
+        self.master_done(result, "Mot de passe principal défini");
+    }
+
+    pub(super) fn on_change_master(&mut self, old: Secret, passphrase: Secret, confirm: Secret) {
+        if self.master_mode() != Some(MasterMode::Change) {
+            return;
+        }
+        if let Err(msg) = secret::check_new_passphrase(&passphrase, &confirm) {
+            return self.overlay_error(msg);
+        }
+        let Some(vault) = &self.vault else { return };
+        let result = self.key_store().change_master(vault, &old.to_passphrase(), &passphrase.to_passphrase());
+        self.master_done(result, "Mot de passe principal changé");
+    }
+
+    pub(super) fn on_remove_master(&mut self, passphrase: Secret) {
+        if self.master_mode() != Some(MasterMode::Remove) {
+            return;
+        }
+        if passphrase.is_empty() {
+            return self.overlay_error("Saisis le mot de passe principal actuel");
+        }
+        let Some(vault) = &self.vault else { return };
+        let result = self.key_store().remove_master(vault, &passphrase.to_passphrase());
+        self.master_done(result, "Mot de passe principal retiré : protection par la session Windows");
+    }
+
+    fn master_done(&mut self, result: Result<(), KeyError>, ok: &str) {
+        match result {
+            Ok(()) => {
+                self.set_overlay(None);
+                self.toast(ok);
+                // Pages Réglages ouvertes : redessinées avec le nouvel état.
+                for tab in self.tabs.iter() {
+                    if nav::to_policy_url(&tab.url).starts_with("nyx://settings") {
+                        let _ = tab.view.reload();
+                    }
+                }
+            }
+            Err(e) => self.overlay_error(&e.to_string()),
         }
     }
 
@@ -269,10 +376,10 @@ impl App {
     pub(super) fn serve(&self, page: Page, responder: Responder) {
         let asset = match (&self.vault, page) {
             (None, _) => Asset::not_found(),
-            (Some(_), Page::Settings) => {
+            (Some(v), Page::Settings) => {
                 let user_data = paths::chrome_user_data(std::env::var("LOCALAPPDATA").ok().as_deref());
                 let profiles = import_chrome::profiles(user_data.as_deref());
-                Asset::page(pages::settings_html(&self.settings.borrow(), &profiles))
+                Asset::page(pages::settings_html(&self.settings.borrow(), &profiles, v.has_master_password()))
             }
             (Some(_), Page::Bookmarks) => Asset::page(nyx_core::pages::bookmarks::page_html(&self.bookmarks.borrow())),
             (Some(v), Page::History) => {
@@ -317,6 +424,11 @@ impl App {
                 let capsule = capsule_view(self.capsule.as_ref());
                 self.set_overlay(Some(Overlay::Capsule { capsule, error: String::new() }));
                 self.probe_capsule_again();
+            }
+            Action::MasterPassword(op) => {
+                if let Some(mode) = MasterMode::for_op(op, vault.has_master_password()) {
+                    self.set_overlay(Some(Overlay::Master { mode, error: String::new() }));
+                }
             }
         }
         self.push_state();

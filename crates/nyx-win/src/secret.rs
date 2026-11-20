@@ -47,16 +47,18 @@ impl Drop for Secret {
     }
 }
 
-/// Contrôle d'une nouvelle passphrase (création du coffre) : non vide et
-/// identique à sa confirmation. Le message est affiché tel quel.
-pub fn check_new_passphrase(passphrase: &Secret, confirm: &Secret) -> Result<(), &'static str> {
-    if passphrase.expose().trim().is_empty() {
-        Err("La passphrase est vide")
-    } else if passphrase != confirm {
-        Err("Les passphrases ne correspondent pas")
-    } else {
-        Ok(())
+impl Secret {
+    /// Copie vers le type du coffre (lui aussi effacé à la destruction).
+    pub fn to_passphrase(&self) -> vault::Passphrase {
+        vault::Passphrase::new(self.expose())
     }
+}
+
+/// Contrôle d'un nouveau mot de passe principal (règles de
+/// `vault::keymode` : non vide, 8 caractères min., confirmé). Le message
+/// est affiché tel quel.
+pub fn check_new_passphrase(passphrase: &Secret, confirm: &Secret) -> Result<(), &'static str> {
+    vault::keymode::check_new_passphrase(passphrase.expose(), confirm.expose())
 }
 
 #[cfg(test)]
@@ -66,10 +68,15 @@ mod tests {
     #[test]
     fn new_passphrase_rules() {
         let s = |v: &str| Secret::new(v.into());
-        assert_eq!(check_new_passphrase(&s("a b c"), &s("a b c")), Ok(()));
-        assert_eq!(check_new_passphrase(&s(""), &s("")), Err("La passphrase est vide"));
-        assert_eq!(check_new_passphrase(&s("   "), &s("   ")), Err("La passphrase est vide"));
-        assert_eq!(check_new_passphrase(&s("abc"), &s("abd")), Err("Les passphrases ne correspondent pas"));
+        assert_eq!(check_new_passphrase(&s("a b c d e"), &s("a b c d e")), Ok(()));
+        assert_eq!(check_new_passphrase(&s(""), &s("")), Err("Le mot de passe est vide"));
+        assert_eq!(check_new_passphrase(&s("   "), &s("   ")), Err("Le mot de passe est vide"));
+        assert!(check_new_passphrase(&s("abc"), &s("abc")).is_err(), "trop court");
+        assert_eq!(
+            check_new_passphrase(&s("abcdefgh"), &s("abcdefgi")),
+            Err("Les mots de passe ne correspondent pas")
+        );
+        assert_eq!(s("x").to_passphrase().expose(), "x");
     }
 
     #[test]

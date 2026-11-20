@@ -2,28 +2,59 @@ mod bookmarks;
 mod chrome;
 mod db;
 mod history;
+mod key;
+pub mod keyfile;
+pub mod keymode;
 mod models;
 mod passwords;
 mod settings;
 
 pub use chrome::read_chrome_history;
+pub use key::{Key, Passphrase, RawKey, RAW_KEY_LEN};
 pub use models::{Bookmark, HistoryEntry, Password};
 
 use anyhow::Result;
 use rusqlite::Connection;
+use std::cell::Cell;
 use std::path::{Path, PathBuf};
 
 pub struct Vault {
     conn: Connection,
     path: PathBuf,
+    /// Clé courante = mot de passe principal (sinon clé d'appareil).
+    master: Cell<bool>,
 }
 
 impl Vault {
     /// Ouvre (ou crée) le vault chiffré au chemin donné.
     /// La passphrase est utilisée par SQLCipher pour dériver la clé AES-256.
     pub fn open(path: &Path, passphrase: &str) -> Result<Self> {
-        let conn = db::open(path, passphrase)?;
-        Ok(Self { conn, path: path.to_owned() })
+        Self::open_with(path, &Key::passphrase(passphrase))
+    }
+
+    /// Ouvre (ou crée) le vault avec une passphrase ou une clé brute.
+    pub fn open_with(path: &Path, key: &Key) -> Result<Self> {
+        let conn = db::open(path, key)?;
+        Ok(Self { conn, path: path.to_owned(), master: Cell::new(key.is_passphrase()) })
+    }
+
+    /// `true` si le coffre EXISTANT à `path` s'ouvre avec `key` (n'en crée
+    /// jamais ; ne migre rien).
+    pub fn check_key(path: &Path, key: &Key) -> bool {
+        db::check_key(path, key)
+    }
+
+    /// Rechiffre le coffre avec `new` (`PRAGMA rekey`), dans les deux sens
+    /// passphrase ⇄ clé brute. Les données sont conservées.
+    pub fn change_key(&self, new: &Key) -> Result<()> {
+        db::rekey(&self.conn, new)?;
+        self.master.set(new.is_passphrase());
+        Ok(())
+    }
+
+    /// `true` si le coffre est protégé par un mot de passe principal.
+    pub fn has_master_password(&self) -> bool {
+        self.master.get()
     }
 
     pub fn path(&self) -> &Path { &self.path }
@@ -259,6 +290,54 @@ mod tests {
         let vault = tmp.open("bonne-passphrase")?;
         assert_eq!(vault.recent_history(10)?.len(), 1);
         Ok(())
+    }
+
+    #[test]
+    fn rekey_round_trips_raw_and_passphrase() -> Result<()> {
+        let tmp = TempVault::new("rekey");
+        let raw = Key::Raw(RawKey::generate()?);
+        let raw2 = Key::Raw(RawKey::generate()?);
+        let pass = Key::passphrase("mot-de-passe");
+        {
+            let vault = Vault::open_with(&tmp.path, &raw)?;
+            assert!(!vault.has_master_password());
+            vault.add_password(&Password::new("a.org", "u", "p1"))?;
+            vault.push_history("https://a.org", "A")?; // passe par le WAL
+        }
+        assert!(Vault::check_key(&tmp.path, &raw));
+        assert!(!Vault::check_key(&tmp.path, &raw2));
+        assert!(!Vault::check_key(&tmp.path, &pass));
+
+        // brute → passphrase
+        {
+            let vault = Vault::open_with(&tmp.path, &raw)?;
+            vault.change_key(&pass)?;
+            assert!(vault.has_master_password());
+            vault.add_bookmark(&Bookmark::new("https://b.org", "B"))?; // écrit après rekey
+        }
+        assert!(!Vault::check_key(&tmp.path, &raw));
+        assert!(Vault::open_with(&tmp.path, &raw).is_err());
+        let vault = tmp.open("mot-de-passe")?;
+        assert_eq!(vault.passwords_for("a.org")?[0].password, "p1");
+        assert_eq!(vault.recent_history(10)?.len(), 1);
+        assert_eq!(vault.list_bookmarks()?.len(), 1);
+
+        // passphrase → autre brute
+        vault.change_key(&raw2)?;
+        assert!(!vault.has_master_password());
+        drop(vault);
+        assert!(tmp.open("mot-de-passe").is_err());
+        let vault = Vault::open_with(&tmp.path, &raw2)?;
+        assert_eq!(vault.passwords_for("a.org")?[0].password, "p1");
+        assert_eq!(vault.list_bookmarks()?.len(), 1);
+        Ok(())
+    }
+
+    #[test]
+    fn check_key_never_creates() {
+        let tmp = TempVault::new("nocreate");
+        assert!(!Vault::check_key(&tmp.path, &Key::passphrase("x")));
+        assert!(!tmp.path.exists());
     }
 
     #[test]

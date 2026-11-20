@@ -9,6 +9,7 @@
 //! Les passphrases n'arrivent QUE par ce canal (origine `nyxui` vérifiée par
 //! `app::build_chrome`), dans des [`Secret`] jamais affichés ni journalisés.
 
+use nyx_core::security::MasterOp;
 use serde::{Deserialize, Serialize};
 
 use crate::secret::Secret;
@@ -41,13 +42,19 @@ pub enum ChromeMsg {
     /// Réponse à la question affichée (enregistrer un mot de passe…).
     #[serde(rename_all = "camelCase")]
     PromptAnswer { id: u32, yes: bool },
-    /// Déverrouillage d'un coffre existant.
+    /// Déverrouillage par le mot de passe principal.
     Unlock { passphrase: Secret },
-    /// Création du coffre (premier lancement), avec import optionnel de la
-    /// capsule. `capsule_passphrase` vide = même passphrase que le nouveau.
+    /// Création du coffre (premier lancement). `master` faux : « Plus tard »,
+    /// clé d'appareil (DPAPI), `passphrase`/`confirm` ignorés. Import
+    /// optionnel de la capsule avec SA passphrase (vide = clé d'appareil de
+    /// la capsule, si lisible).
     #[serde(rename_all = "camelCase")]
     Create {
+        #[serde(default)]
+        master: bool,
+        #[serde(default)]
         passphrase: Secret,
+        #[serde(default)]
         confirm: Secret,
         #[serde(default)]
         import_capsule: bool,
@@ -56,6 +63,12 @@ pub enum ChromeMsg {
     },
     /// Import de la capsule depuis les réglages (coffre déjà ouvert).
     ImportCapsule { passphrase: Secret },
+    /// Réglages : définir un mot de passe principal (clé d'appareil → mot de passe).
+    SetMaster { passphrase: Secret, confirm: Secret },
+    /// Réglages : changer le mot de passe principal.
+    ChangeMaster { old: Secret, passphrase: Secret, confirm: Secret },
+    /// Réglages : retirer le mot de passe principal (`passphrase` = l'actuel).
+    RemoveMaster { passphrase: Secret },
     /// Sonder à nouveau la capsule (après `wsl -d NyxCapsule -e true`).
     RetryCapsule,
     /// Fermer le panneau d'import de la capsule.
@@ -110,14 +123,62 @@ pub enum CapsuleView {
     Unreachable,
 }
 
+/// Saisie demandée par le panneau « mot de passe principal ».
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum MasterMode {
+    Define,
+    Change,
+    Remove,
+}
+
+impl MasterMode {
+    /// Saisie à proposer pour l'action `op` selon le mode courant du coffre
+    /// (`None` : rien à faire, p. ex. « Retirer » sans mot de passe).
+    pub fn for_op(op: MasterOp, has_master: bool) -> Option<Self> {
+        match (op, has_master) {
+            (MasterOp::Set, false) => Some(Self::Define),
+            (MasterOp::Set, true) => Some(Self::Change),
+            (MasterOp::Remove, true) => Some(Self::Remove),
+            (MasterOp::Remove, false) => None,
+        }
+    }
+}
+
 /// Panneau plein écran du chrome.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum Overlay {
-    /// Déverrouillage (`creating` : premier lancement).
-    Unlock { creating: bool, capsule: CapsuleView, error: String },
+    /// Premier lancement : bienvenue, mot de passe principal optionnel.
+    Welcome { capsule: CapsuleView, error: String },
+    /// Déverrouillage par mot de passe principal (`notice` : pourquoi, si la
+    /// clé d'appareil n'a pas suffi).
+    Unlock { notice: String, error: String },
     /// Import de la capsule depuis les réglages.
     Capsule { capsule: CapsuleView, error: String },
+    /// Réglages : définir / changer / retirer le mot de passe principal.
+    Master { mode: MasterMode, error: String },
+}
+
+impl Overlay {
+    /// Panneau du coffre verrouillé (ne se ferme pas : Quitter seulement).
+    pub fn is_locked_screen(&self) -> bool {
+        matches!(self, Self::Welcome { .. } | Self::Unlock { .. })
+    }
+
+    pub fn set_error(&mut self, message: &str) {
+        let (Self::Welcome { error, .. }
+        | Self::Unlock { error, .. }
+        | Self::Capsule { error, .. }
+        | Self::Master { error, .. }) = self;
+        *error = message.to_string();
+    }
+
+    pub fn set_capsule(&mut self, view: CapsuleView) {
+        if let Self::Welcome { capsule, .. } | Self::Capsule { capsule, .. } = self {
+            *capsule = view;
+        }
+    }
 }
 
 /// État complet poussé au chrome après chaque changement.
@@ -190,15 +251,20 @@ mod tests {
             Some(ChromeMsg::Unlock { passphrase: Secret::new("pw".into()) })
         );
         assert_eq!(
-            ChromeMsg::parse(r#"{"cmd":"create","passphrase":"a","confirm":"b"}"#),
+            ChromeMsg::parse(r#"{"cmd":"create","master":true,"passphrase":"a","confirm":"b"}"#),
             Some(ChromeMsg::Create {
+                master: true,
                 passphrase: Secret::new("a".into()),
                 confirm: Secret::new("b".into()),
                 import_capsule: false,
                 capsule_passphrase: Secret::default(),
             })
         );
-        let full = r#"{"cmd":"create","passphrase":"a","confirm":"a","importCapsule":true,"capsulePassphrase":"old"}"#;
+        assert!(matches!(
+            ChromeMsg::parse(r#"{"cmd":"create"}"#),
+            Some(ChromeMsg::Create { master: false, import_capsule: false, .. })
+        ));
+        let full = r#"{"cmd":"create","master":true,"passphrase":"a","confirm":"a","importCapsule":true,"capsulePassphrase":"old"}"#;
         assert!(matches!(
             ChromeMsg::parse(full),
             Some(ChromeMsg::Create { import_capsule: true, capsule_passphrase, .. }) if capsule_passphrase.expose() == "old"
@@ -207,6 +273,18 @@ mod tests {
             ChromeMsg::parse(r#"{"cmd":"importCapsule","passphrase":"x"}"#),
             Some(ChromeMsg::ImportCapsule { passphrase: Secret::new("x".into()) })
         );
+        assert!(matches!(
+            ChromeMsg::parse(r#"{"cmd":"setMaster","passphrase":"a","confirm":"a"}"#),
+            Some(ChromeMsg::SetMaster { .. })
+        ));
+        assert!(matches!(
+            ChromeMsg::parse(r#"{"cmd":"changeMaster","old":"o","passphrase":"a","confirm":"a"}"#),
+            Some(ChromeMsg::ChangeMaster { old, .. }) if old.expose() == "o"
+        ));
+        assert!(matches!(
+            ChromeMsg::parse(r#"{"cmd":"removeMaster","passphrase":"o"}"#),
+            Some(ChromeMsg::RemoveMaster { .. })
+        ));
         for bare in ["retryCapsule", "closeOverlay", "quit"] {
             assert!(ChromeMsg::parse(&format!(r#"{{"cmd":"{bare}"}}"#)).is_some(), "{bare}");
         }
@@ -216,6 +294,9 @@ mod tests {
     fn passphrase_never_in_debug() {
         let msg = ChromeMsg::parse(r#"{"cmd":"unlock","passphrase":"hunter2"}"#).expect("msg");
         assert!(!format!("{msg:?}").contains("hunter2"));
+        let raw = r#"{"cmd":"changeMaster","old":"hunter2","passphrase":"hunter3","confirm":"hunter3"}"#;
+        let msg = ChromeMsg::parse(raw).expect("msg");
+        assert!(!format!("{msg:?}").contains("hunter"));
     }
 
     #[test]
@@ -227,6 +308,9 @@ mod tests {
         assert!(!ChromeMsg::Navigate { text: "x".into() }.allowed_while_locked());
         assert!(!ChromeMsg::ImportCapsule { passphrase: Secret::default() }.allowed_while_locked());
         assert!(!ChromeMsg::PromptAnswer { id: 1, yes: true }.allowed_while_locked());
+        assert!(!ChromeMsg::RemoveMaster { passphrase: Secret::default() }.allowed_while_locked());
+        let set = ChromeMsg::SetMaster { passphrase: Secret::default(), confirm: Secret::default() };
+        assert!(!set.allowed_while_locked());
     }
 
     #[test]
@@ -248,7 +332,10 @@ mod tests {
             r#"{"cmd":"unlock"}"#,
             r#"{"cmd":"unlock","passphrase":1}"#,
             r#"{"cmd":"unlock","passphrase":"x","path":"C:\\evil.db"}"#,
-            r#"{"cmd":"create","passphrase":"a"}"#,
+            r#"{"cmd":"create","passphrase":"a","path":"x"}"#,
+            r#"{"cmd":"setMaster","passphrase":"a"}"#,
+            r#"{"cmd":"changeMaster","passphrase":"a","confirm":"a"}"#,
+            r#"{"cmd":"removeMaster"}"#,
             r#"{"cmd":"promptAnswer","id":1}"#,
         ] {
             assert_eq!(ChromeMsg::parse(raw), None, "{raw:?}");
@@ -287,12 +374,35 @@ mod tests {
     #[test]
     fn overlay_serialization() {
         let state = ChromeState {
-            overlay: Some(Overlay::Unlock { creating: true, capsule: CapsuleView::Unreachable, error: String::new() }),
+            overlay: Some(Overlay::Welcome { capsule: CapsuleView::Unreachable, error: String::new() }),
             capsule_cmd: crate::paths::START_CAPSULE_CMD,
             ..ChromeState::default()
         };
         let js = update_script(&state);
-        assert!(js.contains(r#""overlay":{"kind":"unlock","creating":true,"capsule":"unreachable","error":""}"#), "{js}");
+        assert!(js.contains(r#""overlay":{"kind":"welcome","capsule":"unreachable","error":""}"#), "{js}");
         assert!(js.contains("wsl -d NyxCapsule -e true"));
+        let master = Overlay::Master { mode: MasterMode::Remove, error: String::new() };
+        assert_eq!(js_literal(&master), r#"{"kind":"master","mode":"remove","error":""}"#);
+    }
+
+    #[test]
+    fn overlay_helpers() {
+        let mut o = Overlay::Unlock { notice: String::new(), error: String::new() };
+        assert!(o.is_locked_screen());
+        o.set_error("x");
+        o.set_capsule(CapsuleView::Found);
+        assert_eq!(o, Overlay::Unlock { notice: String::new(), error: "x".into() });
+        let mut w = Overlay::Welcome { capsule: CapsuleView::Probing, error: String::new() };
+        w.set_capsule(CapsuleView::Found);
+        assert_eq!(w, Overlay::Welcome { capsule: CapsuleView::Found, error: String::new() });
+        assert!(!Overlay::Master { mode: MasterMode::Define, error: String::new() }.is_locked_screen());
+    }
+
+    #[test]
+    fn master_mode_follows_vault() {
+        assert_eq!(MasterMode::for_op(MasterOp::Set, false), Some(MasterMode::Define));
+        assert_eq!(MasterMode::for_op(MasterOp::Set, true), Some(MasterMode::Change));
+        assert_eq!(MasterMode::for_op(MasterOp::Remove, true), Some(MasterMode::Remove));
+        assert_eq!(MasterMode::for_op(MasterOp::Remove, false), None);
     }
 }

@@ -176,6 +176,19 @@ fn wire_policy_filter(
                 });
                 true
             }
+            Verdict::MasterPassword(op) => {
+                decision.ignore();
+                let parent = wv.toplevel().and_then(|w| w.downcast::<gtk::Window>().ok());
+                let (wv, prefs, bm, vault) = (wv.clone(), prefs.clone(), bm.clone(), vault.clone());
+                // Saisie dans un dialogue GTK natif, hors du callback de
+                // politique ; la page Réglages est ensuite redessinée.
+                gtk::glib::idle_add_local_once(move || {
+                    if crate::ui::master_password::run(parent.as_ref(), op, &vault) {
+                        load_internal_page(&wv, Page::Settings, &prefs, &bm, &vault);
+                    }
+                });
+                true
+            }
             Verdict::Load(page) => {
                 decision.ignore();
                 load_internal_page(wv, page, &prefs, &bm, &vault);
@@ -187,7 +200,7 @@ fn wire_policy_filter(
 
 fn load_internal_page(wv: &WebView, page: Page, prefs: &Settings, bm: &Bookmarks, vault: &Rc<Vault>) {
     let (html, base) = match page {
-        Page::Settings  => (settings_page::html(&prefs.borrow()), Some(pages::assets_base_uri())),
+        Page::Settings  => (settings_page::html(&prefs.borrow(), vault.has_master_password()), Some(pages::assets_base_uri())),
         Page::Bookmarks => (bookmarks_page::page_html(&bm.borrow()), Some(pages::assets_base_uri())),
         Page::History => {
             let entries = vault.recent_history(200).unwrap_or_default();
