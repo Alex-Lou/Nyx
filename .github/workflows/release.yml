@@ -57,7 +57,7 @@ jobs:
             Nyx ${{ env.VERSION }} — Windows 10/11 et Android 8+.
             Vérifiez vos fichiers avec SHA256SUMS.txt.
 
-            Signé Cybwu
+            Une nuit façonnée par Cybwu.
           files: |
             out/Nyx.exe
             out/Nyx.apk
@@ -73,4 +73,4 @@ jobs:
           publish_dir: ./site
           user_name: Cybwu
           user_email: 41898282+github-actions[bot]@users.noreply.github.com
-          commit_message: "site: Nyx ${{ env.VERSION }} — signé Cybwu"
+          commit_message: "site: Nyx ${{ env.VERSION }}"

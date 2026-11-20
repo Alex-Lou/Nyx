@@ -121,6 +121,9 @@ kbd { font: 400 11px var(--mono); color: rgba(200,214,255,.8); background: rgba(
 
 footer .wrap { padding-block: 40px calc(110px + env(safe-area-inset-bottom, 0px)); display: flex; justify-content: center; gap: 18px; flex-wrap: wrap; font: 400 11px var(--sans); letter-spacing: .16em; text-transform: uppercase; color: var(--nyx-dim); }
 footer a { color: var(--nyx-dim); }
+footer .wrap { padding-bottom: 18px; }
+.sig { margin: 0; padding-bottom: calc(110px + env(safe-area-inset-bottom, 0px)); text-align: center; font: 300 13px var(--sans); letter-spacing: .08em; color: var(--nyx-dim); }
+.sig span { font-weight: 400; letter-spacing: .2em; background: linear-gradient(135deg, #fff, var(--nyx-star) 45%, var(--nyx-nebula)); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
 
 /* Navigation = le sélecteur d'ambiance de l'app. */
 .ambiance {
@@ -247,7 +250,7 @@ footer a { color: var(--nyx-dim); }
     </section>
   </main>
 
-  <footer><div class="wrap"><span>Nyx</span><span>·</span><a href="https://github.com/Alex-Lou/nyx-releases/releases">Toutes les versions</a><span>·</span><span>Signé Cybwu</span></div></footer>
+  <footer><div class="wrap"><span>Nyx</span><span>·</span><a href="https://github.com/Alex-Lou/nyx-releases/releases">Toutes les versions</a></div><p class="sig">une nuit façonnée par <span>Cybwu</span></p></footer>
 </div>
 
 <nav class="ambiance" aria-label="Sections">

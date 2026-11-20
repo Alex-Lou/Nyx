@@ -19,5 +19,5 @@ Publication : `.github/workflows/release.yml` (tag `vX.Y.Z`) publie `Nyx.exe`,
 
 Commandes du quotidien : `docs/commandes.html`.
 
-—
-Signé Cybwu
+
+*Une nuit façonnée par Cybwu.*
