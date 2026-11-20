@@ -33,6 +33,11 @@ pub enum Verdict {
     /// WSL (`nyx://import/capsule`, Windows). Lit un fichier local et demande
     /// une passphrase : interne uniquement.
     ImportCapsule,
+    /// Annuler la navigation et ouvrir le dialogue natif du mot de passe
+    /// principal (`nyx://master/set`, `nyx://master/remove`). Aucune
+    /// passphrase ne transite par l'URL : elle est saisie dans l'UI native
+    /// (dialogue GTK, panneau du chrome Windows). Interne uniquement.
+    MasterPassword(MasterOp),
     /// Annuler la navigation et charger une page interne.
     Load(Page),
 }
@@ -42,6 +47,15 @@ impl Verdict {
     pub fn is_block(&self) -> bool {
         matches!(self, Verdict::Block | Verdict::BlockFileAccess)
     }
+}
+
+/// Opération demandée sur le mot de passe principal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MasterOp {
+    /// Définir (aucun mot de passe) ou changer (mot de passe existant).
+    Set,
+    /// Retirer : retour à la clé d'appareil.
+    Remove,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -85,6 +99,15 @@ pub fn decide(url: &str, page_internal: bool, guard: &NyxGuard) -> Verdict {
                 sec_log::emit(Level::Block, &format!("nyx://import from remote page: {}", sec_log::redact_url(url)));
                 Verdict::Block
             };
+        }
+        if let Some(op) = rest.strip_prefix("master/") {
+            if !page_internal {
+                sec_log::emit(Level::Block, &format!("nyx://master from remote page: {}", sec_log::redact_url(url)));
+                return Verdict::Block;
+            }
+            if op.starts_with("set") { return Verdict::MasterPassword(MasterOp::Set); }
+            if op.starts_with("remove") { return Verdict::MasterPassword(MasterOp::Remove); }
+            return Verdict::Block;
         }
         if rest.starts_with("settings")  { return Verdict::Load(Page::Settings); }
         if rest.starts_with("bookmarks") { return Verdict::Load(Page::Bookmarks); }
@@ -184,6 +207,16 @@ mod tests {
     #[test] fn import_capsule_internal_only() {
         assert_eq!(decide("nyx://import/capsule", true, &guard()), Verdict::ImportCapsule);
         assert_eq!(decide("nyx://import/capsule", false, &guard()), Verdict::Block);
+    }
+
+    #[test]
+    fn master_password_internal_only() {
+        assert_eq!(decide("nyx://master/set", true, &guard()), Verdict::MasterPassword(MasterOp::Set));
+        assert_eq!(decide("nyx://master/remove?t=1", true, &guard()), Verdict::MasterPassword(MasterOp::Remove));
+        assert_eq!(decide("nyx://master/wat", true, &guard()), Verdict::Block);
+        for op in ["nyx://master/set", "nyx://master/remove", "nyx://master/x"] {
+            assert_eq!(decide(op, false, &guard()), Verdict::Block, "{op}");
+        }
         assert!(decide("Nyx://import/capsule?x=1", false, &guard()).is_block());
     }
 }
