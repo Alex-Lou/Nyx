@@ -29,6 +29,8 @@ import android.view.animation.DecelerateInterpolator
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import android.webkit.CookieManager
+import android.webkit.GeolocationPermissions
+import android.webkit.PermissionRequest
 import android.webkit.RenderProcessGoneDetail
 import android.webkit.URLUtil
 import android.webkit.ValueCallback
@@ -62,6 +64,7 @@ import androidx.webkit.WebViewAssetLoader
 import androidx.webkit.WebViewFeature
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.button.MaterialButton
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import java.io.ByteArrayInputStream
 import java.net.URISyntaxException
 
@@ -90,6 +93,9 @@ class MainActivity : AppCompatActivity() {
             pendingPermissions = null
             next?.invoke()
         }
+
+    /** Origines autorisées à lire du contenu protégé (DRM), pour la session. */
+    private val drmOrigins = mutableSetOf<String>()
 
     /** Vidéo plein écran : vue fournie par la WebView de [customViewTab]. */
     private var customView: View? = null
@@ -317,6 +323,7 @@ class MainActivity : AppCompatActivity() {
     private fun releaseTab(tab: BrowserTab) {
         if (fileCallbackTab === tab) cancelFileChooser()
         if (customViewTab === tab) exitFullscreen(notifyPage = true)
+        settlePagePermissions(tab)
     }
 
     /** Aucune fuite : détachée du parent, chargement arrêté, puis détruite. */
@@ -426,6 +433,177 @@ class MainActivity : AppCompatActivity() {
             Log.w(TAG, "Téléchargement refusé", e)
             Toast.makeText(this, R.string.download_failed, Toast.LENGTH_SHORT).show()
         }
+    }
+
+    // ── Permissions demandées par les pages ────────────────────────────────
+
+    /**
+     * Hôte d'une origine éligible aux permissions : https uniquement, jamais
+     * la page Nouvel onglet interne. `null` = refus d'office.
+     */
+    private fun permissionHost(origin: Uri?): String? {
+        if (origin == null || origin.scheme?.lowercase() != "https") return null
+        val host = origin.host?.lowercase()
+        return if (host.isNullOrEmpty() || host == NewTabPage.HOST) null else host
+    }
+
+    /** Ressource WebView → permission Android requise (`""` : aucune, `null` : refusée). */
+    private fun androidPermissionFor(resource: String): String? = when (resource) {
+        PermissionRequest.RESOURCE_VIDEO_CAPTURE -> Manifest.permission.CAMERA
+        PermissionRequest.RESOURCE_AUDIO_CAPTURE -> Manifest.permission.RECORD_AUDIO
+        PermissionRequest.RESOURCE_PROTECTED_MEDIA_ID -> ""
+        else -> null
+    }
+
+    private fun resourceLabel(resource: String): String = when (resource) {
+        PermissionRequest.RESOURCE_VIDEO_CAPTURE -> getString(R.string.perm_camera)
+        PermissionRequest.RESOURCE_AUDIO_CAPTURE -> getString(R.string.perm_microphone)
+        else -> getString(R.string.perm_drm)
+    }
+
+    private fun onPagePermissionRequest(tab: BrowserTab, request: PermissionRequest) {
+        val host = permissionHost(request.origin)
+        // Ressources inconnues (MIDI SysEx…) : jamais accordées.
+        val wanted = request.resources.filter { androidPermissionFor(it) != null }
+        if (host == null || wanted.isEmpty() || tab.permissionRequest != null || tab.prompt != null) {
+            request.deny()
+            return
+        }
+        val origin = request.origin.toString()
+        if (wanted.all { it == PermissionRequest.RESOURCE_PROTECTED_MEDIA_ID } && origin in drmOrigins) {
+            request.grant(wanted.toTypedArray())
+            return
+        }
+        tab.permissionRequest = request
+        val what = joinLabels(wanted.map { resourceLabel(it) })
+        askUser(
+            tab,
+            getString(R.string.perm_message, host, what),
+            onAllow = {
+                val needed = wanted.mapNotNull { androidPermissionFor(it) }.filter { it.isNotEmpty() }
+                withPermissions(needed.toTypedArray()) { granted ->
+                    finishPermissionRequest(tab, request, origin, wanted, granted)
+                }
+            },
+            onDeny = {
+                if (tab.permissionRequest === request) {
+                    tab.permissionRequest = null
+                    request.deny()
+                }
+            },
+        )
+    }
+
+    private fun finishPermissionRequest(
+        tab: BrowserTab,
+        request: PermissionRequest,
+        origin: String,
+        wanted: List<String>,
+        granted: Set<String>,
+    ) {
+        // Onglet fermé ou demande annulée entre-temps : déjà soldée.
+        if (tab.permissionRequest !== request) return
+        tab.permissionRequest = null
+        val allowed = wanted.filter {
+            val permission = androidPermissionFor(it)
+            permission != null && (permission.isEmpty() || permission in granted)
+        }
+        if (PermissionRequest.RESOURCE_PROTECTED_MEDIA_ID in allowed) drmOrigins.add(origin)
+        if (allowed.isEmpty()) {
+            request.deny()
+        } else {
+            request.grant(allowed.toTypedArray())
+        }
+        if (allowed.size < wanted.size) {
+            Toast.makeText(this, R.string.perm_system_denied, Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun cancelPagePermission(tab: BrowserTab, request: PermissionRequest) {
+        if (tab.permissionRequest !== request) return
+        tab.permissionRequest = null
+        dismissPrompt(tab)
+    }
+
+    private fun onGeolocationPrompt(tab: BrowserTab, origin: String, callback: GeolocationPermissions.Callback) {
+        val host = permissionHost(Uri.parse(origin))
+        if (host == null || tab.geoCallback != null || tab.prompt != null) {
+            callback.invoke(origin, false, false)
+            return
+        }
+        tab.geoCallback = callback
+        tab.geoOrigin = origin
+        askUser(
+            tab,
+            getString(R.string.perm_message, host, getString(R.string.perm_location)),
+            onAllow = {
+                val location = arrayOf(
+                    Manifest.permission.ACCESS_FINE_LOCATION,
+                    Manifest.permission.ACCESS_COARSE_LOCATION,
+                )
+                withPermissions(location) { granted ->
+                    finishGeolocation(tab, callback, granted.isNotEmpty())
+                    if (granted.isEmpty()) {
+                        Toast.makeText(this, R.string.perm_system_denied, Toast.LENGTH_SHORT).show()
+                    }
+                }
+            },
+            onDeny = { finishGeolocation(tab, callback, false) },
+        )
+    }
+
+    /** `retain = false` : la décision ne vaut que pour cette demande. */
+    private fun finishGeolocation(tab: BrowserTab, callback: GeolocationPermissions.Callback, allowed: Boolean) {
+        if (tab.geoCallback !== callback) return
+        val origin = tab.geoOrigin
+        tab.geoCallback = null
+        tab.geoOrigin = null
+        if (origin != null) callback.invoke(origin, allowed, false)
+    }
+
+    private fun onGeolocationHidden(tab: BrowserTab) {
+        val callback = tab.geoCallback ?: return
+        finishGeolocation(tab, callback, false)
+        dismissPrompt(tab)
+    }
+
+    /** Dialogue « <hôte> veut utiliser … » ; fermé sans choix = refus. */
+    private fun askUser(tab: BrowserTab, message: String, onAllow: () -> Unit, onDeny: () -> Unit) {
+        var allowed = false
+        val dialog = MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.perm_title)
+            .setMessage(message)
+            .setPositiveButton(R.string.perm_allow) { _, _ -> allowed = true }
+            .setNegativeButton(R.string.perm_deny, null)
+            .create()
+        dialog.setOnDismissListener {
+            if (tab.prompt === dialog) tab.prompt = null
+            if (allowed && tab in tabs) onAllow() else onDeny()
+        }
+        tab.prompt = dialog
+        dialog.show()
+    }
+
+    private fun dismissPrompt(tab: BrowserTab) {
+        val dialog = tab.prompt ?: return
+        tab.prompt = null
+        dialog.dismiss()
+    }
+
+    /** Fermeture d'onglet : tout ce qui est en attente est refusé. */
+    private fun settlePagePermissions(tab: BrowserTab) {
+        tab.permissionRequest?.let {
+            tab.permissionRequest = null
+            it.deny()
+        }
+        tab.geoCallback?.let { finishGeolocation(tab, it, false) }
+        dismissPrompt(tab)
+    }
+
+    private fun joinLabels(labels: List<String>): String = when (labels.size) {
+        0 -> ""
+        1 -> labels[0]
+        else -> labels.dropLast(1).joinToString(", ") + getString(R.string.perm_and) + labels.last()
     }
 
     // ── Plein écran ────────────────────────────────────────────────────────
@@ -778,6 +956,26 @@ class MainActivity : AppCompatActivity() {
 
         override fun onHideCustomView() {
             if (customViewTab === tab) exitFullscreen(notifyPage = false)
+        }
+
+        override fun onPermissionRequest(request: PermissionRequest) {
+            onPagePermissionRequest(tab, request)
+        }
+
+        override fun onPermissionRequestCanceled(request: PermissionRequest) {
+            cancelPagePermission(tab, request)
+        }
+
+        override fun onGeolocationPermissionsShowPrompt(
+            origin: String?,
+            callback: GeolocationPermissions.Callback?,
+        ) {
+            if (origin == null || callback == null) return
+            onGeolocationPrompt(tab, origin, callback)
+        }
+
+        override fun onGeolocationPermissionsHidePrompt() {
+            onGeolocationHidden(tab)
         }
 
         override fun onShowFileChooser(

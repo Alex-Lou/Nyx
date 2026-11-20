@@ -1,5 +1,8 @@
 package io.nyx.browser
 
+import android.app.Dialog
+import android.webkit.GeolocationPermissions
+import android.webkit.PermissionRequest
 import android.webkit.WebView
 
 /** Un onglet = une WebView + l'état affiché dans la barre et le sélecteur. */
@@ -12,4 +15,14 @@ class BrowserTab(val webView: WebView) {
     @Volatile var pageUrl: String = ""
     var title: String = ""
     var progress: Int = 100
+
+    /**
+     * Demandes de la page en attente de réponse (dialogue ou permission
+     * Android). Toujours soldées — accord ou refus — puis oubliées, au plus
+     * tard à la fermeture de l'onglet.
+     */
+    var permissionRequest: PermissionRequest? = null
+    var geoCallback: GeolocationPermissions.Callback? = null
+    var geoOrigin: String? = null
+    var prompt: Dialog? = null
 }

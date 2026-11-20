@@ -16,4 +16,14 @@
     <string name="download_no_storage">Téléchargement annulé : accès au stockage refusé</string>
     <string name="download_failed">Téléchargement impossible</string>
     <string name="no_file_picker">Aucune application pour choisir un fichier</string>
+    <string name="perm_title">Autorisation</string>
+    <string name="perm_message">%1$s veut utiliser %2$s.</string>
+    <string name="perm_camera">la caméra</string>
+    <string name="perm_microphone">le micro</string>
+    <string name="perm_drm">la lecture de contenus protégés (DRM)</string>
+    <string name="perm_location">votre position</string>
+    <string name="perm_and">" et "</string>
+    <string name="perm_allow">Autoriser</string>
+    <string name="perm_deny">Refuser</string>
+    <string name="perm_system_denied">Permission refusée par Android</string>
 </resources>
