@@ -6,10 +6,14 @@
 //!   seule WebView du chrome.
 //!
 //! wry intercepte tout `https://<protocole>.*` : on ne sert donc que l'hôte
-//! exact `localhost`, le reste reçoit un 404.
+//! exact `localhost`, le reste reçoit un 404. Les pages qui lisent le coffre
+//! (réglages, favoris, historique) sont des [`Route::Dynamic`] : rendues par
+//! l'app sur le thread UI (protocole asynchrone de wry).
 
+use std::borrow::Cow;
 use std::sync::LazyLock;
 
+use nyx_core::security::Page;
 use nyx_core::theme;
 
 use crate::chrome;
@@ -23,34 +27,55 @@ static CHROME_INDEX: LazyLock<String> = LazyLock::new(|| theme::render_page(chro
 const CHROME_CSP: &str = "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; \
                           img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 
+/// CSP des pages internes dynamiques : aucun accès réseau, scripts inline
+/// des gabarits seulement, jamais intégrables dans un cadre.
+pub const PAGE_CSP: &str = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; \
+                            img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+
 /// Réponse d'un protocole interne, indépendante de la crate `http`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Asset {
     pub status: u16,
     pub mime: &'static str,
     pub csp: Option<&'static str>,
-    pub body: &'static str,
+    pub body: Cow<'static, str>,
 }
 
 impl Asset {
     fn ok(mime: &'static str, body: &'static str) -> Self {
-        Self { status: 200, mime, csp: None, body }
+        Self { status: 200, mime, csp: None, body: Cow::Borrowed(body) }
     }
 
-    fn not_found() -> Self {
-        Self { status: 404, mime: "text/plain; charset=utf-8", csp: None, body: "Introuvable" }
+    /// Page interne rendue dynamiquement.
+    pub fn page(html: String) -> Self {
+        Self { status: 200, mime: "text/html; charset=utf-8", csp: Some(PAGE_CSP), body: Cow::Owned(html) }
+    }
+
+    pub fn not_found() -> Self {
+        Self { status: 404, mime: "text/plain; charset=utf-8", csp: None, body: Cow::Borrowed("Introuvable") }
     }
 }
 
-/// Protocole `nyx` : phase 1, toute page interne connue = Nouvel onglet (la
-/// navigation vers les autres est déjà redirigée par `nav::decide`).
-pub fn internal_page(host: &str, path: &str) -> Asset {
+/// Routage du protocole `nyx`.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Route {
+    /// Réponse immédiate (Nouvel onglet, 404).
+    Static(Asset),
+    /// Page lisant le coffre : rendue par l'app.
+    Dynamic(Page),
+}
+
+/// Protocole `nyx` : pages internes.
+pub fn internal_route(host: &str, path: &str) -> Route {
     if host != "localhost" {
-        return Asset::not_found();
+        return Route::Static(Asset::not_found());
     }
     match path.trim_end_matches('/') {
-        "" | "/newtab" => Asset::ok("text/html; charset=utf-8", NEWTAB.as_str()),
-        _ => Asset::not_found(),
+        "" | "/newtab" => Route::Static(Asset::ok("text/html; charset=utf-8", NEWTAB.as_str())),
+        "/settings" => Route::Dynamic(Page::Settings),
+        "/bookmarks" => Route::Dynamic(Page::Bookmarks),
+        "/history" => Route::Dynamic(Page::History),
+        _ => Route::Static(Asset::not_found()),
     }
 }
 
@@ -69,21 +94,19 @@ pub fn chrome_asset(host: &str, path: &str) -> Asset {
     asset
 }
 
-/// Adaptation wry : requête → réponse HTTP.
+/// Requête wry → (hôte, chemin) si GET, sinon `None` (405).
 #[cfg(windows)]
-pub fn respond(
-    route: fn(&str, &str) -> Asset,
-    request: &wry::http::Request<Vec<u8>>,
-) -> wry::http::Response<std::borrow::Cow<'static, [u8]>> {
-    use std::borrow::Cow;
-    use wry::http::{header, Method, Response};
-
+pub fn target(request: &wry::http::Request<Vec<u8>>) -> Option<(String, String)> {
     let uri = request.uri();
-    let asset = if request.method() == Method::GET {
-        route(uri.host().unwrap_or(""), uri.path())
-    } else {
-        Asset { status: 405, ..Asset::not_found() }
-    };
+    (request.method() == wry::http::Method::GET)
+        .then(|| (uri.host().unwrap_or("").to_string(), uri.path().to_string()))
+}
+
+/// Adaptation wry : `Asset` → réponse HTTP.
+#[cfg(windows)]
+pub fn to_response(asset: Asset) -> wry::http::Response<Cow<'static, [u8]>> {
+    use wry::http::{header, Response};
+
     let mut builder = Response::builder()
         .status(asset.status)
         .header(header::CONTENT_TYPE, asset.mime)
@@ -92,25 +115,51 @@ pub fn respond(
     if let Some(csp) = asset.csp {
         builder = builder.header(header::CONTENT_SECURITY_POLICY, csp);
     }
-    let body = Cow::Borrowed(asset.body.as_bytes());
+    let body: Cow<'static, [u8]> = match asset.body {
+        Cow::Borrowed(s) => Cow::Borrowed(s.as_bytes()),
+        Cow::Owned(s) => Cow::Owned(s.into_bytes()),
+    };
     builder.body(body).unwrap_or_else(|_| Response::new(Cow::Borrowed(&[][..])))
+}
+
+/// Réponse 405 (méthode autre que GET).
+#[cfg(windows)]
+pub fn method_not_allowed() -> Asset {
+    Asset { status: 405, ..Asset::not_found() }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    fn body(route: Route) -> Asset {
+        match route {
+            Route::Static(a) => a,
+            Route::Dynamic(p) => panic!("dynamique : {p:?}"),
+        }
+    }
+
     #[test]
     fn newtab_routes() {
         for path in ["/", "", "/newtab", "/newtab/"] {
-            let a = internal_page("localhost", path);
+            let a = body(internal_route("localhost", path));
             assert_eq!(a.status, 200, "{path}");
             assert!(a.body.contains("--nyx-aurora"), "palette injectée");
             assert!(!a.body.contains("{{TOKENS}}"));
         }
-        assert_eq!(internal_page("localhost", "/settings").status, 404);
-        assert_eq!(internal_page("evil.com", "/newtab").status, 404);
-        assert_eq!(internal_page("localhost", "/../../etc/passwd").status, 404);
+        assert_eq!(body(internal_route("evil.com", "/newtab")).status, 404);
+        assert_eq!(body(internal_route("localhost", "/../../etc/passwd")).status, 404);
+        assert_eq!(body(internal_route("localhost", "/history/clear")).status, 404, "action ≠ page");
+    }
+
+    #[test]
+    fn dynamic_routes() {
+        assert_eq!(internal_route("localhost", "/settings"), Route::Dynamic(Page::Settings));
+        assert_eq!(internal_route("localhost", "/bookmarks/"), Route::Dynamic(Page::Bookmarks));
+        assert_eq!(internal_route("localhost", "/history"), Route::Dynamic(Page::History));
+        assert_eq!(body(internal_route("localhost.evil", "/settings")).status, 404);
+        let page = Asset::page("<p>x</p>".into());
+        assert!(page.csp.is_some_and(|c| c.contains("default-src 'none'") && c.contains("frame-ancestors 'none'")));
     }
 
     #[test]

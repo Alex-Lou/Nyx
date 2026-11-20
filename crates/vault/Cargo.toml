@@ -9,9 +9,17 @@ serde      = { workspace = true }
 serde_json = { workspace = true }
 chrono     = { workspace = true }
 
-# rusqlite avec le feature "sqlcipher" utilise SQLCipher pour le chiffrement AES-256
-# Requiert libsqlcipher-dev installé sur le système
+# SQLCipher (AES-256) — deux montages selon la plateforme, même API :
+# • Linux/Android/macOS : `sqlcipher`, lié à la libsqlcipher du système
+#   (libsqlcipher-dev) ;
+# • Windows (MSVC, et GNU pour le contrôle croisé) : SQLCipher compilé depuis
+#   les sources + OpenSSL vendu (openssl-src : Perl requis, Strawberry Perl
+#   sur windows-latest). Aucun DLL externe à livrer avec Nyx.exe.
+[target.'cfg(not(windows))'.dependencies]
 rusqlite = { version = "0.31", features = ["sqlcipher"] }
+
+[target.'cfg(windows)'.dependencies]
+rusqlite = { version = "0.31", features = ["bundled-sqlcipher-vendored-openssl"] }
 
 [lints]
 workspace = true

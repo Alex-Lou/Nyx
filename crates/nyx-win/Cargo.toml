@@ -12,6 +12,11 @@ path = "src/main.rs"
 # raccourcis) : compilés et testés sur toutes les plateformes.
 [dependencies]
 nyx-core   = { path = "../nyx-core" }
+# Coffre SQLCipher (mots de passe, favoris, historique, réglages). Sous
+# Windows : SQLCipher + OpenSSL compilés (cf. crates/vault/Cargo.toml).
+vault      = { path = "../vault" }
+anyhow     = { workspace = true }
+chrono     = { workspace = true }
 serde      = { workspace = true }
 serde_json = { workspace = true }
 

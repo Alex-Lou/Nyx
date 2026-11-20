@@ -138,7 +138,8 @@ fn wire_policy_filter(
                 }
                 false
             }
-            Verdict::Block | Verdict::BlockFileAccess => {
+            // Import de la capsule WSL : propre à Windows natif.
+            Verdict::Block | Verdict::BlockFileAccess | Verdict::ImportCapsule => {
                 decision.ignore();
                 true
             }
@@ -213,17 +214,7 @@ fn page_is_internal(wv: &WebView) -> bool {
 /// Parse `nyx://move?idx=N&to=Folder` et applique le déplacement.
 /// Folder est urldecoded (+ → espace, %xx → octet).
 fn apply_move(url: &str, bm: &Bookmarks) {
-    let Some(query) = url.split_once('?').map(|x| x.1) else { return };
-    let (mut idx, mut to) = (None::<usize>, String::new());
-    for pair in query.split('&') {
-        let (k, v) = pair.split_once('=').unwrap_or((pair, ""));
-        match k {
-            "idx" => idx = v.parse().ok(),
-            "to"  => to = nyx_core::url::form_decode(v),
-            _ => {}
-        }
-    }
-    if let Some(i) = idx {
+    if let Some((i, to)) = bookmarks::parse_move(url) {
         bookmarks::move_to(bm, i, to);
     }
 }

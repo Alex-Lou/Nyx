@@ -83,6 +83,16 @@ body::before {
     const sink = document.getElementById('sink');
     let dragging = null;
 
+    // Action interne : WebView2 (Windows) → canal natif ; WebKitGTK → iframe
+    // puits (décision de navigation). Nyx revalide l'origine dans les deux cas.
+    function nyxAction(u) {
+        if (window.chrome && window.chrome.webview) {
+            window.chrome.webview.postMessage(JSON.stringify({ nyx: 'action', url: u }));
+        } else {
+            sink.src = u;
+        }
+    }
+
     document.querySelectorAll('.item').forEach(el => {
         el.setAttribute('draggable', 'true');
         el.addEventListener('dragstart', e => {
@@ -113,7 +123,7 @@ body::before {
             const idx = dragging.dataset.idx;
             const folder = zone.dataset.folder || '';
             if (dragging.dataset.folder !== folder) {
-                sink.src = 'nyx://move?idx=' + idx + '&to=' + encodeURIComponent(folder);
+                nyxAction('nyx://move?idx=' + idx + '&to=' + encodeURIComponent(folder));
                 setTimeout(() => location.reload(), 80);
             }
         });

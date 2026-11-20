@@ -20,6 +20,18 @@ pub fn push(conn: &Connection, url: &str, title: &str) -> Result<()> {
     Ok(())
 }
 
+/// Met à jour le titre de la visite la plus récente de `url` (le titre d'un
+/// document arrive souvent après la fin du chargement). Retourne `true` si
+/// une ligne a changé.
+pub fn retitle(conn: &Connection, url: &str, title: &str) -> Result<bool> {
+    let n = conn.execute(
+        "UPDATE history SET title = ?2
+         WHERE id = (SELECT max(id) FROM history WHERE url = ?1) AND title <> ?2",
+        params![url, title],
+    )?;
+    Ok(n > 0)
+}
+
 /// Import en bloc `(url, titre, secondes Unix)` : une transaction, sans
 /// doublon exact (url + date) pour qu'un ré-import soit idempotent, puis
 /// même plafond que `push` — en gardant les plus récentes par date.

@@ -3,7 +3,8 @@
 #
 #   powershell -ExecutionPolicy Bypass -File windows\nyx-native.ps1
 #
-# Prerequis : Rust (toolchain MSVC) + Visual Studio Build Tools "Desktop C++".
+# Prerequis : Rust (toolchain MSVC) + Visual Studio Build Tools "Desktop C++"
+# + Strawberry Perl (compilation du coffre SQLCipher/OpenSSL).
 # Fichier volontairement en ASCII : Windows PowerShell 5.1 lit mal l'UTF-8 sans BOM.
 
 $ErrorActionPreference = 'Stop'
@@ -17,6 +18,18 @@ $Target   = if ($env:CARGO_TARGET_DIR) { $env:CARGO_TARGET_DIR } else { Join-Pat
 if (-not (Get-Command cargo -ErrorAction SilentlyContinue)) {
     throw "Rust est absent. Installe rustup (toolchain MSVC) depuis https://rustup.rs puis relance."
 }
+
+# Coffre : SQLCipher + OpenSSL compiles depuis les sources. OpenSSL exige un
+# Perl Windows (Strawberry Perl), pas celui de Git Bash ; sans NASM (no-asm).
+if (-not $env:OPENSSL_SRC_PERL) {
+    $Strawberry = 'C:\Strawberry\perl\bin\perl.exe'
+    if (Test-Path $Strawberry) {
+        $env:OPENSSL_SRC_PERL = $Strawberry
+    } else {
+        throw "Strawberry Perl est requis pour compiler le coffre : winget install StrawberryPerl.StrawberryPerl puis relance."
+    }
+}
+if (-not $env:OPENSSL_RUST_USE_NASM) { $env:OPENSSL_RUST_USE_NASM = '0' }
 
 Write-Host '-> Compilation de Nyx natif (release, quelques minutes la 1re fois)...'
 Push-Location $Repo

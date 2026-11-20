@@ -6,6 +6,7 @@ on:
     paths:
       - "crates/nyx-win/**"
       - "crates/nyx-core/**"
+      - "crates/vault/**"
       - "assets/**"
       - "Cargo.toml"
       - ".github/workflows/windows.yml"
@@ -22,6 +23,13 @@ jobs:
     timeout-minutes: 45
     env:
       CARGO_TERM_COLOR: always
+      # Coffre : SQLCipher compilé + OpenSSL vendu (openssl-src). Le Perl de
+      # Git Bash (msys) casse le Configure d'OpenSSL pour MSVC : on impose
+      # Strawberry Perl (préinstallé sur windows-latest). Pas de NASM :
+      # OpenSSL en `no-asm` (build déterministe ; AES en C portable, plus
+      # lent que l'assembleur mais très suffisant pour une base locale).
+      OPENSSL_SRC_PERL: C:\Strawberry\perl\bin\perl.exe
+      OPENSSL_RUST_USE_NASM: "0"
     defaults:
       run:
         shell: bash
@@ -58,8 +66,8 @@ jobs:
 
       # Qualité APRÈS l'artefact : un nouveau lint ne bloque jamais Nyx.exe,
       # mais fait quand même échouer le job.
-      - name: Tests (logique pure)
-        run: cargo test -p nyx-win
+      - name: Tests (logique pure + coffre)
+        run: cargo test -p nyx-win -p vault
 
       - name: Clippy
         run: cargo clippy -p nyx-win --all-targets -- -D warnings

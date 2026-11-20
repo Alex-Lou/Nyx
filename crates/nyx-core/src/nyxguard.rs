@@ -37,6 +37,9 @@ impl NyxGuard {
 
     pub fn set_enabled(&self, v: bool)        { self.ads_on.store(v, Ordering::Relaxed); }
     pub fn set_block_accounts(&self, v: bool) { self.accounts_on.store(v, Ordering::Relaxed); }
+    /// Blocage pub/traqueurs actif ? (les filtres complémentaires — EasyList —
+    /// suivent le même interrupteur).
+    pub fn is_enabled(&self) -> bool          { self.ads_on.load(Ordering::Relaxed) }
 
     pub fn should_block(&self, url: &str) -> bool {
         let host = host_of(url).unwrap_or_default();

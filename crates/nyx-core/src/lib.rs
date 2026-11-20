@@ -13,6 +13,7 @@ pub mod import;
 pub mod magic_bytes;
 pub mod mode;
 pub mod nyxguard;
+pub mod pages;
 pub mod permissions;
 pub mod sec_log;
 pub mod security;

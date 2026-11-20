@@ -21,9 +21,43 @@
     <input id="url" type="text" spellcheck="false" maxlength="8000"
            placeholder="Rechercher ou saisir une adresse" aria-label="Barre d'adresse">
   </form>
+  <button id="star" class="btn" title="Ajouter aux favoris" aria-label="Favori" aria-pressed="false" disabled>&#x2606;</button>
+  <button class="btn" data-open="nyx://bookmarks" title="Favoris" aria-label="Favoris">&#x2261;</button>
+  <button class="btn" data-open="nyx://history" title="Historique" aria-label="Historique">&#x231B;</button>
   <button id="downloads" class="btn" title="Téléchargements" aria-label="Téléchargements">&#x2913;</button>
+  <button class="btn" data-open="nyx://settings" title="Paramètres" aria-label="Paramètres">&#x2699;</button>
 </header>
+<div id="prompt" role="alertdialog" aria-live="polite" hidden>
+  <span id="prompt-text"></span>
+  <button id="prompt-yes" class="pill primary">Oui</button>
+  <button id="prompt-no" class="pill">Non</button>
+</div>
 <div id="progress" aria-hidden="true"></div>
 <div id="toast" role="status" aria-live="polite"></div>
+
+<!-- Coffre : déverrouillage / création / import de la capsule. -->
+<section id="lock" hidden>
+  <form id="lock-form" class="card" autocomplete="off">
+    <svg class="moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M13.5 4.6a7.5 7.5 0 1 0 5.9 12.1A7 7 0 0 1 13.5 4.6z"/></svg>
+    <h1 id="lock-title"></h1>
+    <p id="lock-sub" class="sub"></p>
+    <input id="pass" type="password" class="field" autocomplete="off" spellcheck="false" maxlength="1024">
+    <input id="confirm" type="password" class="field" autocomplete="off" spellcheck="false" maxlength="1024"
+           placeholder="Confirme la passphrase">
+    <div id="capsule" class="capsule">
+      <label id="capsule-opt" class="check"><input id="capsule-import" type="checkbox">
+        <span>Importer depuis la capsule Nyx (Linux)</span></label>
+      <input id="capsule-pass" type="password" class="field" autocomplete="off" spellcheck="false" maxlength="1024">
+      <p id="capsule-msg" class="sub small"></p>
+      <code id="capsule-cmd"></code>
+      <button id="capsule-retry" type="button" class="pill">Réessayer</button>
+    </div>
+    <p id="lock-error" class="error" role="alert"></p>
+    <div class="actions">
+      <button id="lock-cancel" type="button" class="pill">Quitter</button>
+      <button id="lock-ok" type="submit" class="pill primary"></button>
+    </div>
+  </form>
+</section>
 </body>
 </html>
