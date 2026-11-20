@@ -8,7 +8,9 @@ on:
       - "VERSION"
       - "crates/nyx-core/**"
       - "crates/nyx-ffi/**"
+      - "crates/vault/**"
       - "assets/newtab.html"
+      - "assets/password_capture.js"
       - "assets/filterlists/**"
       - ".github/workflows/android.yml"
   workflow_dispatch:
@@ -58,6 +60,12 @@ jobs:
           # NDK préinstallé sur les runners ubuntu-latest.
           export ANDROID_NDK_HOME="$ANDROID_NDK_LATEST_HOME"
           echo "NDK : $ANDROID_NDK_HOME"
+          # Coffre : SQLCipher + OpenSSL vendu (openssl-src, Configure en Perl,
+          # présent sur ubuntu-latest). cargo-ndk exporte CC_/AR_<cible> ; on
+          # ajoute la chaîne LLVM du NDK au PATH pour que `cc` trouve aussi
+          # llvm-ranlib (les binutils GNU n'existent plus depuis NDK r23).
+          export PATH="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH"
+          command -v llvm-ranlib && command -v perl
           cargo ndk \
             --target arm64-v8a --target x86_64 \
             --platform 26 \

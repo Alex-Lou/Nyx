@@ -12,15 +12,17 @@ chrono     = { workspace = true }
 getrandom  = "0.2"
 
 # SQLCipher (AES-256) — deux montages selon la plateforme, même API :
-# • Linux/Android/macOS : `sqlcipher`, lié à la libsqlcipher du système
+# • Linux/macOS : `sqlcipher`, lié à la libsqlcipher du système
 #   (libsqlcipher-dev) ;
-# • Windows (MSVC, et GNU pour le contrôle croisé) : SQLCipher compilé depuis
-#   les sources + OpenSSL vendu (openssl-src : Perl requis, Strawberry Perl
-#   sur windows-latest). Aucun DLL externe à livrer avec Nyx.exe.
-[target.'cfg(not(windows))'.dependencies]
+# • Windows (MSVC, et GNU pour le contrôle croisé) et Android : SQLCipher
+#   compilé depuis les sources + OpenSSL vendu (openssl-src : Perl requis,
+#   Strawberry Perl sur windows-latest ; pour Android, cargo-ndk exporte le
+#   clang/llvm-ar du NDK). Aucune bibliothèque externe à livrer : ni DLL avec
+#   Nyx.exe, ni .so en plus de libnyx_ffi.so dans l'APK.
+[target.'cfg(not(any(windows, target_os = "android")))'.dependencies]
 rusqlite = { version = "0.31", features = ["sqlcipher"] }
 
-[target.'cfg(windows)'.dependencies]
+[target.'cfg(any(windows, target_os = "android"))'.dependencies]
 rusqlite = { version = "0.31", features = ["bundled-sqlcipher-vendored-openssl"] }
 
 [lints]
