@@ -38,6 +38,11 @@ pub enum Verdict {
     /// passphrase ne transite par l'URL : elle est saisie dans l'UI native
     /// (dialogue GTK, panneau du chrome Windows). Interne uniquement.
     MasterPassword(MasterOp),
+    /// Annuler la navigation et agir sur les appareils liés
+    /// (`nyx://devices/pair|sync|rename?name=…|revoke?id=…`, Windows) :
+    /// appairage, synchronisation, renommage, révocation (confirmée dans
+    /// l'UI native). Interne uniquement ; la coquille analyse le reste.
+    Devices,
     /// Annuler la navigation et charger une page interne.
     Load(Page),
 }
@@ -108,6 +113,12 @@ pub fn decide(url: &str, page_internal: bool, guard: &NyxGuard) -> Verdict {
             if op.starts_with("set") { return Verdict::MasterPassword(MasterOp::Set); }
             if op.starts_with("remove") { return Verdict::MasterPassword(MasterOp::Remove); }
             return Verdict::Block;
+        }
+        if rest.starts_with("devices/") {
+            return if page_internal { Verdict::Devices } else {
+                sec_log::emit(Level::Block, &format!("nyx://devices from remote page: {}", sec_log::redact_url(url)));
+                Verdict::Block
+            };
         }
         if rest.starts_with("settings")  { return Verdict::Load(Page::Settings); }
         if rest.starts_with("bookmarks") { return Verdict::Load(Page::Bookmarks); }
@@ -218,5 +229,15 @@ mod tests {
             assert_eq!(decide(op, false, &guard()), Verdict::Block, "{op}");
         }
         assert!(decide("Nyx://import/capsule?x=1", false, &guard()).is_block());
+    }
+
+    #[test]
+    fn devices_internal_only() {
+        for op in ["nyx://devices/pair", "nyx://devices/revoke?id=ab", "nyx://devices/rename?name=x"] {
+            assert_eq!(decide(op, true, &guard()), Verdict::Devices, "{op}");
+            assert_eq!(decide(op, false, &guard()), Verdict::Block, "{op}");
+        }
+        // « nyx://devices » sans action : pas une action (page inconnue).
+        assert_eq!(decide("nyx://devices", true, &guard()), Verdict::Load(Page::NewTab));
     }
 }

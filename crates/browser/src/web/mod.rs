@@ -142,8 +142,9 @@ fn wire_policy_filter(
                 }
                 false
             }
-            // Import de la capsule WSL : propre à Windows natif.
-            Verdict::Block | Verdict::BlockFileAccess | Verdict::ImportCapsule => {
+            // Import de la capsule WSL et appareils liés : propres à Windows
+            // natif (le desktop GTK n'a pas encore de synchronisation).
+            Verdict::Block | Verdict::BlockFileAccess | Verdict::ImportCapsule | Verdict::Devices => {
                 decision.ignore();
                 true
             }
