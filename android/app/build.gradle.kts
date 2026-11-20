@@ -80,4 +80,8 @@ dependencies {
     // « Afficher » / « Copier » un mot de passe : verrouillage de l'appareil
     // (biométrie ou code) via BiometricPrompt. 1.1.0 = dernière stable.
     implementation("androidx.biometric:biometric:1.1.0")
+    // Appareils liés : scan du QR d'appairage. Lecteur ZXing embarqué
+    // (caméra via l'API Android, aucun Google Play Services, aucun réseau).
+    // 4.3.0 = dernière stable ; tire com.google.zxing:core 3.4.1.
+    implementation("com.journeyapps:zxing-android-embedded:4.3.0")
 }

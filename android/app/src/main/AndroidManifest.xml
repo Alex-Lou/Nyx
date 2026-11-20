@@ -1,13 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Appareils liés : Wi-Fi actif ? (ConnectivityManager) et réception des
+         annonces mDNS du PC (WifiManager.MulticastLock, pendant la
+         découverte seulement). Aucune n'est « dangereuse ». -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
     <!-- Téléchargements vers Download/ : inutile à partir d'Android 10 (API 29). -->
     <uses-permission
         android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="28" />
     <!-- Demandées à la volée, après accord explicite pour chaque site (visio,
-         cartes). Aucune n'est accordée automatiquement. -->
+         cartes) ; la caméra sert aussi au scan du QR d'appairage (Appareils
+         liés). Aucune n'est accordée automatiquement. -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
@@ -60,5 +67,17 @@
             android:exported="false"
             android:theme="@style/Theme.Nyx"
             android:windowSoftInputMode="adjustResize" />
+        <activity
+            android:name=".DevicesActivity"
+            android:exported="false"
+            android:theme="@style/Theme.Nyx"
+            android:windowSoftInputMode="adjustResize" />
+
+        <!-- Scanner QR (zxing-android-embedded) : portrait autorisé (la
+             bibliothèque impose le paysage par défaut). -->
+        <activity
+            android:name="com.journeyapps.barcodescanner.CaptureActivity"
+            android:screenOrientation="fullSensor"
+            tools:replace="screenOrientation" />
     </application>
 </manifest>

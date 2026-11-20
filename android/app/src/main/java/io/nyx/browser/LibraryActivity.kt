@@ -109,12 +109,17 @@ class LibraryActivity : AppCompatActivity() {
         setContentView(root)
     }
 
+    /** Données reçues d'un autre appareil : liste relue. */
+    private val onSynced: (SyncRepo.Last) -> Unit = { if (it.changed) render() }
+
     override fun onStart() {
         super.onStart()
+        SyncRepo.addListener(onSynced)
         render()
     }
 
     override fun onStop() {
+        SyncRepo.removeListener(onSynced)
         // Plus rien de révélé quand l'écran n'est plus visible.
         revealed.clear()
         super.onStop()

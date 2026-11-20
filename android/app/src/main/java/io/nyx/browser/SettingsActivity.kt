@@ -1,5 +1,6 @@
 package io.nyx.browser
 
+import android.content.Intent
 import android.os.Bundle
 import android.view.View
 import android.view.ViewGroup
@@ -17,7 +18,8 @@ import androidx.appcompat.widget.SwitchCompat
 /**
  * Réglages Android, persistés dans le coffre (clé `app_settings`, même
  * format que Windows et le desktop) : moteur de recherche, page d'accueil,
- * bloqueur, enregistrement des mots de passe, mot de passe principal.
+ * bloqueur, enregistrement des mots de passe, mot de passe principal,
+ * accès aux appareils liés ([DevicesActivity]).
  * Chaque changement est enregistré aussitôt ; Rust l'applique à la barre
  * d'adresse et au bloqueur.
  */
@@ -44,9 +46,18 @@ class SettingsActivity : AppCompatActivity() {
         build()
     }
 
+    /** Réglages reçus d'un autre appareil : écran relu. */
+    private val onSynced: (SyncRepo.Last) -> Unit = { if (it.changed) refresh() }
+
     override fun onStart() {
         super.onStart()
+        SyncRepo.addListener(onSynced)
         refresh()
+    }
+
+    override fun onStop() {
+        SyncRepo.removeListener(onSynced)
+        super.onStop()
     }
 
     override fun onPause() {
@@ -108,9 +119,17 @@ class SettingsActivity : AppCompatActivity() {
 
         content.addView(NyxUi.section(this, getString(R.string.settings_sync)))
         content.addView(NyxUi.row(this).apply {
-            alpha = 0.5f
+            isClickable = true
+            isFocusable = true
+            setOnClickListener {
+                startActivity(Intent(this@SettingsActivity, DevicesActivity::class.java))
+            }
             addView(
-                NyxUi.twoLines(this@SettingsActivity, getString(R.string.settings_linked_devices), ""),
+                NyxUi.twoLines(
+                    this@SettingsActivity,
+                    getString(R.string.settings_linked_devices),
+                    getString(R.string.settings_linked_devices_desc),
+                ),
                 LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f),
             )
         })

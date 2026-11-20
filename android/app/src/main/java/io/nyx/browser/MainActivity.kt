@@ -174,7 +174,11 @@ class MainActivity : AppCompatActivity() {
         openTab(viewIntentUrl(intent))
         // Coffre : ouverture silencieuse (clé d'appareil), sinon bienvenue
         // ou mot de passe principal. La navigation n'attend pas.
-        VaultDialogs.start(this) { current?.let { capture.onPageFinished(it.webView, it.pageUrl) } }
+        VaultDialogs.start(this) {
+            current?.let { capture.onPageFinished(it.webView, it.pageUrl) }
+            // Appareils liés : synchronisation à l'ouverture (Wi-Fi seulement).
+            SyncRepo.autoSync(this)
+        }
     }
 
     // ── Splash ─────────────────────────────────────────────────────────────
@@ -1012,6 +1016,8 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         current?.webView?.onResume()
+        // Retour dans l'app : synchronisation (Wi-Fi, appareil lié, ≤ 1/min).
+        SyncRepo.autoSync(this)
     }
 
     override fun onPause() {

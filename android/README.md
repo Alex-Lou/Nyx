@@ -8,8 +8,9 @@ coffre chiffré `vault` via la petite crate JNI `crates/nyx-ffi`.
 avec le moteur choisi), page « Nouvel onglet » Nyx avec ses ambiances,
 thème sombre, splash animé, blocage publicitaire NyxGuard (EasyList +
 EasyPrivacy), et le **coffre chiffré** (favoris, historique, mots de
-passe, réglages) au même comportement que sur PC. La synchronisation avec
-le PC arrivera plus tard (« Appareils liés (bientôt) » dans les réglages).
+passe, réglages) au même comportement que sur PC, et les **appareils
+liés** : synchronisation chiffrée de bout en bout avec Nyx Windows sur le
+même Wi-Fi (Réglages › Appareils liés ; guide : `docs/sync.md`).
 
 **Usage quotidien** :
 
@@ -76,6 +77,12 @@ Fonctions du coffre :
 - **Réglages** : moteur de recherche (DuckDuckGo, Brave, Ecosia), page
   d'accueil des nouveaux onglets, bloqueur on/off, enregistrement des
   mots de passe on/off — stockés dans le coffre au même format que le PC.
+- **Appareils liés** : nom du téléphone, appareils du profil (Retirer),
+  « Associer à un ordinateur » (scan du QR affiché par Nyx Windows —
+  lecteur ZXing embarqué, sans Google Play Services — ou « Saisir le
+  code »), comparaison du code à 6 chiffres, « Synchroniser maintenant ».
+  Synchronisation automatique à l'ouverture et au retour dans l'app quand
+  le téléphone est sur Wi-Fi ; aucun service en arrière-plan.
 
 Android n'a pas encore de navigation privée : quand elle arrivera, ni
 historique, ni capture, ni pré-remplissage (déjà prévu côté Rust).
@@ -135,8 +142,9 @@ par chaque push sur `develop` qui touche `android/`, `crates/nyx-core/`,
 |---|---|
 | `crates/nyx-core` | Logique pure partagée avec le desktop : résolution de la barre d'adresse, règles NyxGuard, moteur EasyList (`adfilter`), palette des pages (`theme`). |
 | `crates/vault` | Coffre SQLCipher partagé avec le PC (schéma, clés, rechiffrement). |
-| `crates/nyx-ffi` | Pont JNI mince (`io.nyx.browser.NyxCore`, `io.nyx.browser.NyxVault`) : helpers purs testés sur l'hôte (`vault_api`) + marshalling. État global en `OnceLock` / `Mutex`, sûr entre threads ; listes en JSON. |
-| `android/app` | Interface Kotlin : `MainActivity` (onglets, barre, menu, retour, téléchargements, fichiers, plein écran, permissions, recherche), `NewTabPage` (page servie par `WebViewAssetLoader` sur `https://appassets.androidplatform.net/`), `NyxApp` (chargement des listes en arrière-plan), `VaultRepo` + `KeyStoreWrap` (coffre, clé d'appareil), `VaultDialogs` (bienvenue, déverrouillage, mot de passe principal), `PasswordCapture` (capture, pré-remplissage), `LibraryActivity` (Favoris / Historique / Mots de passe), `SettingsActivity`. |
+| `crates/nyx-sync` | Appairage QR (Noise XXpsk3) et synchronisation LAN (Noise KK, mDNS) partagés avec le PC. |
+| `crates/nyx-ffi` | Pont JNI mince (`io.nyx.browser.NyxCore`, `io.nyx.browser.NyxVault`, `io.nyx.browser.NyxSync`) : helpers purs testés sur l'hôte (`vault_api`, `sync_api`) + marshalling. État global en `OnceLock` / `Mutex`, sûr entre threads ; listes en JSON. |
+| `android/app` | Interface Kotlin : `MainActivity` (onglets, barre, menu, retour, téléchargements, fichiers, plein écran, permissions, recherche), `NewTabPage` (page servie par `WebViewAssetLoader` sur `https://appassets.androidplatform.net/`), `NyxApp` (chargement des listes en arrière-plan), `VaultRepo` + `KeyStoreWrap` (coffre, clé d'appareil), `VaultDialogs` (bienvenue, déverrouillage, mot de passe principal), `PasswordCapture` (capture, pré-remplissage), `LibraryActivity` (Favoris / Historique / Mots de passe), `SettingsActivity`, `NyxSync` + `SyncRepo` + `DevicesActivity` (appareils liés). |
 
 Les fichiers `assets/newtab.html`, `assets/password_capture.js` et
 `assets/filterlists/*.txt.gz` du dépôt
