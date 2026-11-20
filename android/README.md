@@ -10,6 +10,23 @@ ambiances, thème sombre, splash animé, blocage publicitaire NyxGuard
 (EasyList + EasyPrivacy). Le coffre-fort de mots de passe et la
 synchronisation avec le PC arriveront dans les phases suivantes.
 
+**Usage quotidien** :
+
+- **Téléchargements** : confiés au gestionnaire de téléchargements
+  d'Android (dossier *Téléchargements*, notification à la fin), avec les
+  cookies et l'User-Agent de la page. Le nom du fichier est assaini par
+  `nyx_core::download_policy` (export JNI `sanitizeFilename`). Liens
+  `blob:` / `data:` pas encore pris en charge. Android 8–9 : la permission
+  de stockage est demandée au premier téléchargement.
+- **Envoi de fichiers** (`<input type=file>`, sélection multiple).
+- **Vidéos plein écran** : barres système masquées, paysage autorisé,
+  le bouton retour quitte d'abord le plein écran.
+- **Caméra, micro, position, DRM** : toujours un dialogue « *site* veut
+  utiliser… » puis, si besoin, la permission Android. Seules les origines
+  https sont éligibles ; l'accord DRM est mémorisé pour la session, les
+  autres valent pour une seule demande.
+- **Rechercher dans la page** : appui long sur le compteur d'onglets.
+
 ## Installer l'APK sur son téléphone
 
 1. Sur GitHub, ouvrir l'onglet **Actions** du dépôt, puis le workflow
@@ -61,7 +78,7 @@ par chaque push sur `develop` qui touche `android/`, `crates/nyx-core/`,
 |---|---|
 | `crates/nyx-core` | Logique pure partagée avec le desktop : résolution de la barre d'adresse, règles NyxGuard, moteur EasyList (`adfilter`), palette des pages (`theme`). |
 | `crates/nyx-ffi` | Pont JNI mince (`io.nyx.browser.NyxCore`) : aucune logique, que du marshalling. État global en `OnceLock`, sûr entre threads. |
-| `android/app` | Interface Kotlin : `MainActivity` (onglets, barre, retour), `NewTabPage` (page servie par `WebViewAssetLoader` sur `https://appassets.androidplatform.net/`), `NyxApp` (chargement des listes en arrière-plan). |
+| `android/app` | Interface Kotlin : `MainActivity` (onglets, barre, retour, téléchargements, fichiers, plein écran, permissions, recherche), `NewTabPage` (page servie par `WebViewAssetLoader` sur `https://appassets.androidplatform.net/`), `NyxApp` (chargement des listes en arrière-plan). |
 
 Les fichiers `assets/newtab.html` et `assets/filterlists/*.txt.gz` du dépôt
 sont empaquetés directement comme assets Android (pas de copie) : desktop
@@ -77,6 +94,10 @@ et mobile partagent la même source.
   confiés à Android après assainissement de l'intent.
 - Les sous-ressources (scripts, images, iframes…) sont filtrées par
   NyxGuard ; le document principal n'est jamais bloqué.
+- Permissions de site : aucune accordée automatiquement ; refus d'office
+  pour les origines non https et la page Nouvel onglet. Toute demande en
+  attente (permission, sélecteur de fichiers, plein écran) est soldée à la
+  fermeture de l'onglet.
 
 ### Compiler en local (optionnel)
 
