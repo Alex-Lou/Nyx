@@ -115,6 +115,9 @@ input:checked + .chip {
     opacity: 0; transform: translateY(-6px); transition: opacity .35s, transform .35s;
 }
 #saved.show { opacity: 1; transform: translateY(0); }
+.nyx-sig { margin: 32px 0 8px; text-align: center; font-size: 12px; letter-spacing: .08em; color: var(--nyx-dim); }
+.nyx-sig span { letter-spacing: .2em; background: linear-gradient(135deg, #fff, var(--nyx-star) 45%, var(--nyx-nebula));
+    -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
 </style>
 </head>
 <body>
@@ -238,6 +241,7 @@ input:checked + .chip {
             <button type="button" class="preset" id="import-chrome">Importer depuis Chrome</button>
         </div>
     </section>
+    <p class="nyx-sig">une nuit façonnée par <span>Cybwu</span></p>
 </div>
 
 <script>
