@@ -4,7 +4,7 @@
 #
 # 1. Telecharge adb (Google platform-tools) si absent.
 # 2. Cherche l'APK dans Telechargements ; sinon ouvre la page GitHub de la
-#    derniere compilation et attend que tu telecharges "nyx-android-debug".
+#    derniere compilation et attend que tu telecharges "nyx-android".
 # 3. Detecte le telephone et installe / met a jour Nyx.
 # Fichier volontairement en ASCII (Windows PowerShell 5.1).
 
@@ -30,10 +30,10 @@ function Install-Adb {
 function Find-Apk {
     $apk = Get-ChildItem $Downloads -Recurse -Depth 2 -Filter '*.apk' -ErrorAction SilentlyContinue |
         Where-Object { $_.FullName -match 'nyx' } | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-    $zip = Get-ChildItem $Downloads -Filter 'nyx-android-debug*.zip' -ErrorAction SilentlyContinue |
+    $zip = Get-ChildItem $Downloads -Filter 'nyx-android*.zip' -ErrorAction SilentlyContinue |
         Sort-Object LastWriteTime -Descending | Select-Object -First 1
     if ($zip -and (-not $apk -or $zip.LastWriteTime -gt $apk.LastWriteTime)) {
-        $dest = Join-Path $Downloads 'nyx-android-debug'
+        $dest = Join-Path $Downloads 'nyx-android'
         Expand-Archive $zip.FullName -DestinationPath $dest -Force
         $apk = Get-ChildItem $dest -Filter '*.apk' | Select-Object -First 1
     }
@@ -44,7 +44,7 @@ function Wait-Apk {
     $apk = Find-Apk
     if ($apk) { return $apk }
     Write-Host '-> APK introuvable. Ouverture de GitHub : clique la derniere compilation,'
-    Write-Host '   puis tout en bas "nyx-android-debug". J''attends le telechargement...'
+    Write-Host '   puis tout en bas "nyx-android". J''attends le telechargement...'
     Start-Process $Actions
     while (-not ($apk = Find-Apk)) { Start-Sleep -Seconds 2 }
     return $apk
@@ -88,8 +88,8 @@ if ($out -match 'INSTALL_FAILED_UPDATE_INCOMPATIBLE') {
 # Une fois sur le telephone, l'APK et son zip ne servent plus : on nettoie
 # (et la prochaine fois, le script ira chercher la nouvelle version).
 function Remove-Apk {
-    Remove-Item -Recurse -Force -ErrorAction SilentlyContinue (Join-Path $Downloads 'nyx-android-debug')
-    Get-ChildItem $Downloads -Filter 'nyx-android-debug*.zip' -ErrorAction SilentlyContinue | Remove-Item -Force
+    Remove-Item -Recurse -Force -ErrorAction SilentlyContinue (Join-Path $Downloads 'nyx-android')
+    Get-ChildItem $Downloads -Filter 'nyx-android*.zip' -ErrorAction SilentlyContinue | Remove-Item -Force
 }
 
 # Xiaomi & co bloquent l'installation par USB : on copie simplement l'APK

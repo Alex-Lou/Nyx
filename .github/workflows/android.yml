@@ -5,6 +5,7 @@ on:
     branches: [develop]
     paths:
       - "android/**"
+      - "VERSION"
       - "crates/nyx-core/**"
       - "crates/nyx-ffi/**"
       - "assets/newtab.html"
@@ -67,20 +68,36 @@ jobs:
       - name: Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: assembleDebug
+      # Clé permanente présente → APK release signé (mises à jour par-dessus).
+      # Sinon → APK debug (clé jetable : désinstaller avant chaque mise à jour).
+      - name: APK
         working-directory: android
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+          NYX_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
         run: |
           chmod +x gradlew
-          ./gradlew --no-daemon assembleDebug
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/nyx.p12"
+            export NYX_KEYSTORE="$RUNNER_TEMP/nyx.p12"
+            # Alias de la clé privée (celui choisi par Windows à l'export).
+            export NYX_KEY_ALIAS="$(keytool -list -keystore "$NYX_KEYSTORE" -storetype pkcs12 \
+              -storepass "$NYX_KEYSTORE_PASSWORD" | grep -i PrivateKeyEntry | head -n1 | cut -d, -f1)"
+            [ -n "$NYX_KEY_ALIAS" ] || { echo "Clé introuvable dans le keystore"; exit 1; }
+            ./gradlew --no-daemon assembleRelease
+            cp app/build/outputs/apk/release/app-release.apk "$RUNNER_TEMP/Nyx.apk"
+            rm -f "$RUNNER_TEMP/nyx.p12"
+          else
+            ./gradlew --no-daemon assembleDebug
+            cp "$(ls app/build/outputs/apk/debug/*.apk | head -n1)" "$RUNNER_TEMP/Nyx.apk"
+          fi
 
       - name: Vérifier la présence de la lib native dans l'APK
-        run: |
-          APK=$(ls android/app/build/outputs/apk/debug/*.apk | head -n1)
-          unzip -l "$APK" | grep -E 'lib/(arm64-v8a|x86_64)/libnyx_ffi.so'
+        run: unzip -l "$RUNNER_TEMP/Nyx.apk" | grep -E 'lib/(arm64-v8a|x86_64)/libnyx_ffi.so'
 
       - uses: actions/upload-artifact@v4
         with:
-          name: nyx-android-debug
-          path: android/app/build/outputs/apk/debug/*.apk
+          name: nyx-android
+          path: ${{ runner.temp }}/Nyx.apk
           if-no-files-found: error
           retention-days: 30

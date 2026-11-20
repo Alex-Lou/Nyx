@@ -3,6 +3,19 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+// Version unique, lue dans le fichier VERSION du dépôt (« v1.2.3 »).
+// versionCode = 1*10000 + 2*100 + 3 → toujours croissant, mises à jour OK.
+val nyxVersion = rootProject.file("../VERSION").takeIf { it.exists() }
+    ?.readText()?.trim()?.removePrefix("v") ?: "0.1.0"
+val nyxVersionCode = nyxVersion.split(".").map { it.toIntOrNull() ?: 0 }
+    .let { (it.getOrElse(0) { 0 } * 10000) + (it.getOrElse(1) { 0 } * 100) + it.getOrElse(2) { 0 } }
+    .coerceAtLeast(1)
+
+// Clé de signature permanente (CI) : fournie par variables d'environnement,
+// jamais dans le dépôt. Absente → APK release non signé (la CI fait alors
+// un debug, cf. android.yml).
+val nyxKeystore = System.getenv("NYX_KEYSTORE")?.let { file(it) }?.takeIf { it.exists() }
+
 android {
     namespace = "io.nyx.browser"
     compileSdk = 35
@@ -11,8 +24,8 @@ android {
         applicationId = "io.nyx.browser"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = nyxVersionCode
+        versionName = nyxVersion
 
         // libnyx_ffi.so est produit par cargo-ndk dans src/main/jniLibs
         // (cf. .github/workflows/android.yml) pour ces deux ABI seulement.
@@ -21,9 +34,22 @@ android {
         }
     }
 
+    signingConfigs {
+        if (nyxKeystore != null) {
+            create("nyx") {
+                storeFile = nyxKeystore
+                storeType = "pkcs12"
+                storePassword = System.getenv("NYX_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("NYX_KEY_ALIAS")
+                keyPassword = System.getenv("NYX_KEYSTORE_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
+            if (nyxKeystore != null) signingConfig = signingConfigs.getByName("nyx")
         }
     }
 

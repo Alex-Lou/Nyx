@@ -23,6 +23,7 @@ jobs:
     uses: ./.github/workflows/windows.yml
   android:
     uses: ./.github/workflows/android.yml
+    secrets: inherit
 
   publish:
     name: Publier sur nyx-releases
@@ -45,7 +46,7 @@ jobs:
         run: |
           mkdir -p out
           cp dist/nyx-windows/Nyx.exe out/Nyx.exe
-          cp "$(ls dist/nyx-android-debug/*.apk | head -n1)" out/Nyx.apk
+          cp dist/nyx-android/Nyx.apk out/Nyx.apk
           (cd out && sha256sum Nyx.exe Nyx.apk > SHA256SUMS.txt)
           ls -l out
 
