@@ -2,6 +2,8 @@ use anyhow::{Context, Result};
 use rusqlite::Connection;
 use std::path::Path;
 
+use crate::key::Key;
+
 /// v1 : schéma de base historique (sans `bookmarks.folder` ni `settings`).
 const V1: &str = "
 CREATE TABLE IF NOT EXISTS bookmarks (
@@ -77,16 +79,40 @@ fn migrate(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
-pub fn open(path: &Path, passphrase: &str) -> Result<Connection> {
+/// Connexion chiffrée, clé posée et vérifiée (lecture forcée), sans
+/// pragmas d'optimisation ni migration.
+fn keyed(path: &Path, key: &Key) -> Result<Connection> {
     let conn = Connection::open(path)?;
 
     // SQLCipher: doit être le tout premier pragma avant toute opération
-    conn.pragma_update(None, "key", passphrase)?;
+    conn.pragma_update(None, "key", key.pragma_value().expose())?;
 
     // SQLCipher ne valide la clé qu'à la première lecture : on force une
-    // lecture immédiate pour échouer franchement si la passphrase est mauvaise.
+    // lecture immédiate pour échouer franchement si la clé est mauvaise.
     conn.query_row("SELECT count(*) FROM sqlite_master", [], |_| Ok(()))
-        .context("passphrase invalide ou fichier vault corrompu")?;
+        .context("clé invalide ou fichier vault corrompu")?;
+    Ok(conn)
+}
+
+/// `true` si le coffre EXISTANT à `path` s'ouvre avec `key` (ne crée rien).
+pub fn check_key(path: &Path, key: &Key) -> bool {
+    path.is_file() && keyed(path, key).is_ok()
+}
+
+/// Rechiffre tout le coffre avec `new` (`PRAGMA rekey`). Par prudence, le
+/// WAL est d'abord fusionné et le journal repassé en mode classique le temps
+/// de l'opération.
+pub fn rekey(conn: &Connection, new: &Key) -> Result<()> {
+    conn.query_row("PRAGMA journal_mode = DELETE", [], |_| Ok(()))?;
+    let result = conn.pragma_update(None, "rekey", new.pragma_value().expose());
+    let restored = conn.query_row("PRAGMA journal_mode = WAL", [], |_| Ok(()));
+    result.context("changement de clé du coffre")?;
+    restored?;
+    Ok(())
+}
+
+pub fn open(path: &Path, key: &Key) -> Result<Connection> {
+    let conn = keyed(path, key)?;
 
     // Optimisations standard SQLite
     conn.execute_batch("
