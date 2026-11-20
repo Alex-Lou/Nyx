@@ -69,7 +69,8 @@
             android:id="@+id/btn_tabs"
             android:layout_width="34dp"
             android:layout_height="32dp"
-            android:layout_marginHorizontal="8dp"
+            android:layout_marginStart="8dp"
+            android:layout_marginEnd="2dp"
             android:background="@drawable/tab_counter_bg"
             android:clickable="true"
             android:contentDescription="@string/cd_tabs"
@@ -78,6 +79,15 @@
             android:textColor="@color/nyx_star"
             android:textSize="13sp"
             android:textStyle="bold" />
+
+        <!-- Menu : favori, Favoris / Historique / Mots de passe, Réglages. -->
+        <ImageButton
+            android:id="@+id/btn_menu"
+            android:layout_width="36dp"
+            android:layout_height="46dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/cd_menu"
+            android:src="@drawable/ic_more" />
     </LinearLayout>
 
     <ProgressBar

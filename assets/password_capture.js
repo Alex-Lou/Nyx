@@ -1,6 +1,6 @@
 // Capture des soumissions de mots de passe — partagé desktop (WebKitGTK,
-// UserScript cadre principal) et Windows (WebView2, script d'initialisation
-// cadre principal). Écoute submit / clic / Entrée (SPA, login en deux temps)
+// UserScript cadre principal), Windows (WebView2, script d'initialisation
+// cadre principal) et Android (WebView, injecté en fin de chargement). Écoute submit / clic / Entrée (SPA, login en deux temps)
 // et poste {nyx:'password', username, password, host} à Nyx, qui valide
 // l'origine de l'émetteur puis demande Oui/Non avant tout enregistrement.
 (function () {
@@ -10,7 +10,9 @@
     var BTN_RE = /log ?in|sign ?in|connexion|se connecter|continuer|continue|next|suivant/i;
     var posted = {};
 
-    // Canal natif : WebKitGTK (message handler dédié) ou WebView2.
+    // Canal natif : WebKitGTK (message handler dédié), WebView2, ou Android
+    // (objet `nyx_password` de WebViewCompat.addWebMessageListener, injecté
+    // seulement dans les cadres https).
     function post(msg) {
         var json = JSON.stringify(msg);
         var wk = window.webkit && window.webkit.messageHandlers;
@@ -18,6 +20,8 @@
             wk.nyx_password.postMessage(json);
         } else if (window.chrome && window.chrome.webview) {
             window.chrome.webview.postMessage(json);
+        } else if (window.nyx_password && typeof window.nyx_password.postMessage === 'function') {
+            window.nyx_password.postMessage(json);
         }
     }
 

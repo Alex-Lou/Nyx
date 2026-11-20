@@ -13,4 +13,5 @@
     <color name="nyx_aurora">#4AF2C8</color>
     <color name="nyx_text">#DDE4FF</color>
     <color name="nyx_dim">#7078A8</color>
+    <color name="nyx_error">#FF6B8A</color>
 </resources>

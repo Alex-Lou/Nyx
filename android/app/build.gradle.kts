@@ -77,4 +77,7 @@ dependencies {
     implementation("com.google.android.material:material:1.12.0")
     implementation("androidx.webkit:webkit:1.12.1")
     implementation("androidx.core:core-splashscreen:1.0.1")
+    // « Afficher » / « Copier » un mot de passe : verrouillage de l'appareil
+    // (biométrie ou code) via BiometricPrompt. 1.1.0 = dernière stable.
+    implementation("androidx.biometric:biometric:1.1.0")
 }

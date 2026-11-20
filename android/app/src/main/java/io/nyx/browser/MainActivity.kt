@@ -84,11 +84,22 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnForward: ImageButton
     private lateinit var btnReload: ImageButton
     private lateinit var btnTabs: TextView
+    private lateinit var btnMenu: ImageButton
     private lateinit var progress: ProgressBar
     private lateinit var findBar: View
     private lateinit var findInput: EditText
     private lateinit var findCount: TextView
     private lateinit var assetLoader: WebViewAssetLoader
+
+    /** Coffre : capture + pré-remplissage des mots de passe (cf. [PasswordCapture]). */
+    private lateinit var capture: PasswordCapture
+
+    /** Favoris / Historique / Mots de passe : l'URL choisie s'ouvre dans l'onglet courant. */
+    private val libraryLauncher =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            val url = result.data?.getStringExtra(LibraryActivity.EXTRA_URL)
+            if (result.resultCode == Activity.RESULT_OK && url != null) openFromLibrary(url)
+        }
 
     /** Suite d'une demande de permissions Android en cours (une seule à la fois). */
     private var pendingPermissions: (() -> Unit)? = null
@@ -132,6 +143,7 @@ class MainActivity : AppCompatActivity() {
         btnForward = findViewById(R.id.btn_forward)
         btnReload = findViewById(R.id.btn_reload)
         btnTabs = findViewById(R.id.btn_tabs)
+        btnMenu = findViewById(R.id.btn_menu)
         progress = findViewById(R.id.progress)
         findBar = findViewById(R.id.find_bar)
         findInput = findViewById(R.id.find_input)
@@ -152,6 +164,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         assetLoader = NewTabPage.loader(this)
+        capture = PasswordCapture(this)
         bindChrome()
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
@@ -159,6 +172,9 @@ class MainActivity : AppCompatActivity() {
         })
 
         openTab(viewIntentUrl(intent))
+        // Coffre : ouverture silencieuse (clé d'appareil), sinon bienvenue
+        // ou mot de passe principal. La navigation n'attend pas.
+        VaultDialogs.start(this) { current?.let { capture.onPageFinished(it.webView, it.pageUrl) } }
     }
 
     // ── Splash ─────────────────────────────────────────────────────────────
@@ -208,6 +224,7 @@ class MainActivity : AppCompatActivity() {
             showQuickMenu(it)
             true
         }
+        btnMenu.setOnClickListener { showMainMenu(it) }
         bindFindBar()
 
         address.setOnEditorActionListener { _, actionId, event ->
@@ -263,6 +280,70 @@ class MainActivity : AppCompatActivity() {
             true
         }
         menu.show()
+    }
+
+    /** Menu principal (bouton ⋮) : favori, bibliothèque, réglages. */
+    private fun showMainMenu(anchor: View) {
+        val menu = PopupMenu(this, anchor)
+        val url = current?.pageUrl.orEmpty()
+        val canStar = bookmarkable(url)
+        val starred = canStar && VaultRepo.bookmarkId(url) >= 0
+        val star = menu.menu.add(
+            Menu.NONE, MENU_BOOKMARK, Menu.NONE,
+            if (starred) R.string.bookmark_remove else R.string.bookmark_add,
+        )
+        star.isEnabled = canStar
+        menu.menu.add(Menu.NONE, MENU_NEW_TAB, Menu.NONE, R.string.new_tab)
+        menu.menu.add(Menu.NONE, MENU_FIND, Menu.NONE, R.string.find_in_page)
+        menu.menu.add(Menu.NONE, MENU_BOOKMARKS, Menu.NONE, R.string.bookmarks_title)
+        menu.menu.add(Menu.NONE, MENU_HISTORY, Menu.NONE, R.string.history_title)
+        menu.menu.add(Menu.NONE, MENU_PASSWORDS, Menu.NONE, R.string.passwords_title)
+        menu.menu.add(Menu.NONE, MENU_SETTINGS, Menu.NONE, R.string.settings_title)
+        menu.setOnMenuItemClickListener { item ->
+            when (item.itemId) {
+                MENU_BOOKMARK -> toggleBookmark()
+                MENU_NEW_TAB -> openTab(null)
+                MENU_FIND -> openFindBar()
+                MENU_BOOKMARKS -> openLibrary(LibraryActivity.MODE_BOOKMARKS)
+                MENU_HISTORY -> openLibrary(LibraryActivity.MODE_HISTORY)
+                MENU_PASSWORDS -> openLibrary(LibraryActivity.MODE_PASSWORDS)
+                MENU_SETTINGS -> startActivity(Intent(this, SettingsActivity::class.java))
+            }
+            true
+        }
+        menu.show()
+    }
+
+    private fun bookmarkable(url: String): Boolean =
+        (url.startsWith("https://") || url.startsWith("http://")) && !NewTabPage.isNewTab(url)
+
+    /** Étoile : ajoute ou retire la page courante des favoris (coffre). */
+    private fun toggleBookmark() {
+        val tab = current ?: return
+        val url = tab.pageUrl
+        if (!VaultRepo.isOpen) {
+            Toast.makeText(this, R.string.vault_locked, Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (!bookmarkable(url)) return
+        val id = VaultRepo.bookmarkId(url)
+        val message = if (id >= 0) {
+            if (NyxVault.bookmarkDelete(id)) R.string.bookmark_removed else R.string.bookmark_failed
+        } else {
+            if (NyxVault.bookmarkAdd(url, tab.title) >= 0) R.string.bookmark_added else R.string.bookmark_failed
+        }
+        Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+    }
+
+    private fun openLibrary(mode: String) {
+        libraryLauncher.launch(Intent(this, LibraryActivity::class.java).putExtra(LibraryActivity.EXTRA_MODE, mode))
+    }
+
+    private fun openFromLibrary(url: String) {
+        val scheme = Uri.parse(url).scheme?.lowercase()
+        if (scheme != "http" && scheme != "https") return
+        val tab = current
+        if (tab == null) openTab(url) else load(tab, url)
     }
 
     // ── Rechercher dans la page ────────────────────────────────────────────
@@ -380,9 +461,10 @@ class MainActivity : AppCompatActivity() {
         webView.setFindListener { activeMatchOrdinal, numberOfMatches, _ ->
             onFindResult(tab, activeMatchOrdinal, numberOfMatches)
         }
+        capture.attach(webView)
         tabs.add(tab)
         switchTo(tab)
-        load(tab, url ?: NewTabPage.URL)
+        load(tab, url ?: VaultRepo.homeUrl().ifEmpty { NewTabPage.URL })
     }
 
     private fun switchTo(tab: BrowserTab) {
@@ -939,6 +1021,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        capture.release()
         for (tab in tabs) {
             releaseTab(tab)
             destroyWebView(tab.webView)
@@ -1027,6 +1110,7 @@ class MainActivity : AppCompatActivity() {
 
         override fun onPageFinished(view: WebView, url: String?) {
             if (url != null) tab.pageUrl = url
+            capture.onPageFinished(view, url)
             if (tab === current) {
                 refreshAddress()
                 refreshNav()
@@ -1034,7 +1118,10 @@ class MainActivity : AppCompatActivity() {
         }
 
         override fun doUpdateVisitedHistory(view: WebView, url: String?, isReload: Boolean) {
-            if (url != null) tab.pageUrl = url
+            if (url != null) {
+                tab.pageUrl = url
+                VaultRepo.recordVisit(tab, url, isReload)
+            }
             if (tab === current) {
                 refreshAddress()
                 refreshNav()
@@ -1056,6 +1143,7 @@ class MainActivity : AppCompatActivity() {
 
         override fun onReceivedTitle(view: WebView, title: String?) {
             tab.title = title ?: ""
+            VaultRepo.retitle(tab, tab.pageUrl, tab.title)
         }
 
         override fun onShowCustomView(view: View, callback: WebChromeClient.CustomViewCallback) {
@@ -1097,6 +1185,11 @@ class MainActivity : AppCompatActivity() {
         const val TAG = "NyxBrowser"
         const val MENU_FIND = 1
         const val MENU_NEW_TAB = 2
+        const val MENU_BOOKMARK = 3
+        const val MENU_BOOKMARKS = 4
+        const val MENU_HISTORY = 5
+        const val MENU_PASSWORDS = 6
+        const val MENU_SETTINGS = 7
 
         fun blockedResponse(): WebResourceResponse =
             WebResourceResponse(

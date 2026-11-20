@@ -16,6 +16,9 @@ class BrowserTab(val webView: WebView) {
     var title: String = ""
     var progress: Int = 100
 
+    /** Dernière URL inscrite à l'historique par cet onglet (pas de doublon consécutif). */
+    var lastRecorded: String = ""
+
     /**
      * Demandes de la page en attente de réponse (dialogue ou permission
      * Android). Toujours soldées — accord ou refus — puis oubliées, au plus

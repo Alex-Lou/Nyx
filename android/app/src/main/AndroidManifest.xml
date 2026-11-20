@@ -48,5 +48,17 @@
                 <data android:scheme="https" />
             </intent-filter>
         </activity>
+
+        <!-- Écrans secondaires (coffre) : internes, jamais exportés. -->
+        <activity
+            android:name=".LibraryActivity"
+            android:exported="false"
+            android:theme="@style/Theme.Nyx"
+            android:windowSoftInputMode="adjustResize" />
+        <activity
+            android:name=".SettingsActivity"
+            android:exported="false"
+            android:theme="@style/Theme.Nyx"
+            android:windowSoftInputMode="adjustResize" />
     </application>
 </manifest>

@@ -32,4 +32,74 @@
     <string name="cd_find_prev">Occurrence précédente</string>
     <string name="cd_find_next">Occurrence suivante</string>
     <string name="cd_find_close">Fermer la recherche</string>
+    <string name="cd_menu">Menu</string>
+    <string name="yes">Oui</string>
+    <string name="no">Non</string>
+    <string name="delete">Supprimer</string>
+
+    <!-- Coffre -->
+    <string name="vault_welcome_title">Bienvenue dans Nyx</string>
+    <string name="vault_welcome_message">Tes favoris, ton historique et tes mots de passe sont stockés dans un coffre chiffré sur cet appareil. Par défaut, il s\'ouvre sans rien demander (clé protégée par le Keystore Android). Tu peux aussi le protéger par un mot de passe principal, demandé à chaque lancement.</string>
+    <string name="vault_later">Plus tard</string>
+    <string name="vault_set_master">Définir un mot de passe principal</string>
+    <string name="vault_change_master">Changer le mot de passe principal</string>
+    <string name="vault_remove_master">Retirer le mot de passe principal</string>
+    <string name="vault_master_warning">Au moins 8 caractères. Il sera demandé à chaque lancement et ne peut pas être récupéré s\'il est oublié.</string>
+    <string name="vault_remove_message">Le coffre s\'ouvrira de nouveau sans rien demander sur cet appareil.</string>
+    <string name="vault_new_password">Nouveau mot de passe</string>
+    <string name="vault_confirm_password">Confirmer le mot de passe</string>
+    <string name="vault_current_password">Mot de passe actuel</string>
+    <string name="vault_master_password">Mot de passe principal</string>
+    <string name="vault_unlock_title">Déverrouiller le coffre</string>
+    <string name="vault_unlock_message">Saisis ton mot de passe principal.</string>
+    <string name="vault_device_key_failed">La clé de cet appareil n\'ouvre pas le coffre (fichier corrompu ou Keystore réinitialisé). Saisis ton mot de passe principal.</string>
+    <string name="vault_skip">Ignorer</string>
+    <string name="vault_locked">Coffre verrouillé</string>
+
+    <!-- Capture des mots de passe -->
+    <string name="capture_title">Mot de passe</string>
+    <string name="capture_saved">Mot de passe enregistré</string>
+    <string name="capture_failed">Enregistrement du mot de passe impossible</string>
+
+    <!-- Favoris -->
+    <string name="bookmark_add">Ajouter aux favoris</string>
+    <string name="bookmark_remove">Retirer des favoris</string>
+    <string name="bookmark_added">Ajouté aux favoris</string>
+    <string name="bookmark_removed">Retiré des favoris</string>
+    <string name="bookmark_failed">Favoris indisponibles</string>
+
+    <!-- Bibliothèque -->
+    <string name="library_title">Bibliothèque</string>
+    <string name="bookmarks_title">Favoris</string>
+    <string name="history_title">Historique</string>
+    <string name="passwords_title">Mots de passe</string>
+    <string name="bookmarks_empty">Aucun favori. Ajoute une page depuis le menu ⋮.</string>
+    <string name="history_empty">Aucune visite</string>
+    <string name="passwords_empty">Aucun mot de passe enregistré</string>
+    <string name="history_search_hint">Rechercher dans l\'historique</string>
+    <string name="history_clear">Tout effacer</string>
+    <string name="history_clear_confirm">Effacer tout l\'historique ?</string>
+    <string name="history_cleared">Historique effacé</string>
+    <string name="password_show">Afficher</string>
+    <string name="password_hide">Masquer</string>
+    <string name="password_copy">Copier</string>
+    <string name="password_copied">Mot de passe copié</string>
+    <string name="password_delete_confirm">Supprimer l\'identifiant enregistré pour %1$s ?</string>
+    <string name="password_auth_title">Mots de passe</string>
+    <string name="password_auth_subtitle">Confirme ton identité pour afficher ou copier le mot de passe</string>
+
+    <!-- Réglages -->
+    <string name="settings_title">Réglages</string>
+    <string name="settings_search">Moteur de recherche</string>
+    <string name="settings_home">Page d\'accueil</string>
+    <string name="settings_home_hint">Vide = Nouvel onglet</string>
+    <string name="settings_privacy">Confidentialité</string>
+    <string name="settings_adblock">Bloquer les publicités et traqueurs</string>
+    <string name="settings_save_passwords">Proposer d\'enregistrer les mots de passe</string>
+    <string name="settings_master">Mot de passe principal</string>
+    <string name="settings_master_off">Protection : appareil — le coffre s\'ouvre sans rien demander (clé du Keystore Android). Optionnel.</string>
+    <string name="settings_master_on">Actif : demandé à chaque lancement de Nyx. Irrécupérable s\'il est oublié.</string>
+    <string name="settings_master_done">Coffre mis à jour</string>
+    <string name="settings_sync">Synchronisation</string>
+    <string name="settings_linked_devices">Appareils liés (bientôt)</string>
 </resources>
