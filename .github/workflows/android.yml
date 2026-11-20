@@ -15,7 +15,7 @@ on:
   workflow_call:
 
 concurrency:
-  group: android-${{ github.ref }}
+  group: ${{ github.workflow }}-android-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
