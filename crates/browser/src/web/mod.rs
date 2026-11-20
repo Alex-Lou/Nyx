@@ -128,7 +128,11 @@ fn wire_policy_filter(
             _ => return false,
         };
 
-        match security::decide(&url, page_is_internal(wv), &blocker) {
+        // Une redirection HTTP n'hérite JAMAIS de la confiance de la page :
+        // lien interne → site distant → 302 vers `nyx://apply…` serait sinon
+        // exécuté comme une action interne.
+        let internal = page_is_internal(wv) && !is_redirect(decision);
+        match security::decide(&url, internal, &blocker) {
             Verdict::Allow => {
                 // Second rideau : le moteur Brave (EasyList complet), trop
                 // lourd pour la couche pure — consulté ici, main-thread.
@@ -217,6 +221,15 @@ fn apply_move(url: &str, bm: &Bookmarks) {
     if let Some((i, to)) = bookmarks::parse_move(url) {
         bookmarks::move_to(bm, i, to);
     }
+}
+
+fn is_redirect(decision: &PolicyDecision) -> bool {
+    decision
+        .clone()
+        .downcast::<NavigationPolicyDecision>()
+        .ok()
+        .and_then(|n| n.navigation_action())
+        .is_some_and(|mut a| a.is_redirect())
 }
 
 fn extract_url(decision: &PolicyDecision) -> String {
