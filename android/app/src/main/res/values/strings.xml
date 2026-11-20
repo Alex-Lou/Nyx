@@ -15,4 +15,5 @@
     <string name="download_unsupported">Téléchargement non pris en charge</string>
     <string name="download_no_storage">Téléchargement annulé : accès au stockage refusé</string>
     <string name="download_failed">Téléchargement impossible</string>
+    <string name="no_file_picker">Aucune application pour choisir un fichier</string>
 </resources>

@@ -5,6 +5,7 @@ import android.animation.AnimatorListenerAdapter
 import android.animation.AnimatorSet
 import android.animation.ObjectAnimator
 import android.Manifest
+import android.app.Activity
 import android.app.DownloadManager
 import android.content.ActivityNotFoundException
 import android.content.Context
@@ -28,6 +29,7 @@ import android.view.inputmethod.InputMethodManager
 import android.webkit.CookieManager
 import android.webkit.RenderProcessGoneDetail
 import android.webkit.URLUtil
+import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
@@ -43,6 +45,7 @@ import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
+import androidx.activity.result.ActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
@@ -83,6 +86,14 @@ class MainActivity : AppCompatActivity() {
             val next = pendingPermissions
             pendingPermissions = null
             next?.invoke()
+        }
+
+    /** Envoi de fichiers (`<input type=file>`) : un seul sélecteur ouvert à la fois. */
+    private var fileCallback: ValueCallback<Array<Uri>>? = null
+    private var fileCallbackTab: BrowserTab? = null
+    private val fileChooser =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            deliverFiles(result)
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -283,12 +294,18 @@ class MainActivity : AppCompatActivity() {
         if (index < 0) return
         tabs.removeAt(index)
         if (current === tab) current = null
+        releaseTab(tab)
         destroyWebView(tab.webView)
         when {
             tabs.isEmpty() -> openTab(null)
             current == null -> switchTo(tabs[minOf(index, tabs.size - 1)])
             else -> refreshTabCount()
         }
+    }
+
+    /** Rend la main à la page : aucun callback WebView ne survit à l'onglet. */
+    private fun releaseTab(tab: BrowserTab) {
+        if (fileCallbackTab === tab) cancelFileChooser()
     }
 
     /** Aucune fuite : détachée du parent, chargement arrêté, puis détruite. */
@@ -398,6 +415,57 @@ class MainActivity : AppCompatActivity() {
             Log.w(TAG, "Téléchargement refusé", e)
             Toast.makeText(this, R.string.download_failed, Toast.LENGTH_SHORT).show()
         }
+    }
+
+    // ── Envoi de fichiers ──────────────────────────────────────────────────
+
+    private fun showFileChooser(
+        tab: BrowserTab,
+        callback: ValueCallback<Array<Uri>>,
+        params: WebChromeClient.FileChooserParams,
+    ): Boolean {
+        cancelFileChooser()
+        val intent = try {
+            params.createIntent()
+        } catch (e: RuntimeException) {
+            callback.onReceiveValue(null)
+            return true
+        }
+        if (params.mode == WebChromeClient.FileChooserParams.MODE_OPEN_MULTIPLE) {
+            intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+        }
+        fileCallback = callback
+        fileCallbackTab = tab
+        try {
+            fileChooser.launch(intent)
+        } catch (e: ActivityNotFoundException) {
+            cancelFileChooser()
+            Toast.makeText(this, R.string.no_file_picker, Toast.LENGTH_SHORT).show()
+        }
+        return true
+    }
+
+    private fun deliverFiles(result: ActivityResult) {
+        val callback = fileCallback ?: return
+        fileCallback = null
+        fileCallbackTab = null
+        val data = result.data
+        val clip = data?.clipData
+        val uris: Array<Uri>? = if (result.resultCode == Activity.RESULT_OK && clip != null && clip.itemCount > 0) {
+            // Sélection multiple : ClipData (parseResult ne lit que `data`).
+            (0 until clip.itemCount).mapNotNull { clip.getItemAt(it).uri }.toTypedArray()
+        } else {
+            WebChromeClient.FileChooserParams.parseResult(result.resultCode, data)
+        }
+        callback.onReceiveValue(uris)
+    }
+
+    /** La page attend toujours une réponse : `null` = annulé. */
+    private fun cancelFileChooser() {
+        val callback = fileCallback ?: return
+        fileCallback = null
+        fileCallbackTab = null
+        callback.onReceiveValue(null)
     }
 
     // ── Sélecteur d'onglets ────────────────────────────────────────────────
@@ -526,7 +594,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
-        for (tab in tabs) destroyWebView(tab.webView)
+        for (tab in tabs) {
+            releaseTab(tab)
+            destroyWebView(tab.webView)
+        }
         tabs.clear()
         current = null
         super.onDestroy()
@@ -641,6 +712,12 @@ class MainActivity : AppCompatActivity() {
         override fun onReceivedTitle(view: WebView, title: String?) {
             tab.title = title ?: ""
         }
+
+        override fun onShowFileChooser(
+            webView: WebView,
+            filePathCallback: ValueCallback<Array<Uri>>,
+            fileChooserParams: WebChromeClient.FileChooserParams,
+        ): Boolean = showFileChooser(tab, filePathCallback, fileChooserParams)
     }
 
     private companion object {
