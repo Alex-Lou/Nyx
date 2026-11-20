@@ -116,6 +116,33 @@ impl fmt::Display for SyncError {
 
 impl std::error::Error for SyncError {}
 
+/// Message d'erreur à afficher tel quel (français, sans détail technique
+/// inutile, jamais de clé) pour un échec d'appairage ou de synchronisation.
+pub fn user_message(e: &anyhow::Error) -> String {
+    let text = match e.downcast_ref::<SyncError>() {
+        Some(SyncError::Rejected) => "Appairage annulé".to_string(),
+        Some(SyncError::OfferExpired) => "Le code d'appairage a expiré : recommencez depuis l'ordinateur".to_string(),
+        Some(SyncError::TokenUsed) => "Ce code d'appairage a déjà servi : affichez-en un nouveau".to_string(),
+        Some(SyncError::TooManyAttempts) => "Trop d'essais ratés : le code a été invalidé, recommencez".to_string(),
+        Some(SyncError::OfferInvalid(_)) => "Code d'appairage illisible : vérifiez qu'il commence par « nyxpair: »".to_string(),
+        Some(SyncError::HandshakeFailed) => {
+            "Connexion chiffrée impossible : code expiré ou appareil injoignable".to_string()
+        }
+        Some(other) => other.to_string(),
+        None => match e.downcast_ref::<std::io::Error>() {
+            Some(io) if io.kind() == std::io::ErrorKind::TimedOut || io.kind() == std::io::ErrorKind::WouldBlock => {
+                "Délai dépassé : l'autre appareil ne répond pas".to_string()
+            }
+            _ => format!("{e:#}"),
+        },
+    };
+    let mut chars = text.chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().chain(chars).collect(),
+        None => text,
+    }
+}
+
 /// Moteur de synchronisation d'un appareil : coffre + clés + profil.
 pub struct SyncEngine<'v> {
     vault: &'v Vault,
@@ -237,6 +264,17 @@ impl<'v> SyncEngine<'v> {
 mod tests {
     use super::*;
     use std::net::Ipv4Addr;
+
+    #[test]
+    fn messages_utilisateur() {
+        let m = |e: SyncError| user_message(&e.into());
+        assert_eq!(m(SyncError::Rejected), "Appairage annulé");
+        assert!(m(SyncError::OfferExpired).contains("expiré"));
+        assert_eq!(m(SyncError::UnknownPeer), "Appareil inconnu ou révoqué");
+        let io = std::io::Error::new(std::io::ErrorKind::TimedOut, "x");
+        assert!(user_message(&io.into()).starts_with("Délai dépassé"));
+        assert_eq!(user_message(&anyhow!("connexion à 1.2.3.4:5")), "Connexion à 1.2.3.4:5");
+    }
 
     #[test]
     fn plage_de_ports_du_service() {
