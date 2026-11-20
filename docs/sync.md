@@ -4,6 +4,42 @@
 > Phase A (ce document) : réseau local uniquement. Phase B (prévue, non
 > implémentée) : relais non fiable stockant des blobs opaques.
 
+## Comment associer ses appareils
+
+Il faut Nyx sur l'ordinateur (Windows) et sur le téléphone (Android),
+**connectés au même réseau Wi-Fi** (pas un Wi-Fi « invité » qui isole les
+appareils). Aucun compte n'est nécessaire.
+
+1. **Sur l'ordinateur** : Paramètres › *Appareils liés* › **Ajouter un
+   téléphone**. Un QR code s'affiche, valable 5 minutes et utilisable une
+   seule fois. La première fois, Windows demande l'accès réseau pour Nyx :
+   cochez **Réseaux privés** et « Autoriser l'accès » (voir
+   `windows/README-native.md`).
+2. **Sur le téléphone** : Réglages › *Appareils liés* › **Associer à un
+   ordinateur**, autorisez la caméra et visez le QR. Sans caméra :
+   **Saisir le code**, puis collez la ligne `nyxpair:v1:…` affichée sous le
+   QR.
+3. **Comparez le code à 6 chiffres** affiché sur les deux écrans. Identique
+   → « Les codes correspondent » sur l'ordinateur, puis sur le téléphone.
+   Différent → **Annuler** sur les deux : quelqu'un d'autre a pu scanner le
+   QR avant vous.
+4. C'est fait : le téléphone se synchronise aussitôt, puis à chaque
+   ouverture de Nyx sur Wi-Fi (ou « Synchroniser maintenant ») ;
+   l'ordinateur, lui, se synchronise avec ses autres appareils toutes les
+   5 minutes. Mots de passe, favoris, historique et réglages suivent.
+
+**Retirer un appareil** (perdu, vendu) : *Appareils liés* › **Retirer** sur
+n'importe quel autre appareil. Il ne pourra plus se synchroniser ; ce qu'il
+contient déjà reste lisible pour qui le détient, changez donc vos mots de
+passe importants. Synchronisez ensuite vos autres appareils pour qu'ils
+l'apprennent.
+
+**Ça ne marche pas ?** « Aucun appareil lié trouvé sur le réseau local » :
+même Wi-Fi ? Nyx ouvert et coffre déverrouillé sur l'ordinateur ? Pare-feu
+Windows autorisé sur les réseaux privés et réseau Wi-Fi du PC en profil
+*Privé* ? Le service écoute sur le port TCP 47420 (ou le suivant libre
+jusqu'à 47429), affiché dans les Paramètres de l'ordinateur.
+
 ## 1. Principes
 
 - **Aucun compte, aucun serveur.** L'identité d'un appareil est une paire de
@@ -216,6 +252,9 @@ Rien n'est implémenté, mais le format y est prêt :
   hors ligne obtiennent deux entrées (uuid aléatoires) ; un dédoublonnage
   par (domaine, identifiant) / url reste à faire côté UI.
 - Le nom d'un appareil n'est propagé qu'à l'appairage.
+- Android n'écoute pas (aucun service d'arrière-plan en phase A) : un
+  téléphone se synchronise vers un PC quand Nyx est ouvert sur le même
+  Wi-Fi ; deux téléphones n'échangent qu'en passant par un PC.
 - Pas de limitation de débit côté KK (handshake coûteux pour l'attaquant
   aussi, mais un DoS LAN reste possible).
 
@@ -242,4 +281,30 @@ loop { let _ = session::serve_one(&engine, &listener); }
 for f in discovery::browse(&engine, Duration::from_secs(3))? {
     for a in f.addrs { if session::sync_with(&engine, a, Some(&f.device.device_id)).is_ok() { break } }
 }
+// … ou, en une fois, avec un bilan affichable :
+let summary = discovery::sync_all(&engine, Duration::from_secs(3))?; // summary.message(), summary.changed()
 ```
+
+Coquilles réelles :
+
+- **Windows** (`crates/nyx-win/src/sync_service.rs`, `app/sync.rs`) : un
+  thread dédié ouvre sa propre connexion au coffre avec la clé gardée en
+  mémoire (clé d'appareil DPAPI ou mot de passe principal, jamais écrite),
+  écoute sur le premier port libre de `SERVICE_PORTS` (`bind_first`),
+  annonce mDNS, boucle `serve_stream` (écoute non bloquante, sondée toutes
+  les 200 ms), `sync_all` au démarrage / toutes les 5 min / à la demande.
+  L'appairage utilise `pairing::host_until` (annulable) ; le code à 6
+  chiffres part vers l'UI par événement, la réponse revient par canal : le
+  thread UI n'attend jamais. Avant un changement de mot de passe principal
+  (rechiffrement), le service est arrêté puis relancé avec la nouvelle clé.
+  Après une synchronisation qui a reçu des données, réglages et favoris
+  sont relus et les pages internes rechargées.
+- **Android** (`crates/nyx-ffi/src/sync_api.rs`, `NyxSync`/`SyncRepo`/
+  `DevicesActivity`) : pas de service ; `pairBegin` lance `accept` sur un
+  thread Rust et rend le code, `pairConfirm(oui/non)` débloque ce thread ;
+  `syncNow` (connexion dédiée, `MulticastLock` côté Kotlin pendant la
+  découverte) au démarrage et au retour dans l'app sur Wi-Fi, et à la
+  demande. Le téléphone n'écoute pas : c'est lui qui initie les sessions
+  vers le PC.
+- Dernière synchronisation : réglage local `local.sync.last` (JSON), jamais
+  synchronisé.
