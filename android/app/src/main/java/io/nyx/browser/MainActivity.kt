@@ -10,6 +10,7 @@ import android.app.DownloadManager
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.net.Uri
@@ -23,6 +24,7 @@ import android.view.Gravity
 import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
+import android.view.WindowManager
 import android.view.animation.DecelerateInterpolator
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
@@ -70,6 +72,7 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var root: View
     private lateinit var container: FrameLayout
+    private lateinit var fullscreen: FrameLayout
     private lateinit var address: EditText
     private lateinit var btnBack: ImageButton
     private lateinit var btnForward: ImageButton
@@ -87,6 +90,11 @@ class MainActivity : AppCompatActivity() {
             pendingPermissions = null
             next?.invoke()
         }
+
+    /** Vidéo plein écran : vue fournie par la WebView de [customViewTab]. */
+    private var customView: View? = null
+    private var customViewCallback: WebChromeClient.CustomViewCallback? = null
+    private var customViewTab: BrowserTab? = null
 
     /** Envoi de fichiers (`<input type=file>`) : un seul sélecteur ouvert à la fois. */
     private var fileCallback: ValueCallback<Array<Uri>>? = null
@@ -106,6 +114,7 @@ class MainActivity : AppCompatActivity() {
 
         root = findViewById(R.id.root)
         container = findViewById(R.id.web_container)
+        fullscreen = findViewById(R.id.fullscreen)
         address = findViewById(R.id.address)
         btnBack = findViewById(R.id.btn_back)
         btnForward = findViewById(R.id.btn_forward)
@@ -271,6 +280,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun switchTo(tab: BrowserTab) {
         val previous = current
+        if (customViewTab != null && customViewTab !== tab) exitFullscreen(notifyPage = true)
         if (previous != null && previous !== tab) {
             previous.webView.onPause()
             container.removeView(previous.webView)
@@ -306,6 +316,7 @@ class MainActivity : AppCompatActivity() {
     /** Rend la main à la page : aucun callback WebView ne survit à l'onglet. */
     private fun releaseTab(tab: BrowserTab) {
         if (fileCallbackTab === tab) cancelFileChooser()
+        if (customViewTab === tab) exitFullscreen(notifyPage = true)
     }
 
     /** Aucune fuite : détachée du parent, chargement arrêté, puis détruite. */
@@ -415,6 +426,50 @@ class MainActivity : AppCompatActivity() {
             Log.w(TAG, "Téléchargement refusé", e)
             Toast.makeText(this, R.string.download_failed, Toast.LENGTH_SHORT).show()
         }
+    }
+
+    // ── Plein écran ────────────────────────────────────────────────────────
+
+    private fun enterFullscreen(tab: BrowserTab, view: View, callback: WebChromeClient.CustomViewCallback) {
+        if (customView != null) {
+            // Déjà en plein écran : on refuse la seconde vue.
+            callback.onCustomViewHidden()
+            return
+        }
+        hideKeyboard()
+        customView = view
+        customViewCallback = callback
+        customViewTab = tab
+        fullscreen.addView(
+            view,
+            FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT),
+        )
+        fullscreen.visibility = View.VISIBLE
+        WindowInsetsControllerCompat(window, window.decorView).apply {
+            systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            hide(WindowInsetsCompat.Type.systemBars())
+        }
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
+    }
+
+    /**
+     * Quitte le plein écran. `notifyPage` : sortie décidée par l'app (retour,
+     * onglet fermé) — la page doit en être informée ; inutile quand c'est elle
+     * qui l'a demandée (`onHideCustomView`).
+     */
+    private fun exitFullscreen(notifyPage: Boolean) {
+        val view = customView ?: return
+        val callback = customViewCallback
+        customView = null
+        customViewCallback = null
+        customViewTab = null
+        fullscreen.removeView(view)
+        fullscreen.visibility = View.GONE
+        WindowInsetsControllerCompat(window, window.decorView).show(WindowInsetsCompat.Type.systemBars())
+        window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        if (notifyPage) callback?.onCustomViewHidden()
     }
 
     // ── Envoi de fichiers ──────────────────────────────────────────────────
@@ -555,6 +610,10 @@ class MainActivity : AppCompatActivity() {
     // ── Retour, intents, cycle de vie ─────────────────────────────────────
 
     private fun onBack() {
+        if (customView != null) {
+            exitFullscreen(notifyPage = true)
+            return
+        }
         if (address.hasFocus()) {
             hideKeyboard()
             address.clearFocus()
@@ -711,6 +770,14 @@ class MainActivity : AppCompatActivity() {
 
         override fun onReceivedTitle(view: WebView, title: String?) {
             tab.title = title ?: ""
+        }
+
+        override fun onShowCustomView(view: View, callback: WebChromeClient.CustomViewCallback) {
+            enterFullscreen(tab, view, callback)
+        }
+
+        override fun onHideCustomView() {
+            if (customViewTab === tab) exitFullscreen(notifyPage = false)
         }
 
         override fun onShowFileChooser(

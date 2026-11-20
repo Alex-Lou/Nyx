@@ -1,7 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Cadre : l'interface (root) + le conteneur plein écran des vidéos, au-dessus. -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
 <!-- Racine edge-to-edge : MainActivity applique les insets (barres système +
      clavier) en padding ; le fond deep colore aussi la zone de status bar. -->
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<LinearLayout
     android:id="@+id/root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
@@ -93,3 +98,12 @@
         android:layout_weight="1"
         android:background="@color/nyx_void" />
 </LinearLayout>
+
+    <!-- Vidéo plein écran (WebChromeClient.onShowCustomView), sans insets. -->
+    <FrameLayout
+        android:id="@+id/fullscreen"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@android:color/black"
+        android:visibility="gone" />
+</FrameLayout>
