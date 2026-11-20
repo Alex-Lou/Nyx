@@ -121,8 +121,20 @@ mod tests {
         assert!(matches!(action(internal, "nyx://apply?engine=brave", &g), Some(Action::Apply(_))));
         assert_eq!(action(internal, "https://example.com/", &g), None);
         assert_eq!(action(internal, "nyx://settings", &g), None, "page, pas action");
+        let settings = "https://nyx.localhost/settings";
+        assert_eq!(
+            action(settings, "nyx://master/remove", &g),
+            Some(Action::MasterPassword(nyx_core::security::MasterOp::Remove))
+        );
         for remote in ["https://evil.example/", "https://nyx.localhost.evil.com/", "", "about:blank"] {
-            for a in ["nyx://move?idx=0&to=A", "nyx://history/clear", "nyx://apply?adblock=false", "nyx://import/capsule"] {
+            for a in [
+                "nyx://move?idx=0&to=A",
+                "nyx://history/clear",
+                "nyx://apply?adblock=false",
+                "nyx://import/capsule",
+                "nyx://master/set",
+                "nyx://master/remove",
+            ] {
                 assert_eq!(action(remote, a, &g), None, "{remote} {a}");
             }
         }

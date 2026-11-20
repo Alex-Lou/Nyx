@@ -29,6 +29,10 @@ wry          = { version = "=0.57.2", default-features = false, features = ["os-
 tao          = { version = "=0.37.2", default-features = false, features = ["rwh_06"] }
 webview2-com = "=0.39.1"
 windows      = { version = "0.62", features = [
+    # DPAPI (clé d'appareil du coffre, module `dpapi`).
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Security_Cryptography",
     "Win32_UI_Input_KeyboardAndMouse",
     "Win32_UI_WindowsAndMessaging",
 ] }

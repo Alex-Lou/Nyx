@@ -9,7 +9,7 @@
 use std::borrow::Cow;
 
 use nyx_core::nyxguard::NyxGuard;
-use nyx_core::security::{self, Page, Verdict};
+use nyx_core::security::{self, MasterOp, Page, Verdict};
 use nyx_core::state::settings::AppSettings;
 use nyx_core::url;
 
@@ -50,6 +50,8 @@ pub enum Action {
     ClearHistory,
     ImportChrome(String),
     ImportCapsule,
+    /// Ouvrir le panneau du mot de passe principal (saisie dans le chrome).
+    MasterPassword(MasterOp),
 }
 
 /// URL moteur canonique d'une page interne.
@@ -142,6 +144,7 @@ fn action_of(verdict: Verdict, policy_url: &str) -> Option<Action> {
         Verdict::ClearHistory => Action::ClearHistory,
         Verdict::ImportChrome => Action::ImportChrome(policy_url.to_string()),
         Verdict::ImportCapsule => Action::ImportCapsule,
+        Verdict::MasterPassword(op) => Action::MasterPassword(op),
         _ => return None,
     })
 }

@@ -114,8 +114,7 @@ pub fn run() -> Result<(), String> {
 
     let mut context = WebContext::new(data_dir());
     let chrome = build_chrome(&window, &mut context, &proxy).map_err(|e| format!("WebView2 : {e}"))?;
-    let creating = !vault_path.exists();
-    let app = App {
+    let mut app = App {
         tabs: Tabs::new(),
         chrome,
         context,
@@ -129,11 +128,12 @@ pub fn run() -> Result<(), String> {
         recorder: history::Recorder::default(),
         prompt: None,
         next_prompt: 1,
-        overlay: Some(Overlay::Unlock { creating, capsule: ipc::CapsuleView::Probing, error: String::new() }),
+        // Écran plein (vide) jusqu'à la décision de `start_vault`.
+        overlay: Some(Overlay::Unlock { notice: String::new(), error: String::new() }),
         capsule: None,
     };
     app.layout();
-    app.probe_capsule();
+    app.start_vault();
     let mut app = Some(app);
 
     event_loop.run(move |event, _, control_flow| {
@@ -398,13 +398,16 @@ impl App {
             ChromeMsg::ToggleBookmark => self.toggle_bookmark(),
             ChromeMsg::PromptAnswer { id, yes } => self.on_prompt_answer(id, yes),
             ChromeMsg::Unlock { passphrase } => self.on_unlock(passphrase),
-            ChromeMsg::Create { passphrase, confirm, import_capsule, capsule_passphrase } => {
-                self.on_create(passphrase, confirm, import_capsule, capsule_passphrase)
+            ChromeMsg::Create { master, passphrase, confirm, import_capsule, capsule_passphrase } => {
+                self.on_create(master, passphrase, confirm, import_capsule, capsule_passphrase)
             }
             ChromeMsg::ImportCapsule { passphrase } => self.on_import_capsule(passphrase),
+            ChromeMsg::SetMaster { passphrase, confirm } => self.on_set_master(passphrase, confirm),
+            ChromeMsg::ChangeMaster { old, passphrase, confirm } => self.on_change_master(old, passphrase, confirm),
+            ChromeMsg::RemoveMaster { passphrase } => self.on_remove_master(passphrase),
             ChromeMsg::RetryCapsule => self.probe_capsule_again(),
             ChromeMsg::CloseOverlay => {
-                if self.vault.is_some() {
+                if self.vault.is_some() && self.overlay.as_ref().is_some_and(|o| !o.is_locked_screen()) {
                     self.set_overlay(None);
                 }
             }

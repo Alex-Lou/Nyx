@@ -22,6 +22,7 @@
 
     // Écran du coffre.
     const lock = $('lock');
+    const passOld = $('pass-old');
     const pass = $('pass');
     const confirm = $('confirm');
     const capsuleBox = $('capsule');
@@ -33,6 +34,7 @@
     const capsuleRetry = $('capsule-retry');
     const lockError = $('lock-error');
     const lockOk = $('lock-ok');
+    const lockAlt = $('lock-alt');
     const lockCancel = $('lock-cancel');
 
     let shownUrl = '';
@@ -41,6 +43,8 @@
     let promptId = 0;
     let overlay = null;
     let capsuleCommand = '';
+    // Bienvenue : champs du mot de passe principal révélés ?
+    let defining = false;
 
     function tabElement(t) {
         const el = document.createElement('div');
@@ -81,6 +85,7 @@
     }
 
     function clearSecrets() {
+        passOld.value = '';
         pass.value = '';
         confirm.value = '';
         capsulePass.value = '';
@@ -93,48 +98,103 @@
         unreachable: 'Capsule injoignable : WSL est arrêté. Démarre-la dans un terminal, puis Réessayer :',
     };
 
+    const WELCOME_SUB =
+        'Nyx chiffre toujours tes mots de passe, favoris et historique. Par défaut, la clé est gardée ' +
+        'par ta session Windows : rien à retenir, mais toute personne ayant accès à ta session ouverte ' +
+        'peut lire les mots de passe enregistrés (comme dans Chrome). Un mot de passe principal, ' +
+        'optionnel, les protège aussi dans ce cas — mais il est irrécupérable si tu l\'oublies. ' +
+        'Tu pourras le définir plus tard dans les Paramètres.';
+
+    // Panneaux « mot de passe principal » (réglages). old : mot de passe
+    // actuel demandé ; fresh : nouveau + confirmation demandés.
+    const MASTER = {
+        define: {
+            title: 'Définir un mot de passe principal',
+            sub: 'Il sera demandé à chaque lancement de Nyx et protège tes données même si quelqu\'un ' +
+                'accède à ta session ouverte. Irrécupérable si oublié.',
+            ok: 'Définir', old: false, fresh: true,
+        },
+        change: {
+            title: 'Changer le mot de passe principal',
+            sub: 'Saisis l\'actuel, puis le nouveau.',
+            ok: 'Changer', old: true, fresh: true,
+        },
+        remove: {
+            title: 'Retirer le mot de passe principal',
+            sub: 'Nyx ouvrira le coffre sans rien demander, avec une clé gardée par ta session Windows. ' +
+                'Toute personne ayant accès à ta session ouverte pourra lire les mots de passe enregistrés.',
+            ok: 'Retirer', old: true, fresh: false,
+        },
+    };
+
     // (Re)dessine l'écran du coffre ; `fresh` = vient d'apparaître.
     function renderLock(fresh) {
         if (!overlay) {
             lock.hidden = true;
+            defining = false;
             clearSecrets();
             return;
         }
         lock.hidden = false;
-        const unlock = overlay.kind === 'unlock';
-        const creating = unlock && overlay.creating;
+        const kind = overlay.kind;
+        const welcome = kind === 'welcome';
+        const unlock = kind === 'unlock';
+        const importing = kind === 'capsule';
+        const m = kind === 'master' ? (MASTER[overlay.mode] || MASTER.define) : null;
         const capsule = overlay.capsule;
         const found = capsule === 'found';
+        if (fresh && welcome) defining = false;
 
-        $('lock-title').textContent = creating
-            ? 'Crée la passphrase de ton coffre Nyx'
-            : unlock ? 'Coffre Nyx verrouillé' : 'Importer depuis la capsule Nyx (Linux)';
-        $('lock-sub').textContent = creating
-            ? 'Elle chiffre tes mots de passe, favoris et historique. Irrécupérable si oubliée.'
-            : unlock
-                ? 'Saisis ta passphrase pour déverrouiller mots de passe, favoris et historique.'
-                : 'Mots de passe, favoris, historique et réglages du coffre WSL. Le coffre source n\'est jamais modifié.';
+        $('lock-title').textContent = welcome ? 'Bienvenue dans Nyx'
+            : unlock ? 'Coffre Nyx verrouillé'
+                : importing ? 'Importer depuis la capsule Nyx (Linux)' : m.title;
+        $('lock-sub').textContent = welcome ? WELCOME_SUB
+            : unlock ? String(overlay.notice || '') ||
+                'Saisis ton mot de passe principal pour déverrouiller mots de passe, favoris et historique.'
+                : importing
+                    ? 'Mots de passe, favoris, historique et réglages du coffre WSL. Le coffre source n\'est jamais modifié.'
+                    : m.sub;
 
-        pass.hidden = !unlock;
-        pass.placeholder = 'Passphrase';
-        confirm.hidden = !creating;
+        passOld.hidden = !(m && m.old);
+        pass.hidden = !(unlock || (welcome && defining) || (m && m.fresh));
+        pass.placeholder = unlock ? 'Mot de passe principal' : 'Nouveau mot de passe (8 caractères min.)';
+        confirm.hidden = !((welcome && defining) || (m && m.fresh));
 
-        capsuleBox.hidden = !(creating || !unlock);
-        capsuleOpt.hidden = !(creating && found);
-        capsulePass.hidden = !found || (creating && !capsuleImport.checked);
-        capsulePass.placeholder = creating ? 'Passphrase de la capsule (vide = la même)' : 'Passphrase de la capsule';
+        capsuleBox.hidden = !(welcome || importing);
+        capsuleOpt.hidden = !(welcome && found);
+        capsulePass.hidden = !found || (welcome && !capsuleImport.checked);
+        capsulePass.placeholder = 'Passphrase de la capsule (vide = clé de la capsule)';
         capsuleMsg.textContent = CAPSULE_MSG[capsule] || '';
         capsuleMsg.hidden = !capsuleMsg.textContent;
         capsuleCmd.textContent = capsuleCommand;
         capsuleCmd.hidden = capsule !== 'unreachable';
         capsuleRetry.hidden = !(capsule === 'unreachable' || capsule === 'missing');
 
-        lockOk.textContent = creating ? 'Créer le coffre' : unlock ? 'Déverrouiller' : 'Importer';
-        lockOk.disabled = !unlock && !found;
-        lockCancel.textContent = unlock ? 'Quitter' : 'Annuler';
+        // Bienvenue : « Plus tard » est l'action principale tant que le mot
+        // de passe n'est pas demandé ; Entrée ne crée jamais un coffre
+        // sans mot de passe pendant qu'on en tape un.
+        lockOk.textContent = welcome ? (defining ? 'Créer avec ce mot de passe' : 'Plus tard')
+            : unlock ? 'Déverrouiller' : importing ? 'Importer' : m.ok;
+        lockOk.disabled = importing && !found;
+        lockOk.classList.toggle('danger', Boolean(m) && overlay.mode === 'remove');
+        lockAlt.hidden = !welcome;
+        lockAlt.textContent = defining ? 'Plus tard' : 'Définir un mot de passe principal';
+        lockCancel.textContent = welcome || unlock ? 'Quitter' : 'Annuler';
         lockError.textContent = String(overlay.error || '');
 
-        if (fresh || overlay.error) (unlock ? pass : capsulePass).focus();
+        if (fresh || overlay.error) {
+            const first = [passOld, pass].find((el) => !el.hidden) || (importing ? capsulePass : lockOk);
+            first.focus();
+        }
+    }
+
+    function createVault(master) {
+        const extra = master ? { passphrase: pass.value, confirm: confirm.value } : {};
+        send('create', Object.assign({
+            master,
+            importCapsule: overlay.capsule === 'found' && capsuleImport.checked,
+            capsulePassphrase: capsulePass.value,
+        }, extra));
     }
 
     window.nyx = Object.freeze({
@@ -157,7 +217,8 @@
             prompt.hidden = !s.prompt;
             $('prompt-text').textContent = s.prompt ? String(s.prompt.text) : '';
 
-            const fresh = Boolean(s.overlay) && (!overlay || overlay.kind !== s.overlay.kind);
+            const fresh = Boolean(s.overlay) &&
+                (!overlay || overlay.kind !== s.overlay.kind || overlay.mode !== s.overlay.mode);
             overlay = s.overlay || null;
             capsuleCommand = String(s.capsuleCmd || '');
             renderLock(fresh);
@@ -209,25 +270,40 @@
         e.preventDefault();
         if (!overlay) return;
         lockError.textContent = '';
-        if (overlay.kind === 'unlock' && overlay.creating) {
-            send('create', {
-                passphrase: pass.value,
-                confirm: confirm.value,
-                importCapsule: overlay.capsule === 'found' && capsuleImport.checked,
-                capsulePassphrase: capsulePass.value,
-            });
-        } else if (overlay.kind === 'unlock') {
+        const kind = overlay.kind;
+        if (kind === 'welcome') {
+            createVault(defining);
+        } else if (kind === 'unlock') {
             send('unlock', { passphrase: pass.value });
-        } else {
+        } else if (kind === 'capsule') {
             send('importCapsule', { passphrase: capsulePass.value });
+        } else if (kind === 'master' && overlay.mode === 'define') {
+            send('setMaster', { passphrase: pass.value, confirm: confirm.value });
+        } else if (kind === 'master' && overlay.mode === 'change') {
+            send('changeMaster', { old: passOld.value, passphrase: pass.value, confirm: confirm.value });
+        } else if (kind === 'master' && overlay.mode === 'remove') {
+            send('removeMaster', { passphrase: passOld.value });
         }
         clearSecrets();
     });
-    lockCancel.addEventListener('click', () => send(overlay && overlay.kind === 'unlock' ? 'quit' : 'closeOverlay'));
+    lockAlt.addEventListener('click', () => {
+        if (!overlay || overlay.kind !== 'welcome') return;
+        if (!defining) {
+            defining = true;
+            renderLock(false);
+            pass.focus();
+        } else {
+            lockError.textContent = '';
+            createVault(false);
+            clearSecrets();
+        }
+    });
+    const lockedScreen = () => Boolean(overlay) && (overlay.kind === 'welcome' || overlay.kind === 'unlock');
+    lockCancel.addEventListener('click', () => send(lockedScreen() ? 'quit' : 'closeOverlay'));
     capsuleRetry.addEventListener('click', () => send('retryCapsule'));
     capsuleImport.addEventListener('change', () => renderLock(false));
     lock.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape' && overlay && overlay.kind !== 'unlock') send('closeOverlay');
+        if (e.key === 'Escape' && overlay && !lockedScreen()) send('closeOverlay');
     });
 
     document.addEventListener('contextmenu', (e) => {
