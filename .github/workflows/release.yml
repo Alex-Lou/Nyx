@@ -1,0 +1,76 @@
+# Publication publique : construit Nyx.exe + Nyx.apk, crée la Release dans le
+# dépôt public Alex-Lou/nyx-releases et met en ligne la page site/ (GitHub
+# Pages, branche gh-pages de ce même dépôt). Le code source reste privé.
+#
+# Prérequis (une fois) : secret RELEASES_TOKEN = jeton GitHub « fine-grained »
+# limité au dépôt nyx-releases, permission Contents : Read and write.
+# Lancement : pousser un tag vX.Y.Z, ou Actions → Release → Run workflow.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version (ex. v0.2.0)"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    uses: ./.github/workflows/windows.yml
+  android:
+    uses: ./.github/workflows/android.yml
+
+  publish:
+    name: Publier sur nyx-releases
+    needs: [windows, android]
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ github.event.inputs.version || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: Fichiers publics
+        run: |
+          mkdir -p out
+          cp dist/nyx-windows/Nyx.exe out/Nyx.exe
+          cp "$(ls dist/nyx-android-debug/*.apk | head -n1)" out/Nyx.apk
+          (cd out && sha256sum Nyx.exe Nyx.apk > SHA256SUMS.txt)
+          ls -l out
+
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        with:
+          repository: Alex-Lou/nyx-releases
+          token: ${{ secrets.RELEASES_TOKEN }}
+          tag_name: ${{ env.VERSION }}
+          name: Nyx ${{ env.VERSION }}
+          body: |
+            Nyx ${{ env.VERSION }} — Windows 10/11 et Android 8+.
+            Vérifiez vos fichiers avec SHA256SUMS.txt.
+
+            Signé Cybwu
+          files: |
+            out/Nyx.exe
+            out/Nyx.apk
+            out/SHA256SUMS.txt
+          make_latest: true
+
+      - name: Page de téléchargement
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          personal_token: ${{ secrets.RELEASES_TOKEN }}
+          external_repository: Alex-Lou/nyx-releases
+          publish_branch: gh-pages
+          publish_dir: ./site
+          user_name: Cybwu
+          user_email: 41898282+github-actions[bot]@users.noreply.github.com
+          commit_message: "site: Nyx ${{ env.VERSION }} — signé Cybwu"

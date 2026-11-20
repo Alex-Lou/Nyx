@@ -11,6 +11,7 @@ on:
       - "assets/filterlists/**"
       - ".github/workflows/android.yml"
   workflow_dispatch:
+  workflow_call:
 
 concurrency:
   group: android-${{ github.ref }}
