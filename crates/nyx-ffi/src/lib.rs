@@ -13,6 +13,10 @@
 //! Coffre : module [`vault_api`] (helpers purs) + `jni_exports::vault`
 //! (`Java_io_nyx_browser_NyxVault_*`), même modèle. Les réglages lus dans
 //! le coffre pilotent ici la barre d'adresse et le bloqueur.
+//!
+//! Appareils liés : module [`sync_api`] (appairage en deux temps,
+//! synchronisation sur connexion dédiée) + `jni_exports::sync`
+//! (`Java_io_nyx_browser_NyxSync_*`) ; le protocole vit dans `nyx-sync`.
 
 use std::sync::{OnceLock, RwLock};
 
@@ -23,6 +27,7 @@ use nyx_core::state::settings::AppSettings;
 use nyx_core::{theme, url};
 
 mod jni_exports;
+pub mod sync_api;
 pub mod vault_api;
 
 static FILTER: OnceLock<AdFilter> = OnceLock::new();

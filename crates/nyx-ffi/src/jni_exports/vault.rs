@@ -21,13 +21,13 @@ use jni::JNIEnv;
 use super::{new_string, read_string, to_jboolean};
 use crate::vault_api::{self, Session};
 use vault::keymode::KeyError;
-use vault::Vault;
+use vault::{Key, RawKey, Vault};
 
 static SESSION: Mutex<Session> = Mutex::new(Session::new());
 
 /// Verrou de la session (un verrou empoisonné reste utilisable : l'état du
 /// coffre est dans SQLite, pas dans la structure).
-fn session() -> MutexGuard<'static, Session> {
+pub(super) fn session() -> MutexGuard<'static, Session> {
     SESSION.lock().unwrap_or_else(|p| p.into_inner())
 }
 
@@ -52,16 +52,34 @@ fn status_str(r: Result<(), String>) -> String {
     r.err().unwrap_or_default()
 }
 
-/// Installe un coffre fraîchement ouvert et applique ses réglages.
-fn install(r: Result<Vault, KeyError>) -> String {
+/// Installe un coffre fraîchement ouvert et applique ses réglages. `key`
+/// (copie mémoire) sert aux connexions dédiées de la synchronisation.
+fn install(r: Result<Vault, KeyError>, key: Option<Key>) -> String {
     match r {
         Ok(v) => {
             let mut s = session();
-            s.install(v);
+            match key {
+                Some(k) => s.install_keyed(v, k),
+                None => s.install(v),
+            }
             crate::set_app_settings(s.app_settings());
             String::new()
         }
         Err(e) => e.to_string(),
+    }
+}
+
+/// Copie mémoire d'une clé d'appareil reçue (avant qu'elle soit effacée).
+fn raw_copy(bytes: &[u8]) -> Option<Key> {
+    RawKey::from_slice(bytes).ok().map(Key::Raw)
+}
+
+/// Les changements de clé attendent qu'aucune connexion de
+/// synchronisation ne soit ouverte (rechiffrement exclusif).
+fn rekey(f: impl FnOnce() -> String) -> String {
+    match crate::sync_api::try_sync_lock() {
+        Some(_g) => f(),
+        None => crate::sync_api::BUSY.to_string(),
     }
 }
 
@@ -123,7 +141,10 @@ pub extern "system" fn Java_io_nyx_browser_NyxVault_openWithDeviceKey<'l>(
 ) -> jstring {
     let db = PathBuf::from(read_string(&mut env, &db));
     let mut key = read_bytes(&mut env, &key);
-    let msg = guarded("Opération impossible".to_string(), || install(vault_api::open_raw(&db, &mut key)));
+    let msg = guarded("Opération impossible".to_string(), || {
+        let copy = raw_copy(&key);
+        install(vault_api::open_raw(&db, &mut key), copy)
+    });
     vault_api::wipe(&mut key);
     ret_string(&mut env, msg)
 }
@@ -139,7 +160,7 @@ pub extern "system" fn Java_io_nyx_browser_NyxVault_openWithPassphrase<'l>(
     let db = PathBuf::from(read_string(&mut env, &db));
     let pass = vault::Passphrase::new(read_string(&mut env, &passphrase));
     let msg = guarded("Opération impossible".to_string(), || {
-        install(vault_api::open_passphrase(&db, pass.expose()))
+        install(vault_api::open_passphrase(&db, pass.expose()), Some(Key::Passphrase(pass.clone())))
     });
     ret_string(&mut env, msg)
 }
@@ -154,7 +175,10 @@ pub extern "system" fn Java_io_nyx_browser_NyxVault_createWithDeviceKey<'l>(
 ) -> jstring {
     let db = PathBuf::from(read_string(&mut env, &db));
     let mut key = read_bytes(&mut env, &key);
-    let msg = guarded("Opération impossible".to_string(), || install(vault_api::create_raw(&db, &mut key)));
+    let msg = guarded("Opération impossible".to_string(), || {
+        let copy = raw_copy(&key);
+        install(vault_api::create_raw(&db, &mut key), copy)
+    });
     vault_api::wipe(&mut key);
     ret_string(&mut env, msg)
 }
@@ -172,7 +196,7 @@ pub extern "system" fn Java_io_nyx_browser_NyxVault_createWithPassphrase<'l>(
     let pass = vault::Passphrase::new(read_string(&mut env, &passphrase));
     let confirm = vault::Passphrase::new(read_string(&mut env, &confirm));
     let msg = guarded("Opération impossible".to_string(), || {
-        install(vault_api::create_passphrase(&db, pass.expose(), confirm.expose()))
+        install(vault_api::create_passphrase(&db, pass.expose(), confirm.expose()), Some(Key::Passphrase(pass.clone())))
     });
     ret_string(&mut env, msg)
 }
@@ -225,7 +249,7 @@ pub extern "system" fn Java_io_nyx_browser_NyxVault_setMaster<'l>(
     let confirm = vault::Passphrase::new(read_string(&mut env, &confirm));
     let mut key = read_bytes(&mut env, &current_key);
     let msg = guarded("Opération impossible".to_string(), || {
-        status(session().set_master(new.expose(), confirm.expose(), &mut key))
+        rekey(|| status(session().set_master(new.expose(), confirm.expose(), &mut key)))
     });
     vault_api::wipe(&mut key);
     ret_string(&mut env, msg)
@@ -244,7 +268,7 @@ pub extern "system" fn Java_io_nyx_browser_NyxVault_changeMaster<'l>(
     let new = vault::Passphrase::new(read_string(&mut env, &new));
     let confirm = vault::Passphrase::new(read_string(&mut env, &confirm));
     let msg = guarded("Opération impossible".to_string(), || {
-        status(session().change_master(old.expose(), new.expose(), confirm.expose()))
+        rekey(|| status(session().change_master(old.expose(), new.expose(), confirm.expose())))
     });
     ret_string(&mut env, msg)
 }
@@ -260,7 +284,7 @@ pub extern "system" fn Java_io_nyx_browser_NyxVault_removeMaster<'l>(
     let current = vault::Passphrase::new(read_string(&mut env, &current));
     let mut key = read_bytes(&mut env, &new_key);
     let msg = guarded("Opération impossible".to_string(), || {
-        status(session().remove_master(current.expose(), &mut key))
+        rekey(|| status(session().remove_master(current.expose(), &mut key)))
     });
     vault_api::wipe(&mut key);
     ret_string(&mut env, msg)

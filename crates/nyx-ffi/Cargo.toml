@@ -14,6 +14,9 @@ nyx-core = { path = "../nyx-core" }
 # Coffre SQLCipher : module `vault_api` (helpers purs, testés sur l'hôte)
 # + exports `Java_io_nyx_browser_NyxVault_*`.
 vault = { path = "../vault" }
+# Appareils liés (appairage QR + synchronisation LAN, mDNS compris) :
+# module `sync_api` + exports `Java_io_nyx_browser_NyxSync_*`.
+nyx-sync = { path = "../nyx-sync" }
 anyhow = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

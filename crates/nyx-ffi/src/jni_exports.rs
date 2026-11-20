@@ -16,6 +16,7 @@ use jni::sys::{jboolean, jstring, JNI_FALSE, JNI_TRUE};
 use jni::JNIEnv;
 
 /// `io.nyx.browser.NyxVault` (coffre SQLCipher).
+mod sync;
 mod vault;
 
 fn read_string(env: &mut JNIEnv, s: &JString) -> String {

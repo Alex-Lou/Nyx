@@ -130,19 +130,40 @@ pub fn create_passphrase(db: &Path, passphrase: &str, confirm: &str) -> Result<V
 #[derive(Default)]
 pub struct Session {
     vault: Option<Vault>,
+    /// Clé du coffre ouvert, en mémoire seulement (jamais écrite) : les
+    /// opérations de synchronisation ouvrent une connexion dédiée avec.
+    key: Option<Key>,
 }
 
 impl Session {
     pub const fn new() -> Self {
-        Self { vault: None }
+        Self { vault: None, key: None }
     }
 
     pub fn install(&mut self, vault: Vault) {
         self.vault = Some(vault);
+        self.key = None;
+    }
+
+    /// Installe le coffre et garde sa clé pour la synchronisation.
+    pub fn install_keyed(&mut self, vault: Vault, key: Key) {
+        self.vault = Some(vault);
+        self.key = Some(key);
     }
 
     pub fn close(&mut self) {
         self.vault = None;
+        self.key = None;
+    }
+
+    /// Coffre ouvert (lecture/écriture rapides sous le verrou de session).
+    pub fn open_vault(&self) -> Option<&Vault> {
+        self.vault.as_ref()
+    }
+
+    /// Chemin + clé pour une connexion dédiée (synchronisation).
+    pub fn sync_target(&self) -> Option<(std::path::PathBuf, Key)> {
+        Some((self.vault.as_ref()?.path().to_path_buf(), self.key.clone()?))
     }
 
     pub fn is_open(&self) -> bool {
@@ -172,7 +193,7 @@ impl Session {
     /// Clé d'appareil → mot de passe principal. `current` : clé d'appareil
     /// actuelle (restaurée si la vérification échoue). En cas de succès,
     /// Kotlin supprime ENSUITE `vault.key.enc`.
-    pub fn set_master(&self, new: &str, confirm: &str, current: &mut [u8]) -> Result<(), KeyError> {
+    pub fn set_master(&mut self, new: &str, confirm: &str, current: &mut [u8]) -> Result<(), KeyError> {
         let current = raw_key(current)?;
         keymode::check_new_passphrase(new, confirm).map_err(|e| KeyError::Failed(e.into()))?;
         let vault = self.vault().map_err(KeyError::Failed)?;
@@ -185,11 +206,12 @@ impl Session {
             let _ = vault.change_key(&current);
             return Err(KeyError::Failed("vérification du nouveau mot de passe".into()));
         }
+        self.key = Some(key);
         Ok(())
     }
 
     /// Change le mot de passe principal (`old` vérifié d'abord).
-    pub fn change_master(&self, old: &str, new: &str, confirm: &str) -> Result<(), KeyError> {
+    pub fn change_master(&mut self, old: &str, new: &str, confirm: &str) -> Result<(), KeyError> {
         keymode::check_new_passphrase(new, confirm).map_err(|e| KeyError::Failed(e.into()))?;
         self.verify_master(old)?;
         let vault = self.vault().map_err(KeyError::Failed)?;
@@ -199,13 +221,14 @@ impl Session {
             let _ = vault.change_key(&Key::passphrase(old));
             return Err(KeyError::Failed("vérification du nouveau mot de passe".into()));
         }
+        self.key = Some(key);
         Ok(())
     }
 
     /// Mot de passe principal → clé d'appareil `new_raw`, que Kotlin a DÉJÀ
     /// écrite et relue dans `vault.key.enc`. Échec → mot de passe restauré ;
     /// Kotlin supprime alors le fichier écrit.
-    pub fn remove_master(&self, current: &str, new_raw: &mut [u8]) -> Result<(), KeyError> {
+    pub fn remove_master(&mut self, current: &str, new_raw: &mut [u8]) -> Result<(), KeyError> {
         let key = raw_key(new_raw)?;
         self.verify_master(current)?;
         let vault = self.vault().map_err(KeyError::Failed)?;
@@ -214,6 +237,7 @@ impl Session {
             let _ = vault.change_key(&Key::Passphrase(Passphrase::new(current)));
             return Err(KeyError::Failed("vérification de la clé d'appareil".into()));
         }
+        self.key = Some(key);
         Ok(())
     }
 
@@ -380,8 +404,10 @@ pub(crate) mod tests {
         assert!(s.set_master("nouveau-mdp", "autre-mdp", &mut device.clone()).is_err());
         assert!(!s.has_master());
         // Définir.
+        assert!(s.sync_target().is_none(), "clé inconnue : pas de synchronisation");
         s.set_master("nouveau-mdp", "nouveau-mdp", &mut device.clone()).expect("set master");
         assert!(s.has_master());
+        assert_eq!(s.sync_target().map(|t| t.1), Some(Key::passphrase("nouveau-mdp")), "clé suivie");
         assert!(matches!(
             s.set_master("x-x-x-x-x", "x-x-x-x-x", &mut device.clone()),
             Err(KeyError::HasMasterPassword)
@@ -402,7 +428,10 @@ pub(crate) mod tests {
         assert!(s.has_master());
         s.remove_master("encore-un", &mut fresh.clone()).expect("remove");
         assert!(!s.has_master());
+        let (path, key) = s.sync_target().expect("cible");
+        assert!(Vault::open_with(&path, &key).is_ok(), "connexion dédiée possible avec la clé suivie");
         s.close();
+        assert!(s.sync_target().is_none(), "clé oubliée à la fermeture");
         s.install(open_raw(&tmp.db(), &mut fresh).expect("open device"));
         assert_eq!(s.setting("k").expect("get").as_deref(), Some("v"));
         wipe(&mut device);
