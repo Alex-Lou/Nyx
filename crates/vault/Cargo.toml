@@ -10,6 +10,9 @@ serde_json = { workspace = true }
 chrono     = { workspace = true }
 # CSPRNG de l'OS — clé d'appareil (32 octets). Déjà utilisé par nyx-core.
 getrandom  = "0.2"
+# Uuids déterministes de l'historique et des réglages (schéma v3, sync).
+# Déjà utilisé par nyx-core (même version, aucun crate en plus).
+sha2       = "0.10"
 
 # SQLCipher (AES-256) — deux montages selon la plateforme, même API :
 # • Linux/macOS : `sqlcipher`, lié à la libsqlcipher du système

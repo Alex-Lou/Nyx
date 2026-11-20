@@ -42,9 +42,11 @@ CREATE TABLE IF NOT EXISTS settings (
 ";
 
 /// Version courante du schéma (valeur de `PRAGMA user_version`).
-const LATEST: i64 = 2;
+/// v3 : métadonnées de synchronisation (uuid, HLC, pierres tombales…),
+/// voir `sync.rs`.
+const LATEST: i64 = 3;
 
-fn has_column(conn: &Connection, table: &str, column: &str) -> Result<bool> {
+pub(crate) fn has_column(conn: &Connection, table: &str, column: &str) -> Result<bool> {
     let n: i64 = conn.query_row(
         "SELECT count(*) FROM pragma_table_info(?1) WHERE name = ?2",
         [table, column],
@@ -69,6 +71,13 @@ fn migrate(conn: &Connection) -> Result<()> {
                     )?;
                 }
                 tx.execute_batch(V2_SETTINGS)?;
+            }
+            3 => {
+                // Tables de base idempotentes d'abord : un vieux coffre
+                // partiel (ex. v1 sans `passwords`) est ainsi complété.
+                tx.execute_batch(V1)?;
+                tx.execute_batch(V2_SETTINGS)?;
+                crate::sync::migrate_v3(&tx)?
             }
             _ => unreachable!("migration inconnue"),
         }
@@ -119,10 +128,12 @@ pub fn open(path: &Path, key: &Key) -> Result<Connection> {
         PRAGMA journal_mode = WAL;
         PRAGMA synchronous  = NORMAL;
         PRAGMA cache_size   = -8000;  -- 8 MB
+        PRAGMA busy_timeout = 5000;   -- la sync ouvre une 2e connexion
     ")?;
 
     conn.execute_batch("PRAGMA foreign_keys = ON;")?;
     migrate(&conn)?;
+    crate::sync::purge_tombstones(&conn, crate::sync::TOMBSTONE_TTL_MS)?;
 
     Ok(conn)
 }

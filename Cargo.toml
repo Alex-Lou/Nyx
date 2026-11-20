@@ -3,6 +3,7 @@ members = [
     "crates/browser",
     "crates/nyx-core",
     "crates/nyx-ffi",
+    "crates/nyx-sync",
     "crates/nyx-win",
     "crates/vault",
 ]
