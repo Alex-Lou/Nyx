@@ -2,6 +2,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Téléchargements vers Download/ : inutile à partir d'Android 10 (API 29). -->
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28" />
 
     <!-- usesCleartextTraffic : un navigateur doit pouvoir ouvrir les sites http://
          (la WebView applique la network security config de l'app). -->

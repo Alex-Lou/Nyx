@@ -11,4 +11,8 @@
     <string name="new_tab">Nouvel onglet</string>
     <string name="address_refused">Adresse refusée</string>
     <string name="no_app">Aucune application pour ouvrir ce lien</string>
+    <string name="download_started">Téléchargement : %1$s</string>
+    <string name="download_unsupported">Téléchargement non pris en charge</string>
+    <string name="download_no_storage">Téléchargement annulé : accès au stockage refusé</string>
+    <string name="download_failed">Téléchargement impossible</string>
 </resources>

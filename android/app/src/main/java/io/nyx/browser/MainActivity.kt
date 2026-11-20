@@ -4,12 +4,17 @@ import android.animation.Animator
 import android.animation.AnimatorListenerAdapter
 import android.animation.AnimatorSet
 import android.animation.ObjectAnimator
+import android.Manifest
+import android.app.DownloadManager
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.os.Environment
 import android.provider.Settings
 import android.text.TextUtils
 import android.util.Log
@@ -22,6 +27,7 @@ import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import android.webkit.CookieManager
 import android.webkit.RenderProcessGoneDetail
+import android.webkit.URLUtil
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
@@ -37,6 +43,7 @@ import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.core.splashscreen.SplashScreen
@@ -67,6 +74,16 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnTabs: TextView
     private lateinit var progress: ProgressBar
     private lateinit var assetLoader: WebViewAssetLoader
+
+    /** Suite d'une demande de permissions Android en cours (une seule à la fois). */
+    private var pendingPermissions: (() -> Unit)? = null
+    private val permissionLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+            // Résultat relu via checkSelfPermission : seule source de vérité.
+            val next = pendingPermissions
+            pendingPermissions = null
+            next?.invoke()
+        }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         val splash = installSplashScreen()
@@ -233,6 +250,9 @@ class MainActivity : AppCompatActivity() {
         configureWebView(webView)
         webView.webViewClient = TabClient(tab)
         webView.webChromeClient = TabChromeClient(tab)
+        webView.setDownloadListener { url, userAgent, contentDisposition, mimeType, _ ->
+            startDownload(url, userAgent, contentDisposition, mimeType)
+        }
         tabs.add(tab)
         switchTo(tab)
         load(tab, url ?: NewTabPage.URL)
@@ -275,6 +295,7 @@ class MainActivity : AppCompatActivity() {
     private fun destroyWebView(webView: WebView) {
         (webView.parent as? ViewGroup)?.removeView(webView)
         webView.stopLoading()
+        webView.setDownloadListener(null)
         webView.webChromeClient = null
         webView.destroy()
     }
@@ -310,6 +331,76 @@ class MainActivity : AppCompatActivity() {
             setAcceptThirdPartyCookies(webView, false)
         }
     }
+
+    // ── Permissions Android ────────────────────────────────────────────────
+
+    private fun isGranted(permission: String): Boolean =
+        ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
+
+    /**
+     * Demande les permissions manquantes puis rend celles accordées. Une
+     * seule demande à la fois : une seconde, concurrente, reçoit l'état actuel.
+     */
+    private fun withPermissions(permissions: Array<String>, onResult: (Set<String>) -> Unit) {
+        val missing = permissions.filterNot { isGranted(it) }
+        if (missing.isEmpty() || pendingPermissions != null) {
+            onResult(permissions.filter { isGranted(it) }.toSet())
+            return
+        }
+        pendingPermissions = { onResult(permissions.filter { isGranted(it) }.toSet()) }
+        permissionLauncher.launch(missing.toTypedArray())
+    }
+
+    // ── Téléchargements ────────────────────────────────────────────────────
+
+    /**
+     * Confie un téléchargement http(s) au DownloadManager (dossier
+     * Téléchargements, notification à la fin), avec les cookies et l'UA de la
+     * page pour les liens authentifiés. Nom assaini par nyx-core.
+     */
+    private fun startDownload(url: String?, userAgent: String?, contentDisposition: String?, mimeType: String?) {
+        val scheme = url?.let { Uri.parse(it).scheme?.lowercase() }
+        if (url == null || (scheme != "http" && scheme != "https")) {
+            // blob:/data: : il faudrait lire le contenu depuis la page (plus tard).
+            Toast.makeText(this, R.string.download_unsupported, Toast.LENGTH_SHORT).show()
+            return
+        }
+        val name = NyxCore.safeSanitizeFilename(URLUtil.guessFileName(url, contentDisposition, mimeType))
+        val request = DownloadManager.Request(Uri.parse(url))
+            .setTitle(name)
+            .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+        if (!mimeType.isNullOrBlank()) request.setMimeType(mimeType)
+        CookieManager.getInstance().getCookie(url)?.let { request.addRequestHeader("Cookie", it) }
+        if (!userAgent.isNullOrBlank()) request.addRequestHeader("User-Agent", userAgent)
+
+        // API 29+ : écrire dans Téléchargements via DownloadManager ne demande rien.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            enqueueDownload(request, name)
+            return
+        }
+        withPermissions(arrayOf(Manifest.permission.WRITE_EXTERNAL_STORAGE)) { granted ->
+            if (Manifest.permission.WRITE_EXTERNAL_STORAGE in granted) {
+                enqueueDownload(request, name)
+            } else {
+                Toast.makeText(this, R.string.download_no_storage, Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    private fun enqueueDownload(request: DownloadManager.Request, name: String) {
+        try {
+            request.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, name)
+            val dm = getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+            dm.enqueue(request)
+            Toast.makeText(this, getString(R.string.download_started, name), Toast.LENGTH_SHORT).show()
+        } catch (e: RuntimeException) {
+            // IllegalState (stockage indisponible), Security, IllegalArgument…
+            Log.w(TAG, "Téléchargement refusé", e)
+            Toast.makeText(this, R.string.download_failed, Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    // ── Sélecteur d'onglets ────────────────────────────────────────────────
 
     private fun showTabSwitcher() {
         val dialog = BottomSheetDialog(this)
