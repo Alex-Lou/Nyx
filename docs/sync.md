@@ -150,7 +150,8 @@ Service `_nyx-sync._tcp`, TXT `t` = `HMAC(secret, "nyx-discovery-v1")[..8]`,
 aucun identifiant en clair. Un observateur sait qu'un appareil Nyx est
 présent et peut relier ses annonces dans le temps jusqu'à la prochaine
 rotation du secret. Repli : saisie manuelle de l'IP (port par défaut
-47833) ; l'appareil essaie alors chacun de ses pairs. Le mDNS est une
+47420, puis 47421…47429 s'il est occupé — `SERVICE_PORTS`) ; l'appareil
+essaie alors chacun de ses pairs. Le mDNS est une
 feature Cargo (`mdns`, activée par défaut) ; les tests réseau mDNS sont
 `#[ignore]`.
 

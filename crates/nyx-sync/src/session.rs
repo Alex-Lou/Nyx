@@ -53,6 +53,59 @@ pub struct SyncReport {
     pub received: ApplyStats,
 }
 
+/// Bilan d'une synchronisation avec tous les appareils trouvés
+/// (`discovery::sync_all`), affichable tel quel.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SyncSummary {
+    /// Autres appareils actifs du profil.
+    pub known: usize,
+    /// Appareils du profil trouvés sur le réseau.
+    pub found: usize,
+    /// Sessions réussies.
+    pub reports: Vec<SyncReport>,
+    /// Échecs : (nom de l'appareil, raison).
+    pub failures: Vec<(String, String)>,
+}
+
+impl SyncSummary {
+    /// Des données ont été reçues (l'UI doit relire ses listes).
+    pub fn changed(&self) -> bool {
+        self.reports.iter().any(|r| r.received.applied > 0)
+    }
+
+    /// Au moins une session a réussi.
+    pub fn ok(&self) -> bool {
+        !self.reports.is_empty()
+    }
+
+    /// Message d'état en français.
+    pub fn message(&self) -> String {
+        if self.known == 0 {
+            return "Aucun appareil lié".into();
+        }
+        if self.found == 0 {
+            return "Aucun appareil lié trouvé sur le réseau local".into();
+        }
+        let mut parts: Vec<String> = self
+            .reports
+            .iter()
+            .map(|r| format!("{} ({} reçus, {} envoyés)", r.peer.name, r.received.applied, r.sent))
+            .collect();
+        if !parts.is_empty() {
+            parts[0] = format!("Synchronisé avec {}", parts[0]);
+        }
+        for (name, why) in &self.failures {
+            parts.push(format!("échec avec {name} : {why}"));
+        }
+        let s = parts.join(" · ");
+        let mut chars = s.chars();
+        match chars.next() {
+            Some(first) => first.to_uppercase().chain(chars).collect(),
+            None => s,
+        }
+    }
+}
+
 fn builder<'a>(engine: &'a SyncEngine, remote: &'a [u8; 32]) -> Result<snow::Builder<'a>> {
     snow::Builder::new(PARAMS.parse().map_err(noise)?)
         .local_private_key(engine.keys().private())
@@ -234,6 +287,31 @@ mod tests {
                 data: RecordData::Setting { key: "k".into(), value: "x".repeat(size) },
             },
         }
+    }
+
+    fn report(name: &str, applied: usize, sent: usize) -> SyncReport {
+        SyncReport {
+            peer: Device { device_id: name.into(), name: name.into(), public_key: [1; 32], added_at: 0, revoked: false },
+            sent,
+            received: ApplyStats { applied, ..ApplyStats::default() },
+        }
+    }
+
+    #[test]
+    fn bilan_lisible() {
+        let mut s = SyncSummary::default();
+        assert_eq!(s.message(), "Aucun appareil lié");
+        s.known = 2;
+        assert_eq!(s.message(), "Aucun appareil lié trouvé sur le réseau local");
+        assert!(!s.changed() && !s.ok());
+        s.found = 2;
+        s.failures.push(("Tél".into(), "délai dépassé".into()));
+        assert_eq!(s.message(), "Échec avec Tél : délai dépassé");
+        s.reports.push(report("PC", 0, 4));
+        assert!(s.ok() && !s.changed());
+        assert_eq!(s.message(), "Synchronisé avec PC (0 reçus, 4 envoyés) · échec avec Tél : délai dépassé");
+        s.reports.push(report("Pixel", 3, 0));
+        assert!(s.changed());
     }
 
     #[test]

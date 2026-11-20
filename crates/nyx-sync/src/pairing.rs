@@ -243,12 +243,33 @@ fn expect_protocol<T>(what: &'static str) -> Result<T> {
 /// trop d'échecs. `confirm(code, appareil)` est appelé une fois le canal
 /// établi : l'UI affiche le code et le nom proposé, l'utilisateur valide.
 /// Retourne l'appareil ajouté au profil.
-pub fn host<F>(engine: &SyncEngine, listener: &TcpListener, offer: &mut Offer, mut confirm: F) -> Result<Device>
+pub fn host<F>(engine: &SyncEngine, listener: &TcpListener, offer: &mut Offer, confirm: F) -> Result<Device>
 where
+    F: FnMut(&str, &Device) -> bool,
+{
+    host_until(engine, listener, offer, || false, confirm)
+}
+
+/// Comme [`host`], mais abandonne (erreur [`SyncError::Rejected`]) dès que
+/// `cancelled()` devient vrai pendant l'attente de l'invité (bouton
+/// « Annuler » de l'UI, fermeture de l'application). Vérifié toutes les
+/// ~20 ms ; une fois le canal établi, c'est `confirm` qui décide.
+pub fn host_until<C, F>(
+    engine: &SyncEngine,
+    listener: &TcpListener,
+    offer: &mut Offer,
+    cancelled: C,
+    mut confirm: F,
+) -> Result<Device>
+where
+    C: Fn() -> bool,
     F: FnMut(&str, &Device) -> bool,
 {
     listener.set_nonblocking(true)?;
     let result = loop {
+        if cancelled() {
+            break Err(SyncError::Rejected.into());
+        }
         if offer.consumed {
             break Err(SyncError::TokenUsed.into());
         }

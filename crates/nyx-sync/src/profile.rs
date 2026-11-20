@@ -256,7 +256,10 @@ impl Profile {
         changed
     }
 
-    pub(crate) fn load(vault: &Vault) -> Result<Option<Self>> {
+    /// Profil enregistré dans le coffre (lecture seule : ne crée ni clés ni
+    /// profil, contrairement à [`crate::SyncEngine::open`]). Pour une UI qui
+    /// veut afficher les appareils sans toucher à l'état de synchronisation.
+    pub fn load(vault: &Vault) -> Result<Option<Self>> {
         match vault.sync_meta(META_KEY)? {
             None => Ok(None),
             Some(raw) => Ok(Some(serde_json::from_slice(&raw)?)),

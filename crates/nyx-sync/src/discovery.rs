@@ -16,7 +16,7 @@ use std::net::SocketAddr;
 use std::time::{Duration, Instant};
 
 use crate::profile::Device;
-use crate::SyncEngine;
+use crate::{SyncEngine, SyncSummary};
 
 pub const SERVICE_TYPE: &str = "_nyx-sync._tcp.local.";
 
@@ -99,4 +99,37 @@ pub fn browse(engine: &SyncEngine, timeout: Duration) -> Result<Vec<Found>> {
     let _ = daemon.stop_browse(SERVICE_TYPE);
     let _ = daemon.shutdown();
     Ok(found)
+}
+
+/// « Synchroniser maintenant » : cherche les appareils du profil pendant
+/// `timeout` puis se synchronise avec chacun (première adresse qui
+/// répond). Sans autre appareil actif dans le profil, ne touche pas au
+/// réseau.
+pub fn sync_all(engine: &SyncEngine, timeout: Duration) -> Result<SyncSummary> {
+    let known = engine.profile()?.active().filter(|d| d.device_id != engine.device_id()).count();
+    let mut summary = SyncSummary { known, ..SyncSummary::default() };
+    if known == 0 {
+        return Ok(summary);
+    }
+    let found = browse(engine, timeout)?;
+    summary.found = found.len();
+    for f in found {
+        let mut last: Option<anyhow::Error> = None;
+        let mut done = false;
+        for addr in &f.addrs {
+            match crate::sync_with(engine, *addr, Some(&f.device.device_id)) {
+                Ok(r) => {
+                    summary.reports.push(r);
+                    done = true;
+                    break;
+                }
+                Err(e) => last = Some(e),
+            }
+        }
+        if !done {
+            let why = last.map_or_else(|| "aucune adresse".to_string(), |e| format!("{e:#}"));
+            summary.failures.push((f.device.name.clone(), why));
+        }
+    }
+    Ok(summary)
 }

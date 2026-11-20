@@ -21,6 +21,7 @@
 
 use anyhow::{anyhow, Result};
 use std::fmt;
+use std::net::{IpAddr, TcpListener};
 use std::time::Duration;
 use vault::Vault;
 
@@ -34,13 +35,41 @@ mod wire;
 
 pub use keys::DeviceKeys;
 pub use profile::{Device, Profile};
-pub use session::{serve_one, serve_stream, sync_with, SyncReport};
+pub use session::{serve_one, serve_stream, sync_with, SyncReport, SyncSummary};
 pub use vault::hlc;
 pub use vault::{ApplyStats, Table};
 pub use wire::confirmation_code;
 
-/// Port TCP par défaut (saisie manuelle d'IP ; mDNS publie le port réel).
-pub const DEFAULT_PORT: u16 = 47_833;
+/// Port TCP par défaut du service (saisie manuelle d'IP ; mDNS publie le
+/// port réel).
+pub const DEFAULT_PORT: u16 = 47_420;
+
+/// Ports essayés tour à tour par le service : [`DEFAULT_PORT`] puis les 9
+/// suivants (47420–47429), si une autre instance ou un autre logiciel
+/// occupe déjà le premier.
+pub const SERVICE_PORTS: std::ops::RangeInclusive<u16> = DEFAULT_PORT..=DEFAULT_PORT + 9;
+
+/// Écoute TCP sur le premier port de `ports` libre sur `ip`. Erreur = celle
+/// du dernier essai (ou « aucun port » si la liste est vide).
+pub fn bind_first<I: IntoIterator<Item = u16>>(ip: IpAddr, ports: I) -> std::io::Result<TcpListener> {
+    first_ok(ports, |p| TcpListener::bind((ip, p)))
+}
+
+/// Premier succès de `try_one` sur `items` (cœur de [`bind_first`]).
+fn first_ok<T, I, F>(items: I, mut try_one: F) -> std::io::Result<T>
+where
+    I: IntoIterator<Item = u16>,
+    F: FnMut(u16) -> std::io::Result<T>,
+{
+    let mut last = std::io::Error::new(std::io::ErrorKind::AddrNotAvailable, "aucun port à essayer");
+    for p in items {
+        match try_one(p) {
+            Ok(v) => return Ok(v),
+            Err(e) => last = e,
+        }
+    }
+    Err(last)
+}
 
 /// Délai d'entrée/sortie par défaut d'une connexion.
 pub const DEFAULT_IO_TIMEOUT: Duration = Duration::from_secs(20);
@@ -201,5 +230,42 @@ impl<'v> SyncEngine<'v> {
     /// Remplace le profil (appairage) ou fusionne celui d'un pair.
     pub(crate) fn save_profile(&self, p: &Profile) -> Result<()> {
         p.save(self.vault)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::net::Ipv4Addr;
+
+    #[test]
+    fn plage_de_ports_du_service() {
+        assert_eq!(SERVICE_PORTS.clone().count(), 10);
+        assert_eq!(*SERVICE_PORTS.start(), 47_420);
+        assert_eq!(*SERVICE_PORTS.end(), 47_429);
+    }
+
+    #[test]
+    fn premier_port_libre() {
+        // Logique pure : premier succès, sinon dernière erreur.
+        let busy = |p: u16| {
+            if p < 3 {
+                Err(std::io::Error::new(std::io::ErrorKind::AddrInUse, format!("{p}")))
+            } else {
+                Ok(p)
+            }
+        };
+        assert_eq!(first_ok(0..10, busy).unwrap(), 3);
+        let e = first_ok(0..3, busy).unwrap_err();
+        assert_eq!((e.kind(), e.to_string()), (std::io::ErrorKind::AddrInUse, "2".to_string()));
+        assert_eq!(first_ok(std::iter::empty(), busy).unwrap_err().kind(), std::io::ErrorKind::AddrNotAvailable);
+
+        // Vraies sockets : port occupé → le suivant.
+        let lo = IpAddr::V4(Ipv4Addr::LOCALHOST);
+        let taken = TcpListener::bind((lo, 0)).unwrap();
+        let p = taken.local_addr().unwrap().port();
+        let l = bind_first(lo, [p, 0]).unwrap();
+        assert_ne!(l.local_addr().unwrap().port(), p);
+        assert!(bind_first(lo, [p]).is_err());
     }
 }

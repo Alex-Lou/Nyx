@@ -292,6 +292,33 @@ fn offre_expiree_refusee() {
 }
 
 #[test]
+fn appairage_annulable_pendant_l_attente() {
+    let pc = Tmp::new("cancel_pc");
+    let v = pc.vault();
+    let e = engine(&v);
+    let listener = TcpListener::bind((LOCAL, 0)).unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let mut offer = Offer::new(&e, vec![LOCAL], port).unwrap();
+    let start = std::time::Instant::now();
+    let polls = std::cell::Cell::new(0);
+    let err = pairing::host_until(
+        &e,
+        &listener,
+        &mut offer,
+        || {
+            polls.set(polls.get() + 1);
+            polls.get() > 3
+        },
+        |_, _| true,
+    )
+    .unwrap_err();
+    assert_eq!(sync_err(&err), Some(SyncError::Rejected));
+    assert!(start.elapsed() < Duration::from_secs(2));
+    // Le listener est rendu bloquant, réutilisable par le service.
+    assert!(offer.is_valid(), "rien n'a été consommé");
+}
+
+#[test]
 fn refus_utilisateur_n_ajoute_personne() {
     let (pc, phone) = (Tmp::new("rej_pc"), Tmp::new("rej_phone"));
     let listener = TcpListener::bind((LOCAL, 0)).unwrap();
