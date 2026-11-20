@@ -59,6 +59,7 @@ Pour chaque surface : **autorisé quand**, **bloqué quand**, **demande user qua
 | `nyx://bookmarks`  | toujours autorisé | `Load(Bookmarks)` |
 | `nyx://apply?…`    | Page interne uniquement | `ApplySettings` |
 | `nyx://move?…`     | Page interne uniquement | `MoveBookmark` |
+| `nyx://master/set`, `nyx://master/remove` | Page interne uniquement | `MasterPassword(op)` : ouvre la saisie native, aucune passphrase dans l'URL |
 | `nyx://*` inconnu  | tombe sur `NewTab` (jamais d'exécution) | `Load(NewTab)` |
 
 **Loggué** : `[BLOCK] nyx://apply from remote page` quand `page_internal = false`.
@@ -74,6 +75,40 @@ Pour chaque surface : **autorisé quand**, **bloqué quand**, **demande user qua
 - En mode Banking → bloquer sauf whitelist explicite.
 
 **Loggué** : `[ASK] download .desktop from <origin>` / `[DENY] download from suspicious origin`.
+
+### Coffre : clé d'appareil ou mot de passe principal
+
+Le coffre (`vault.db`) est **toujours** chiffré par SQLCipher (AES-256).
+Le mot de passe principal est **optionnel** (`vault::keymode`) :
+
+| Mode | Clé SQLCipher | Où elle vit | Protège contre | Ne protège PAS contre |
+|------|---------------|-------------|----------------|-----------------------|
+| Clé d'appareil (défaut) | 32 octets CSPRNG, clé brute `x'…'` | `vault.key` à côté du coffre : Windows = scellé DPAPI (utilisateur courant) ; Linux = fichier 0600, dossier 0700 | vol du disque / du fichier seul (Windows), autres comptes | quiconque agit dans la **session ouverte** (malware, accès physique déverrouillé) — même modèle que Chrome/Firefox sans mot de passe principal |
+| Mot de passe principal | dérivée par PBKDF2 (SQLCipher) | nulle part | aussi la session ouverte tant que Nyx est fermé | keylogger dans la session ; oubli = données perdues |
+
+Règles :
+
+- Démarrage : `vault.key` présent → ouverture silencieuse ; s'il échoue
+  (corrompu, autre compte) → demande du mot de passe principal avec message,
+  **rien n'est supprimé automatiquement**. Coffre sans `vault.key` → mot de
+  passe principal (coffres existants inchangés). Pas de coffre → bienvenue.
+- Transitions (`PRAGMA rekey`) toujours vérifiées en rouvrant le coffre avec
+  la nouvelle clé ; échec → état précédent restauré. `vault.key` est écrit
+  (atomique : temporaire + fsync + rename) et relu **avant** de rechiffrer
+  vers une clé d'appareil, et supprimé **après** un rechiffrement vérifié
+  vers un mot de passe.
+- Clés jamais journalisées, `Debug` masqué, octets effacés à la destruction
+  (au mieux : les copies internes de rusqlite/SQLCipher/WebView échappent à
+  ce contrôle). Passphrases saisies uniquement dans l'UI native (dialogue
+  GTK, chrome `nyxui` sous Windows), jamais dans une URL `nyx://`.
+- Linux : sans chiffrement de `vault.key` au repos, la protection repose sur
+  les droits Unix et le chiffrement du disque. **Amélioration future** :
+  sceller la clé dans le trousseau Secret Service (GNOME Keyring / KWallet).
+
+**Testé** : `vault::keymode::tests` (détection, cycles complets, repli sans
+suppression, abandon si le fichier de clé est illisible), `vault::keyfile::tests`
+(atomicité, droits 0600/0700, en-tête), `vault::tests::rekey_round_trips_raw_and_passphrase`,
+`security::tests::master_password_internal_only`, `nyx-win::dpapi::tests` (Windows).
 
 ### Vault & autofill (à implémenter — VaultAutofillPolicy)
 

@@ -44,13 +44,42 @@ Sans compiler : onglet **Actions → Windows** du dépôt, artefact
 - **Emplacement** : `%APPDATA%\Nyx\vault.db` (chiffré AES-256 par
   SQLCipher). Le profil WebView2 (cookies, cache) reste dans
   `%LOCALAPPDATA%\Nyx\WebView2`.
-- **Premier lancement** : écran « Crée la passphrase de ton coffre Nyx »
-  (passphrase + confirmation). Irrécupérable si oubliée.
-- **Lancements suivants** : écran « Coffre Nyx verrouillé ». Mauvaise
-  passphrase → message, nouvel essai. **Quitter** ferme Nyx.
-- La passphrase n'entre que par le chrome Nyx (origine interne
-  `nyxui.localhost`, IPC validé) : jamais journalisée, champs vidés dès
-  l'envoi, copie Rust effacée après usage.
+- Le coffre est **toujours chiffré**. Seule l'origine de la clé change :
+  - **Clé d'appareil (défaut)** : 32 octets aléatoires (CSPRNG de l'OS),
+    clé brute SQLCipher, rangés dans `%APPDATA%\Nyx\vault.key` scellés
+    par **DPAPI** (`CryptProtectData`, utilisateur courant). Nyx s'ouvre
+    sans rien demander, comme Chrome/Firefox.
+  - **Mot de passe principal (optionnel)** : demandé à chaque lancement,
+    aucun `vault.key`. Irrécupérable si oublié.
+- **Premier lancement** : carte « Bienvenue dans Nyx ». **Plus tard**
+  (bouton principal) crée le coffre avec une clé d'appareil ; **Définir un
+  mot de passe principal** révèle mot de passe + confirmation (8 caractères
+  minimum). L'import de la capsule reste proposé sur cet écran.
+- **Lancements suivants** : `vault.key` présent → ouverture silencieuse.
+  S'il est illisible (autre compte Windows, fichier corrompu, profil copié
+  sur une autre machine) → écran « Coffre Nyx verrouillé » avec
+  explication ; rien n'est supprimé. Sans `vault.key` (coffres créés
+  avant cette version) → mot de passe principal, comme avant.
+- **Paramètres → Mot de passe principal** : *Définir…* (le coffre est
+  rechiffré, `vault.key` n'est supprimé qu'après réouverture vérifiée),
+  *Changer…* (ancien + nouveau), *Retirer* (mot de passe actuel ; la
+  nouvelle clé d'appareil est écrite et relue AVANT le rechiffrement ;
+  tout échec restaure l'état précédent). Sans mot de passe principal, la
+  section affiche « Protection : session Windows ».
+- Les mots de passe n'entrent que par le chrome Nyx (origine interne
+  `nyxui.localhost`, IPC validé, commandes acceptées seulement quand le
+  panneau correspondant est ouvert, lui-même ouvert par l'action interne
+  `nyx://master/…` d'une page interne) : jamais dans une URL, jamais
+  journalisés, champs vidés dès l'envoi, copie Rust effacée après usage.
+
+#### Compromis de sécurité
+
+Sans mot de passe principal, toute personne (ou tout programme) qui agit
+**dans ta session Windows ouverte** peut desceller `vault.key` et lire les
+mots de passe enregistrés — exactement comme Chrome. Le coffre reste
+protégé contre le vol du disque ou d'un fichier isolé, et contre les autres
+comptes Windows. Le mot de passe principal ajoute une protection contre un
+accès à la session ouverte, au prix d'un oubli irrécupérable.
 
 ### Reprendre les données de la capsule Nyx (Linux)
 
@@ -59,7 +88,9 @@ Si la capsule WSL existe, Nyx la détecte via
 (ou `\\wsl$\…`) :
 
 - **à la création** du coffre : case « Importer depuis la capsule Nyx
-  (Linux) » + passphrase de la capsule (vide = la même) ;
+  (Linux) » + passphrase de la capsule, indépendante du mode choisi pour
+  Windows (vide = clé d'appareil de la capsule, `vault.key` à côté de son
+  coffre, si elle n'a pas de mot de passe principal) ;
 - **plus tard** : *Paramètres → Importer la capsule*.
 
 Mots de passe, favoris, historique et réglages sont recopiés **sans
