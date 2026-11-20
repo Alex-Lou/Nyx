@@ -34,7 +34,7 @@ const MAX_RECORD_BYTES: usize = 1 << 20;
 // ── Tables ────────────────────────────────────────────────────────────────
 
 /// Tables synchronisées.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Table {
     Passwords,

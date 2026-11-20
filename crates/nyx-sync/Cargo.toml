@@ -1,0 +1,58 @@
+[package]
+name    = "nyx-sync"
+version = "0.1.0"
+edition = "2021"
+description = "Synchronisation chiffrée de bout en bout, sans compte, entre les appareils d'un même profil Nyx (phase A : réseau local)"
+
+[dependencies]
+# Le coffre SQLCipher : stockage des clés/profil (chiffrés au repos) et
+# opérations de fusion (dernier écrivain gagne) — toute la SQL vit là-bas.
+vault = { path = "../vault" }
+
+# Noise Protocol Framework (XXpsk3 pour l'appairage, KK entre appareils
+# appairés). Implémentation Noise de référence en Rust (utilisée en
+# production, suit la spec rév. 34, vecteurs de test officiels). Pas d'audit
+# formel publié de snow lui-même : il ne fait que l'orchestration, les
+# primitives sont déléguées à curve25519-dalek (audit Quarkslab 2019) et à
+# chacha20poly1305 RustCrypto (audit NCC Group 2020). Version épinglée.
+# Résolveur par défaut restreint au strict nécessaire :
+# X25519 (curve25519-dalek), ChaCha20-Poly1305, BLAKE2s, aléa getrandom.
+# Pas de feature `std` : elle tirerait `ring` (C/asm) pour rien.
+snow = { version = "=0.10.0", default-features = false, features = [
+    "default-resolver",
+    "use-curve25519",
+    "use-chacha20poly1305",
+    "use-blake2",
+    "use-getrandom",
+] }
+
+# HMAC-SHA-256 : étiquette de découverte opaque dérivée du secret de profil,
+# dérivation du PSK d'appairage. RustCrypto, déjà présent via snow/nyx-core
+# (sha2 0.10, digest 0.10) → aucun crate supplémentaire de fond.
+hmac = "=0.12.1"
+sha2 = "0.10"
+
+# Encodage base64url (sans padding) de l'offre d'appairage `nyxpair:v1:…`.
+# Crate de référence, sans dépendance.
+base64 = "=0.22.1"
+
+# CSPRNG de l'OS (jeton d'appairage, secret de profil). Même version que
+# vault/nyx-core.
+getrandom = "0.2"
+
+# Messages du protocole (JSON dans le canal Noise) et profil persistant.
+serde      = { workspace = true }
+serde_json = { workspace = true }
+anyhow     = { workspace = true }
+
+# Découverte mDNS `_nyx-sync._tcp` — pur Rust, sans runtime async (threads +
+# canaux flume), Linux/Android/Windows/macOS. Optionnel : `default-features =
+# false` le retire (repli : saisie manuelle de l'IP). Version épinglée.
+mdns-sd = { version = "=0.22.0", optional = true }
+
+[features]
+default = ["mdns"]
+mdns    = ["dep:mdns-sd"]
+
+[lints]
+workspace = true
