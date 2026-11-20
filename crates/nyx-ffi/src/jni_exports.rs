@@ -15,6 +15,9 @@ use jni::objects::{JByteArray, JClass, JObjectArray, JString};
 use jni::sys::{jboolean, jstring, JNI_FALSE, JNI_TRUE};
 use jni::JNIEnv;
 
+/// `io.nyx.browser.NyxVault` (coffre SQLCipher).
+mod vault;
+
 fn read_string(env: &mut JNIEnv, s: &JString) -> String {
     if s.is_null() {
         return String::new();

@@ -11,8 +11,12 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 nyx-core = { path = "../nyx-core" }
-# Phase 2 : `vault = { path = "../vault" }` + module `vault` dans src/
-# (exports `Java_io_nyx_browser_NyxVault_*`). Non implémenté en phase 1.
+# Coffre SQLCipher : module `vault_api` (helpers purs, testés sur l'hôte)
+# + exports `Java_io_nyx_browser_NyxVault_*`.
+vault = { path = "../vault" }
+anyhow = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
 jni = { version = "0.21", default-features = false }
 
 # Lints propres à cette crate (PAS `workspace = true`) : le workspace met

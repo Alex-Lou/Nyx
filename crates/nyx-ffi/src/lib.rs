@@ -10,10 +10,11 @@
 //! threads réseau de la WebView. L'état global est donc en `OnceLock`
 //! (`AdFilter` et `NyxGuard` sont `Send + Sync`), lu sans verrou.
 //!
-//! Phase 2 (non implémentée) : un module `vault` exposera la crate `vault`
-//! via `Java_io_nyx_browser_NyxVault_*`, sur le même modèle.
+//! Coffre : module [`vault_api`] (helpers purs) + `jni_exports::vault`
+//! (`Java_io_nyx_browser_NyxVault_*`), même modèle. Les réglages lus dans
+//! le coffre pilotent ici la barre d'adresse et le bloqueur.
 
-use std::sync::OnceLock;
+use std::sync::{OnceLock, RwLock};
 
 use nyx_core::adfilter::{self, AdFilter};
 use nyx_core::download_policy;
@@ -22,9 +23,27 @@ use nyx_core::state::settings::AppSettings;
 use nyx_core::{theme, url};
 
 mod jni_exports;
+pub mod vault_api;
 
 static FILTER: OnceLock<AdFilter> = OnceLock::new();
 static GUARD: OnceLock<NyxGuard> = OnceLock::new();
+/// Réglages courants (coffre ouvert) ; `None` = défauts.
+static SETTINGS: RwLock<Option<AppSettings>> = RwLock::new(None);
+
+/// Réglages courants (copie).
+pub fn app_settings() -> AppSettings {
+    SETTINGS.read().ok().and_then(|g| g.clone()).unwrap_or_default()
+}
+
+/// Installe les réglages lus dans le coffre : barre d'adresse (moteur) et
+/// bloqueur (NyxGuard + EasyList suivent le même interrupteur).
+pub fn set_app_settings(s: AppSettings) {
+    guard().set_enabled(s.adblock_enabled);
+    guard().set_block_accounts(s.block_third_party);
+    if let Ok(mut g) = SETTINGS.write() {
+        *g = Some(s);
+    }
+}
 
 fn guard() -> &'static NyxGuard {
     GUARD.get_or_init(NyxGuard::new)
@@ -56,9 +75,10 @@ pub fn should_block(url: &str, source_url: &str, resource_type: &str) -> bool {
     if guard().should_block(url) {
         return true;
     }
-    FILTER
-        .get()
-        .is_some_and(|f| f.should_block(url, source_url, resource_type))
+    guard().is_enabled()
+        && FILTER
+            .get()
+            .is_some_and(|f| f.should_block(url, source_url, resource_type))
 }
 
 /// Type adblock d'une requête dont la WebView ne donne que l'en-tête Accept.
@@ -66,12 +86,13 @@ pub fn resource_type(url: &str, accept: &str) -> &'static str {
     adfilter::infer_resource_type(url, accept)
 }
 
-/// Barre d'adresse → URL (ou recherche DuckDuckGo), réglages par défaut.
+/// Barre d'adresse → URL (ou recherche avec le moteur choisi, DuckDuckGo
+/// par défaut).
 /// Renvoie `""` si le résultat n'est pas navigable (ex. `file://…`, refusé
 /// sur Android). `nyx://…` est conservé : l'app le mappe sur la page
 /// Nouvel onglet.
 pub fn resolve_input(text: &str) -> String {
-    let resolved = url::resolve_input(text, &AppSettings::default());
+    let resolved = url::resolve_input(text, &app_settings());
     if url::is_navigable(&resolved) { resolved } else { String::new() }
 }
 
@@ -104,6 +125,16 @@ mod tests {
         assert_eq!(resolve_input("file:///etc/passwd"), "");
         assert_eq!(resolve_input("   "), "");
         assert!(resolve_input("javascript:alert(1)").starts_with("https://duckduckgo.com/"));
+
+        // Réglages du coffre : le moteur choisi suit (bloqueur laissé actif,
+        // d'autres tests en dépendent).
+        set_app_settings(AppSettings {
+            search_engine: nyx_core::state::settings::SearchEngine::Brave,
+            ..AppSettings::default()
+        });
+        assert!(resolve_input("rust async").starts_with("https://search.brave.com/"));
+        set_app_settings(AppSettings::default());
+        assert!(resolve_input("rust async").starts_with("https://duckduckgo.com/"));
     }
 
     #[test]
